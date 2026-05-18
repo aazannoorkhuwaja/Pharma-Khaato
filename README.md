@@ -12,26 +12,35 @@ It replaces manual, paper-based record-keeping by providing batch-specific inven
 
 ---
 
-## ✨ Key Features
+## 📸 Overview
 
-- 📦 **Batch-wise Inventory Control:** Manage individual medication batches, tracking stock quantities and expiry dates.
-- 💳 **Automated Customer Ledger (Khaato):** Maintain and track outstanding customer credit dynamically without manual calculations.
-- ⚡ **Real-time Stock Deduction & ACID Transactions:** Ensures stock is accurately deduced upon checkout, preventing overselling or data corruption.
-- 🚨 **Expiry Date & Low-Stock Alerts:** Automated notifications prevent the sale of expired medicines and prompt timely restocking.
-- 🧾 **Professional Thermal Receipts:** System-generated invoices detailing transactions, applied taxes (10% default), discounts, and sub-totals.
+<p align="center">
+  <!-- TODO: Replace the placeholder below with your actual demo GIF -->
+  <img src="https://via.placeholder.com/800x400.png?text=Add+Project+Demo+GIF+Here" alt="Pharma-Khaato Demo GIF" width="800"/>
+</p>
 
 ---
 
-## 🛠️ Technology Stack
+
+## Key Features
+
+- **Batch-wise Inventory Control:** Manage individual medication batches, tracking stock quantities and expiry dates.
+- **Automated Customer Ledger (Khaato):** Maintain and track outstanding customer credit dynamically without manual calculations.
+- **Real-time Stock Deduction & ACID Transactions:** Ensures stock is accurately deduced upon checkout, preventing overselling or data corruption.
+- **Expiry Date & Low-Stock Alerts:** Automated notifications prevent the sale of expired medicines and prompt timely restocking.
+- **Professional Thermal Receipts:** System-generated invoices detailing transactions, applied taxes (10% default), discounts, and sub-totals.
+
+---
+
+## Technology Stack
 
 - **Frontend:** Python, CustomTkinter (for a modern, native desktop GUI)
 - **Backend/Database:** MySQL (Relational Database Management System)
 - **Database Driver:** `mysql-connector-python`
-- **Data Manipulation:** `pandas`
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 - Python 3.x installed on your system.
@@ -73,7 +82,7 @@ python salesman_app.py
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 The application uses standard connection profiles but can be customized using Environment Variables. If you wish to use custom database credentials, set the following variables before running:
 
@@ -85,20 +94,20 @@ The application uses standard connection profiles but can be customized using En
 
 ---
 
-## 📂 Documentation & Assets
+## Documentation & Assets
 Check the `docs/` folder for Entity-Relationship Diagrams (ERD) and project proposals.
 
 ---
 
-## 👥 Core Team & Contributors
+## Core Team & Contributors
 
 This project was developed as a university semester database project.
 
-- **Aazan Noor Khuwaja** (Roll No: 24P-0581)
-- **Atif Khan**
-- **Uzair Shoaib**
+- **Aazan Noor Khuwaja** (Roll No: 24P-0706)
+- **Atif Khan** (Roll No: 24P-0702)
+- **Uzair Shoaib** (Roll No: 24P-0708)
 
 ---
 
-## 📄 License
+## License
 This project is licensed under the [MIT License](https://choosealicense.com/licenses/mit/).
