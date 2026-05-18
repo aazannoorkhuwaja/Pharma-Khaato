@@ -183,3 +183,8 @@ dmypy.json
 # Custom
 *.mp4
 *.mkv
+
+# App dynamic data
+project/receipts/
+project/scratch/
+
