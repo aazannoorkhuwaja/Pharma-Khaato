@@ -5,8 +5,8 @@ A specialized POS system for surgical pharmacies to manage batch-specific invent
 
 ## Group Members
 - Aazan Noor Khuwaja
-- [Teammate Name]
-- [Teammate Name]
+- Atif Khan
+- Uzair Shoaib
 
 ## Roll Numbers
 - 24P-0581
