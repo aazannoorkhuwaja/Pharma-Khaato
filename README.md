@@ -15,9 +15,7 @@ It replaces manual, paper-based record-keeping by providing batch-specific inven
 ## 📸 Overview
 
 <p align="center">
-  <video src="docs/pharmad.mkv" width="800" controls></video>
-  <br>
-  <em>If the video doesn't play directly on GitHub, you can <a href="docs/pharmad.mkv">download the demo here</a>.</em>
+  <img src="docs/pharmad.gif" alt="Pharma-Khaato Demo GIF" width="800"/>
 </p>
 
 ---
