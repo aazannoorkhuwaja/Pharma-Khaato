@@ -1747,7 +1747,11 @@ class SalesmanApp:
         self.stock_prod["values"] = [f"{p[0]} | {p[1]}" for p in prods]
         # Suppliers
         supps = db_get_suppliers()
-        self.stock_supp["values"] = [f"{s[0]} | {s[1]}" for s in supps]
+        supp_list = [f"{s[0]} | {s[1]}" for s in supps]
+        self.stock_supp["values"] = supp_list
+        # Update Supplier Report combobox as well
+        if hasattr(self, 'rep_supp_combo'):
+            self.rep_supp_combo["values"] = supp_list
 
     def _do_add_stock(self):
         try:
