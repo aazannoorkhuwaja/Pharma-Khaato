@@ -103,8 +103,8 @@ Check the `docs/` folder for Entity-Relationship Diagrams (ERD) and project prop
 This project was developed as a university semester database project.
 
 - **Aazan Noor Khuwaja** (Roll No: 24P-0706)
-- **Atif Khan** (Roll No: 24P-0702)
-- **Uzair Shoaib** (Roll No: 24P-0708)
+- **Atif Khan** (Roll No: 24P-0540)
+- **Uzair Shoaib** (Roll No: 24P-0507)
 
 ---
 
