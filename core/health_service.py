@@ -1,6 +1,7 @@
 """Platform-neutral startup/runtime health diagnostics."""
 
 import os
+import shutil
 from typing import Any
 
 from core.path_manager import PathManager
@@ -23,7 +24,11 @@ class SystemHealthService:
             "issues": [],
         }
 
-        dirs_to_check = [results["receipts_dir"], results["backups_dir"], results["logs_dir"]]
+        dirs_to_check = [
+            results["receipts_dir"],
+            results["backups_dir"],
+            results["logs_dir"],
+        ]
         all_writable = True
         for directory in dirs_to_check:
             try:
@@ -36,6 +41,7 @@ class SystemHealthService:
                 results["issues"].append(f"Directory error ({directory}): {exc}")
         results["writable_directories"] = all_writable
 
+        conn = None
         try:
             conn = get_conn()
             results["db_connected"] = True
@@ -46,6 +52,7 @@ class SystemHealthService:
                 results["wal_enabled"] = bool(row and str(row[0]).lower() == "wal")
                 if not results["wal_enabled"]:
                     results["issues"].append("SQLite WAL mode disabled")
+
                 cur.execute("PRAGMA quick_check;")
                 check = cur.fetchone()
                 results["db_integrity_ok"] = bool(check and str(check[0]).lower() == "ok")
@@ -54,17 +61,28 @@ class SystemHealthService:
             else:
                 results["wal_enabled"] = True
                 results["db_integrity_ok"] = True
-            conn.close()
         except Exception as exc:
             results["issues"].append(f"Database error: {exc}")
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
+        # shutil.disk_usage is supported on both Windows and POSIX. The old
+        # statvfs-only implementation silently skipped low-space protection on
+        # Windows, even though backups can fail there for the same reason.
         try:
-            stat = os.statvfs(PathManager.get_base_data_dir())
-            results["free_space_mb"] = int((stat.f_bavail * stat.f_frsize) / (1024 * 1024))
+            base_dir = PathManager.get_base_data_dir()
+            os.makedirs(base_dir, exist_ok=True)
+            free_bytes = shutil.disk_usage(base_dir).free
+            results["free_space_mb"] = int(free_bytes / (1024 * 1024))
             if results["free_space_mb"] < 200:
-                results["issues"].append("Less than 200 MB free space is available for data and backups")
-        except (AttributeError, OSError):
-            # Windows does not expose statvfs; disk-space reporting is optional there.
-            pass
+                results["issues"].append(
+                    "Less than 200 MB free space is available for data and backups"
+                )
+        except OSError as exc:
+            results["issues"].append(f"Could not check available disk space: {exc}")
 
         return results
