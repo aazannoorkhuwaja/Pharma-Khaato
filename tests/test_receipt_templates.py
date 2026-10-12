@@ -12,10 +12,15 @@ def _mock_settings(monkeypatch, selected="standard_80"):
         "ntn_number": "NTN-456",
         "receipt_footer": "Get well soon",
     }
+
+    def fake_get_many(keys, defaults=None):
+        defaults = defaults or {}
+        return {key: values.get(key, defaults.get(key, "")) for key in keys}
+
     monkeypatch.setattr(
         receipt_service.SettingsService,
-        "get_setting",
-        staticmethod(lambda key, default=None: values.get(key, default)),
+        "get_many",
+        staticmethod(fake_get_many),
     )
 
 
@@ -67,3 +72,23 @@ def test_tax_invoice_receipt_exposes_regulatory_fields(monkeypatch):
 def test_unknown_saved_template_falls_back_safely(monkeypatch):
     output = _render(monkeypatch, "not-a-template")
     assert "Invoice ID:" in output
+
+
+def test_receipt_renderer_uses_one_batched_settings_read(monkeypatch):
+    calls = []
+
+    def fake_get_many(keys, defaults=None):
+        calls.append(tuple(keys))
+        defaults = defaults or {}
+        return {key: defaults.get(key, "") for key in keys}
+
+    monkeypatch.setattr(receipt_service.SettingsService, "get_many", staticmethod(fake_get_many))
+    receipt_service.generate_invoice_text(
+        1,
+        "Walk-in Customer",
+        [{"name": "Test", "qty": 1, "price": 10}],
+        total=10,
+        tax=0,
+        discount=0,
+    )
+    assert len(calls) == 1
