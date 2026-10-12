@@ -19,6 +19,7 @@ from ui.widgets.table_polish import polish_table
 from ui.widgets.responsive import flexible_side_panel, configure_dialog
 from ui.ux_copy import ROLE_OPTIONS, role_label
 from ui.app.state.health_checker import SystemHealthChecker
+from ui.app.async_tasks import AsyncTaskRunner
 from controllers.settings_controller import SettingsController
 
 _SETTINGS_CONTROLLER = SettingsController()
@@ -28,6 +29,9 @@ class SettingsScreen(QWidget):
     def __init__(self, parent=None, show_message_box: bool = True):
         super().__init__(parent)
         self.show_message_box = show_message_box
+        self._tasks = AsyncTaskRunner(self)
+        self._staff_loaded = False
+        self._system_loaded = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -37,7 +41,7 @@ class SettingsScreen(QWidget):
             "Settings",
             "Manage pharmacy rules, receipts, display, staff access, backups, and system status."
         )
-        self.pill_system_status = BadgePill("Checking", BadgePill.TYPE_INFO)
+        self.pill_system_status = BadgePill("Not Checked", BadgePill.TYPE_INFO)
         header_card.add_pill(self.pill_system_status)
         layout.addWidget(header_card)
 
@@ -47,11 +51,12 @@ class SettingsScreen(QWidget):
         self._setup_receipts_tab()
         self.setup_user_management_tab()
         self._setup_system_tab()
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self.tabs, 1)
 
+        # One batched settings read only. Staff, health, backup listing and
+        # integrity checks are lazy so opening Settings is immediate.
         self.load_settings()
-        self.refresh_db_health_and_backups()
-        self.refresh_employee_table()
 
     def _setup_general_tab(self):
         self.tab_general = QWidget()
@@ -223,7 +228,7 @@ class SettingsScreen(QWidget):
         title = QLabel("System Status")
         title.setStyleSheet(f"font-weight: 700; color: {ThemeTokens.TEXT_PRIMARY};")
         status_layout.addWidget(title)
-        self.lbl_health_info = QLabel("Checking system...")
+        self.lbl_health_info = QLabel("Open this tab to run the system check.")
         self.lbl_health_info.setWordWrap(True)
         self.lbl_health_info.setStyleSheet(f"color: {ThemeTokens.TEXT_SECONDARY};")
         status_layout.addWidget(self.lbl_health_info)
@@ -244,9 +249,9 @@ class SettingsScreen(QWidget):
         )
         self.txt_tech_log.hide()
         status_layout.addWidget(self.txt_tech_log, 1)
-        btn_refresh = QPushButton("Check System Again")
-        btn_refresh.clicked.connect(self.refresh_db_health_and_backups)
-        status_layout.addWidget(btn_refresh)
+        self.btn_refresh_system = QPushButton("Check System Again")
+        self.btn_refresh_system.clicked.connect(self.refresh_db_health_and_backups)
+        status_layout.addWidget(self.btn_refresh_system)
         tech_grid.addWidget(status_card, 1)
 
         backup_card = Card()
@@ -279,6 +284,13 @@ class SettingsScreen(QWidget):
         tech_layout.addLayout(tech_grid, 1)
         self.tabs.addTab(self.tab_technical, "System & Backup")
 
+    def _on_tab_changed(self, index: int):
+        current = self.tabs.widget(index)
+        if current is self.tab_users and not self._staff_loaded:
+            self.refresh_employee_table()
+        elif current is self.tab_technical and not self._system_loaded:
+            self.refresh_db_health_and_backups()
+
     def toggle_technical_details(self):
         visible = not self.txt_tech_log.isVisible()
         self.txt_tech_log.setVisible(visible)
@@ -286,12 +298,37 @@ class SettingsScreen(QWidget):
         self.btn_toggle_details.setText("Hide Technical Details" if visible else "Show Technical Details")
 
     def load_settings(self):
-        tax_raw = _SETTINGS_CONTROLLER.get("default_tax_rate", "0.10")
-        limit_raw = _SETTINGS_CONTROLLER.get("max_customer_credit_limit", "25000.00")
-        expiry_raw = _SETTINGS_CONTROLLER.get("near_expiry_days") or _SETTINGS_CONTROLLER.get("expiry_warning_threshold_days", "30")
-        receipt_title = _SETTINGS_CONTROLLER.get("pharmacy_name") or _SETTINGS_CONTROLLER.get("receipt_header_text", "Pharma-Khaato POS")
-        receipt_footer = _SETTINGS_CONTROLLER.get("receipt_footer") or _SETTINGS_CONTROLLER.get("receipt_footer_text", "Thank you for trusting Pharma-Khaato.")
-        receipt_template = _SETTINGS_CONTROLLER.get("receipt_template", "standard_80")
+        keys = [
+            "default_tax_rate",
+            "max_customer_credit_limit",
+            "near_expiry_days",
+            "expiry_warning_threshold_days",
+            "pharmacy_name",
+            "receipt_header_text",
+            "receipt_footer",
+            "receipt_footer_text",
+            "receipt_template",
+        ]
+        settings = _SETTINGS_CONTROLLER.get_many(
+            keys,
+            {
+                "default_tax_rate": "0.10",
+                "max_customer_credit_limit": "25000.00",
+                "near_expiry_days": "30",
+                "expiry_warning_threshold_days": "30",
+                "pharmacy_name": "Pharma-Khaato POS",
+                "receipt_header_text": "Pharma-Khaato POS",
+                "receipt_footer": "Thank you for trusting Pharma-Khaato.",
+                "receipt_footer_text": "Thank you for trusting Pharma-Khaato.",
+                "receipt_template": "standard_80",
+            },
+        )
+        tax_raw = settings.get("default_tax_rate", "0.10")
+        limit_raw = settings.get("max_customer_credit_limit", "25000.00")
+        expiry_raw = settings.get("near_expiry_days") or settings.get("expiry_warning_threshold_days", "30")
+        receipt_title = settings.get("pharmacy_name") or settings.get("receipt_header_text", "Pharma-Khaato POS")
+        receipt_footer = settings.get("receipt_footer") or settings.get("receipt_footer_text", "Thank you for trusting Pharma-Khaato.")
+        receipt_template = settings.get("receipt_template", "standard_80")
 
         try:
             tax_value = float(tax_raw)
@@ -348,9 +385,32 @@ class SettingsScreen(QWidget):
             show_toast(self, "Settings saved.", ToastType.SUCCESS)
 
     def refresh_db_health_and_backups(self):
-        health = SystemHealthChecker.run_diagnostics()
+        self._system_loaded = False
+        self.pill_system_status.setText("Checking")
+        self.pill_system_status.set_pill_type(BadgePill.TYPE_INFO)
+        self.lbl_health_info.setText("Checking database, storage, and backups…")
+        self.btn_refresh_system.setEnabled(False)
+
+        def load_system_snapshot():
+            return SystemHealthChecker.run_diagnostics(), _SETTINGS_CONTROLLER.backups()
+
+        self._tasks.run_latest(
+            "settings-system",
+            load_system_snapshot,
+            self._apply_system_snapshot,
+            self._system_load_failed,
+        )
+
+    def _apply_system_snapshot(self, payload):
+        health, backups = payload
         issues = list(health.get("issues") or [])
-        healthy = bool(health.get("db_connected") and health.get("wal_enabled") and health.get("db_integrity_ok") and health.get("writable_directories") and not issues)
+        healthy = bool(
+            health.get("db_connected")
+            and health.get("wal_enabled")
+            and health.get("db_integrity_ok")
+            and health.get("writable_directories")
+            and not issues
+        )
         if healthy:
             free_space = health.get("free_space_mb", 0)
             free_text = f"\nFree storage: {free_space:,} MB" if free_space else ""
@@ -370,24 +430,55 @@ class SettingsScreen(QWidget):
             f"[CHECK] Data folders writable: {bool(health.get('writable_directories'))}",
             f"[CHECK] Free storage MB: {health.get('free_space_mb', 0)}",
         ]
-        technical_lines.extend((f"[ISSUE] {issue}" for issue in issues) if issues else ["[RESULT] Basic system checks passed."])
+        technical_lines.extend(
+            (f"[ISSUE] {issue}" for issue in issues)
+            if issues
+            else ["[RESULT] Basic system checks passed."]
+        )
         self.txt_tech_log.setText("\n".join(technical_lines))
 
-        backups = _SETTINGS_CONTROLLER.backups()
-        self.tbl_backups.setRowCount(len(backups))
-        for row, item in enumerate(backups):
-            self.tbl_backups.setItem(row, 0, QTableWidgetItem(str(item["filename"])))
-            self.tbl_backups.setItem(row, 1, QTableWidgetItem(f"{item['size_bytes'] / 1024:.1f} KB"))
-            self.tbl_backups.setItem(row, 2, QTableWidgetItem(str(item["created_at"])))
+        self.tbl_backups.setUpdatesEnabled(False)
+        try:
+            self.tbl_backups.setRowCount(len(backups))
+            for row, item in enumerate(backups):
+                self.tbl_backups.setItem(row, 0, QTableWidgetItem(str(item["filename"])))
+                self.tbl_backups.setItem(row, 1, QTableWidgetItem(f"{item['size_bytes'] / 1024:.1f} KB"))
+                self.tbl_backups.setItem(row, 2, QTableWidgetItem(str(item["created_at"])))
+        finally:
+            self.tbl_backups.setUpdatesEnabled(True)
+
+        self._system_loaded = True
+        self.btn_refresh_system.setEnabled(True)
+
+    def _system_load_failed(self, _details: str):
+        self.btn_refresh_system.setEnabled(True)
+        self.pill_system_status.setText("Could Not Check")
+        self.pill_system_status.set_pill_type(BadgePill.TYPE_DANGER)
+        self.lbl_health_info.setText("Could not complete the system check. Try again.")
 
     def trigger_backup(self):
-        ok, result = _SETTINGS_CONTROLLER.create_backup()
-        if ok:
+        self.btn_trigger_backup.setEnabled(False)
+        self.btn_trigger_backup.setText("Creating Backup…")
+
+        def complete(result):
+            self.btn_trigger_backup.setEnabled(True)
+            self.btn_trigger_backup.setText("Create Backup Now")
+            ok, value = result
+            if ok:
+                if self.show_message_box:
+                    show_toast(self, f"Backup created: {Path(str(value)).name}", ToastType.SUCCESS)
+                self._system_loaded = False
+                self.refresh_db_health_and_backups()
+            elif self.show_message_box:
+                QMessageBox.critical(self, "Could Not Create Backup", str(value))
+
+        def failed(_details):
+            self.btn_trigger_backup.setEnabled(True)
+            self.btn_trigger_backup.setText("Create Backup Now")
             if self.show_message_box:
-                show_toast(self, f"Backup created: {Path(str(result)).name}", ToastType.SUCCESS)
-            self.refresh_db_health_and_backups()
-        elif self.show_message_box:
-            QMessageBox.critical(self, "Could Not Create Backup", str(result))
+                QMessageBox.critical(self, "Could Not Create Backup", "The backup operation failed. Try again.")
+
+        self._tasks.run(_SETTINGS_CONTROLLER.create_backup, complete, failed)
 
     def setup_user_management_tab(self):
         self.tab_users = QWidget()
@@ -459,19 +550,39 @@ class SettingsScreen(QWidget):
         self.tabs.addTab(self.tab_users, "Staff & Access")
 
     def refresh_employee_table(self):
-        employees = _SETTINGS_CONTROLLER.employees()
-        self.tbl_users.setRowCount(len(employees))
-        for row, item in enumerate(employees):
-            employee_id, username, first_name, last_name, occupation = item
-            self.tbl_users.setItem(row, 0, QTableWidgetItem(str(username)))
-            self.tbl_users.setItem(row, 1, QTableWidgetItem(f"{first_name} {last_name}".strip()))
-            self.tbl_users.setItem(row, 2, QTableWidgetItem(role_label(str(occupation))))
-            button = QPushButton("Reset Password")
-            button.setProperty("compact", True)
-            button.setMinimumWidth(112)
-            button.setAccessibleName(f"Reset password for {username}")
-            button.clicked.connect(lambda checked=False, eid=employee_id, user=username: self.on_reset_user_password(eid, user))
-            self.tbl_users.setCellWidget(row, 3, button)
+        self._staff_loaded = False
+        self._tasks.run_latest(
+            "settings-staff",
+            _SETTINGS_CONTROLLER.employees,
+            self._apply_employee_table,
+            self._staff_load_failed,
+        )
+
+    def _apply_employee_table(self, employees):
+        self.tbl_users.setUpdatesEnabled(False)
+        try:
+            self.tbl_users.setRowCount(len(employees))
+            for row, item in enumerate(employees):
+                employee_id, username, first_name, last_name, occupation = item
+                self.tbl_users.setItem(row, 0, QTableWidgetItem(str(username)))
+                self.tbl_users.setItem(row, 1, QTableWidgetItem(f"{first_name} {last_name}".strip()))
+                self.tbl_users.setItem(row, 2, QTableWidgetItem(role_label(str(occupation))))
+                button = QPushButton("Reset Password")
+                button.setProperty("compact", True)
+                button.setMinimumWidth(112)
+                button.setAccessibleName(f"Reset password for {username}")
+                button.clicked.connect(
+                    lambda checked=False, eid=employee_id, user=username: self.on_reset_user_password(eid, user)
+                )
+                self.tbl_users.setCellWidget(row, 3, button)
+        finally:
+            self.tbl_users.setUpdatesEnabled(True)
+        self._staff_loaded = True
+
+    def _staff_load_failed(self, _details: str):
+        self._staff_loaded = False
+        if self.show_message_box:
+            show_toast(self, "Could not load staff accounts. Try again.", ToastType.WARNING)
 
     def on_create_user(self):
         username = self.txt_new_user.text().strip()
@@ -491,6 +602,7 @@ class SettingsScreen(QWidget):
             self.txt_new_pass.clear()
             self.txt_new_fname.clear()
             self.txt_new_lname.clear()
+            self._staff_loaded = False
             self.refresh_employee_table()
         elif self.show_message_box:
             QMessageBox.critical(self, "Could Not Add Staff", message)
@@ -510,3 +622,14 @@ class SettingsScreen(QWidget):
                 show_toast(self, message, ToastType.SUCCESS)
         elif self.show_message_box:
             QMessageBox.critical(self, "Could Not Reset Password", message)
+
+    def on_screen_show(self):
+        # One small batched read keeps visible general/receipt controls fresh.
+        self.load_settings()
+        current = self.tabs.currentWidget()
+        if current is self.tab_users:
+            self._staff_loaded = False
+            self.refresh_employee_table()
+        elif current is self.tab_technical:
+            self._system_loaded = False
+            self.refresh_db_health_and_backups()
