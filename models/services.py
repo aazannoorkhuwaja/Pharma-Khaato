@@ -55,11 +55,11 @@ class CustomerModel:
         return register_customer(cnic, first_name, last_name, email, city)
 
     def search(self, text: str):
-        from core.customer_service import search_customer
-        return search_customer(text)
+        from core.customer_directory_service import search_customers
+        return search_customers(text)
 
     def search_with_debt(self, text: str):
-        from core.customer_service import search_customers_with_debt
+        from core.customer_directory_service import search_customers_with_debt
         return search_customers_with_debt(text)
 
     def total_debt(self, cnic: str):
@@ -71,8 +71,8 @@ class CustomerModel:
         return get_customer_debt_aging(cnic)
 
     def khatoo_summary(self):
-        from core.customer_service import get_khatoo_summary
-        return get_khatoo_summary()
+        from core.credit_query_service import total_open_credit
+        return total_open_credit()
 
 
 class InventoryModel:
@@ -169,8 +169,8 @@ class ManagerAuthModel:
 
 class KhatooModel:
     def load(self, text: str):
-        from core.customer_service import load_khatoo
-        return load_khatoo(text)
+        from core.credit_query_service import load_open_credit
+        return load_open_credit(text)
 
     def record_payment(self, khatoo_id: int, amount: float, employee_id: int, payment_method: str = "Cash", note: str = ""):
         from core.credit_payment_service import record_credit_payment
@@ -181,8 +181,8 @@ class KhatooModel:
         return recent_credit_payments(limit)
 
     def summary(self):
-        from core.customer_service import get_khatoo_summary
-        return get_khatoo_summary()
+        from core.credit_query_service import total_open_credit
+        return total_open_credit()
 
 
 class CashSessionModel:
