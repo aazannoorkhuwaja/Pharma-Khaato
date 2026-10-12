@@ -1,12 +1,6 @@
-"""Backend-facing model facades used by MVC controllers.
-
-These classes deliberately contain no PySide6 imports. They form a stable
-boundary around the existing production service layer so the UI can evolve
-without coupling widgets directly to database/business functions.
-"""
+"""Backend-facing model facades used by MVC controllers."""
 
 from __future__ import annotations
-
 from typing import Any
 
 
@@ -178,9 +172,13 @@ class KhatooModel:
         from core.customer_service import load_khatoo
         return load_khatoo(text)
 
-    def record_payment(self, khatoo_id: int, amount: float):
-        from core.customer_service import record_payment
-        return record_payment(khatoo_id, amount)
+    def record_payment(self, khatoo_id: int, amount: float, employee_id: int, payment_method: str = "Cash", note: str = ""):
+        from core.credit_payment_service import record_credit_payment
+        return record_credit_payment(khatoo_id, amount, employee_id, payment_method, note)
+
+    def payment_history(self, limit: int = 100):
+        from core.credit_payment_service import recent_credit_payments
+        return recent_credit_payments(limit)
 
     def summary(self):
         from core.customer_service import get_khatoo_summary
@@ -208,6 +206,10 @@ class CashSessionModel:
         from core.cash_session_service import calculate_expected_cash
         return calculate_expected_cash(session_id)
 
+    def cash_summary(self, session_id: int):
+        from core.cash_session_service import get_session_cash_summary
+        return get_session_cash_summary(session_id)
+
     def recent_movements(self, limit: int = 50):
         from core.db_engine import get_db
         safe_limit = max(1, min(int(limit), 500))
@@ -223,6 +225,10 @@ class ReportsModel:
     def daily_sales(self, selected_date):
         from core.reports_service import get_daily_sales_report
         return get_daily_sales_report(selected_date)
+
+    def credit_collections(self, selected_date):
+        from core.reports_service import get_credit_collections_report
+        return get_credit_collections_report(selected_date)
 
     def expiry_alert(self, days: int):
         from core.reports_service import get_expiry_alert_report
