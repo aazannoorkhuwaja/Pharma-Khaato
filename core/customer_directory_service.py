@@ -6,12 +6,16 @@ from core.logger import get_logger
 
 logger = get_logger("PharmaKhaatoCustomerDirectory")
 
+_POS_SEARCH_LIMIT = 60
+_DIRECTORY_LIMIT = 120
 
-def search_customers(text="", limit=80):
+
+def search_customers(text="", limit=_POS_SEARCH_LIMIT):
+    """Small, exact-first lookup used by POS customer selection."""
     raw = str(text or "").strip()
     if not raw:
         return []
-    safe_limit = max(1, min(int(limit), 250))
+    safe_limit = max(1, min(int(limit), 120))
     try:
         with get_db() as (_conn, cur):
             exact_id = validate_cnic(raw)
@@ -40,9 +44,14 @@ def search_customers(text="", limit=80):
         return []
 
 
-def search_customers_with_debt(text="", limit=240):
+def search_customers_with_debt(text="", limit=_DIRECTORY_LIMIT):
+    """Return a bounded directory page with debt aggregated in one SQL query.
+
+    The customer screen intentionally renders a working set rather than an
+    unlimited database dump. Staff can narrow it immediately by name or CNIC.
+    """
     raw = str(text or "").strip()
-    safe_limit = max(1, min(int(limit), 500))
+    safe_limit = max(1, min(int(limit), 250))
     escaped = escape_sql_like(raw)
     like = f"%{escaped}%"
     try:
