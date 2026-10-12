@@ -3,12 +3,13 @@
 
 Windows runners produce a .zip that can be used directly or wrapped by
 ``installer.iss``. Linux runners produce a self-contained .tar.gz plus desktop
-installer helpers. PyInstaller does not cross-compile, so build each target on
-its native OS or use the included CI matrix.
+installer helpers. Every artifact receives a SHA-256 sidecar so a downloaded
+release can be verified before installation.
 """
 
 from __future__ import annotations
 
+import hashlib
 import platform
 import shutil
 import subprocess
@@ -33,7 +34,9 @@ def run(*args: str) -> None:
 def build_pyinstaller() -> None:
     shutil.rmtree(BUILD, ignore_errors=True)
     shutil.rmtree(DIST, ignore_errors=True)
-    RELEASE.mkdir(exist_ok=True)
+    # Never mix artifacts from different commits or platforms.
+    shutil.rmtree(RELEASE, ignore_errors=True)
+    RELEASE.mkdir(parents=True, exist_ok=True)
     run(sys.executable, "-m", "PyInstaller", "pharma_khaato.spec", "--clean", "--noconfirm")
     if not APP_DIR.exists():
         raise RuntimeError(f"PyInstaller output not found: {APP_DIR}")
@@ -41,8 +44,6 @@ def build_pyinstaller() -> None:
 
 def package_windows(version: str) -> Path:
     out = RELEASE / f"Pharma-Khaato-{version}-windows-x64.zip"
-    if out.exists():
-        out.unlink()
     with zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         for file in APP_DIR.rglob("*"):
             if file.is_file():
@@ -63,12 +64,20 @@ def package_linux(version: str) -> Path:
             script.chmod(script.stat().st_mode | 0o111)
 
     out = RELEASE / f"Pharma-Khaato-{version}-linux-x86_64.tar.gz"
-    if out.exists():
-        out.unlink()
     with tarfile.open(out, "w:gz") as tf:
         tf.add(stage, arcname=stage.name)
     shutil.rmtree(stage)
     return out
+
+
+def write_sha256(artifact: Path) -> Path:
+    digest = hashlib.sha256()
+    with artifact.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    checksum = artifact.with_name(artifact.name + ".sha256")
+    checksum.write_text(f"{digest.hexdigest()}  {artifact.name}\n", encoding="utf-8")
+    return checksum
 
 
 def main() -> int:
@@ -81,7 +90,15 @@ def main() -> int:
         artifact = package_linux(version)
     else:
         raise RuntimeError(f"Unsupported release target: {system}. Supported: Windows, Linux")
+
+    checksum = write_sha256(artifact)
+    if not artifact.exists() or artifact.stat().st_size <= 0:
+        raise RuntimeError(f"Release artifact is empty: {artifact}")
+    if not checksum.exists():
+        raise RuntimeError("Release checksum was not created.")
+
     print(f"Release artifact: {artifact}")
+    print(f"SHA-256 file:    {checksum}")
     return 0
 
 
