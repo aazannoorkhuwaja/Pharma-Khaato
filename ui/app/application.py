@@ -1,7 +1,4 @@
-"""
-Pharma-Khaato Qt Application Bootstrap
-Initializes database connection, QApplication, SessionState, First-Run Wizard, Login Gate, Theme, and launches MainWindow.
-"""
+"""Pharma-Khaato Qt application bootstrap."""
 
 import sys
 from PySide6.QtWidgets import QApplication, QDialog
@@ -16,13 +13,41 @@ from ui.app.state.session_state import SessionState
 from ui.screens.first_run_wizard import FirstRunWizardDialog
 from ui.screens.login_screen import LoginDialog
 from ui.screens.pos_screen import POSScreen
-from ui.screens.inventory_screen import InventoryScreen
-from ui.screens.customer_screen import CustomerScreen
-from ui.screens.khatoo_screen import KhatooScreen
-from ui.screens.cash_session_screen import CashSessionScreen
-from ui.screens.reports_screen import ReportsScreen
-from ui.screens.settings_screen import SettingsScreen
-from ui.screens.returns_screen import ReturnsScreen
+
+
+def _inventory_screen():
+    from ui.screens.inventory_screen import InventoryScreen
+    return InventoryScreen()
+
+
+def _customer_screen():
+    from ui.screens.customer_screen import CustomerScreen
+    return CustomerScreen()
+
+
+def _credit_screen():
+    from ui.screens.khatoo_screen import KhatooScreen
+    return KhatooScreen()
+
+
+def _cash_screen():
+    from ui.screens.cash_session_screen import CashSessionScreen
+    return CashSessionScreen()
+
+
+def _reports_screen():
+    from ui.screens.reports_screen import ReportsScreen
+    return ReportsScreen()
+
+
+def _returns_screen():
+    from ui.screens.returns_screen import ReturnsScreen
+    return ReturnsScreen()
+
+
+def _settings_screen():
+    from ui.screens.settings_screen import SettingsScreen
+    return SettingsScreen()
 
 
 def run_app():
@@ -65,15 +90,16 @@ def run_app():
     window = MainWindow()
     window.set_active_user(current_user)
 
-    # Counter is eager; management workflows stay lazy so login remains fast.
+    # Only the counter is imported/constructed eagerly. Secondary workflows
+    # import on first navigation, reducing login-to-counter startup work.
     window.router.register_screen("pos", POSScreen())
-    window.router.register_screen_factory("inventory", lambda: InventoryScreen())
-    window.router.register_screen_factory("customers", lambda: CustomerScreen())
-    window.router.register_screen_factory("khatoo", lambda: KhatooScreen())
-    window.router.register_screen_factory("cash_session", lambda: CashSessionScreen())
-    window.router.register_screen_factory("reports", lambda: ReportsScreen())
-    window.router.register_screen_factory("returns", lambda: ReturnsScreen())
-    window.router.register_screen_factory("settings", lambda: SettingsScreen())
+    window.router.register_screen_factory("inventory", _inventory_screen)
+    window.router.register_screen_factory("customers", _customer_screen)
+    window.router.register_screen_factory("khatoo", _credit_screen)
+    window.router.register_screen_factory("cash_session", _cash_screen)
+    window.router.register_screen_factory("reports", _reports_screen)
+    window.router.register_screen_factory("returns", _returns_screen)
+    window.router.register_screen_factory("settings", _settings_screen)
 
     if health["db_connected"]:
         window.status_bar.showMessage(f"Signed in: {current_user.get('username')} • Ready")
