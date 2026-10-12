@@ -21,12 +21,11 @@ _REPORTS_CONTROLLER = ReportsController()
 
 
 class ReportsScreen(QWidget):
-    """Reports screen that loads only the data the user is looking at."""
+    """Load date KPIs immediately and heavy report tables only when needed."""
 
     def __init__(self, parent=None, show_message_box: bool = True):
         super().__init__(parent)
         self.show_message_box = show_message_box
-        self._loaded_tabs = set()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -40,7 +39,7 @@ class ReportsScreen(QWidget):
         self.dt_picker.setDate(QDate.currentDate())
         self.dt_picker.setCalendarPopup(True)
         self.dt_picker.setAccessibleName("Report date")
-        self.dt_picker.dateChanged.connect(self._on_date_changed)
+        self.dt_picker.dateChanged.connect(self._refresh_financials)
         header.add_widget(self.dt_picker)
 
         self.btn_export = QPushButton("Export Stock Report")
@@ -70,38 +69,38 @@ class ReportsScreen(QWidget):
         self.tabs.setUsesScrollButtons(True)
         self.tabs.currentChanged.connect(self._load_current_tab)
 
-        tab_reorder = QWidget()
-        lay_r = QVBoxLayout(tab_reorder)
+        low_stock_tab = QWidget()
+        low_layout = QVBoxLayout(low_stock_tab)
         self.tbl_reorder = QTableWidget(0, 5)
         self.tbl_reorder.setHorizontalHeaderLabels(
             ["Product", "Category", "In Stock", "Alert Level", "Price"]
         )
         self.tbl_reorder.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        for col in range(1, 5):
-            self.tbl_reorder.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        for column in range(1, 5):
+            self.tbl_reorder.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeToContents)
         polish_table(self.tbl_reorder)
         self.tbl_reorder.verticalHeader().setVisible(False)
         self.tbl_reorder.setEditTriggers(QTableWidget.NoEditTriggers)
-        lay_r.addWidget(self.tbl_reorder)
-        self.tabs.addTab(tab_reorder, "Low Stock")
+        low_layout.addWidget(self.tbl_reorder)
+        self.tabs.addTab(low_stock_tab, "Low Stock")
 
-        tab_expiry = QWidget()
-        lay_e = QVBoxLayout(tab_expiry)
+        expiry_tab = QWidget()
+        expiry_layout = QVBoxLayout(expiry_tab)
         self.tbl_expiry = QTableWidget(0, 5)
         self.tbl_expiry.setHorizontalHeaderLabels(
             ["Product", "Qty", "Expiry", "Days Left", "Category"]
         )
         self.tbl_expiry.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        for col in range(1, 5):
-            self.tbl_expiry.horizontalHeader().setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        for column in range(1, 5):
+            self.tbl_expiry.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeToContents)
         polish_table(self.tbl_expiry)
         self.tbl_expiry.verticalHeader().setVisible(False)
         self.tbl_expiry.setEditTriggers(QTableWidget.NoEditTriggers)
-        lay_e.addWidget(self.tbl_expiry)
-        self.tabs.addTab(tab_expiry, "Expiring Soon")
+        expiry_layout.addWidget(self.tbl_expiry)
+        self.tabs.addTab(expiry_tab, "Expiring Soon")
 
-        tab_audit = QWidget()
-        lay_a = QVBoxLayout(tab_audit)
+        audit_tab = QWidget()
+        audit_layout = QVBoxLayout(audit_tab)
         self.tbl_audit = QTableWidget(0, 3)
         self.tbl_audit.setHorizontalHeaderLabels(["Time", "User", "Activity"])
         self.tbl_audit.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -110,18 +109,17 @@ class ReportsScreen(QWidget):
         polish_table(self.tbl_audit)
         self.tbl_audit.verticalHeader().setVisible(False)
         self.tbl_audit.setEditTriggers(QTableWidget.NoEditTriggers)
-        lay_a.addWidget(self.tbl_audit)
-        self.tabs.addTab(tab_audit, "Activity Log")
+        audit_layout.addWidget(self.tbl_audit)
+        self.tabs.addTab(audit_tab, "Activity Log")
 
         layout.addWidget(self.tabs, 1)
         self._refresh_financials()
         self._load_current_tab(0)
 
     def resizeEvent(self, event):
-        if hasattr(self, "_kpi_cards"):
-            width = event.size().width()
-            columns = 3 if width >= 1000 else (2 if width >= 720 else 1)
-            self._reflow_kpis(columns)
+        width = event.size().width()
+        columns = 3 if width >= 1000 else (2 if width >= 720 else 1)
+        self._reflow_kpis(columns)
         super().resizeEvent(event)
 
     def _reflow_kpis(self, columns: int):
@@ -131,33 +129,28 @@ class ReportsScreen(QWidget):
         for card in self._kpi_cards:
             self.kpi_grid.removeWidget(card)
         for index, card in enumerate(self._kpi_cards):
-            row, col = divmod(index, columns)
-            self.kpi_grid.addWidget(card, row, col)
-        for col in range(columns):
-            self.kpi_grid.setColumnStretch(col, 1)
+            row, column = divmod(index, columns)
+            self.kpi_grid.addWidget(card, row, column)
+        for column in range(columns):
+            self.kpi_grid.setColumnStretch(column, 1)
 
     def create_kpi_card(self, title: str, value: str, color: str) -> Card:
         card = Card()
-        lay = card.layout()
-        label = QLabel(title)
-        label.setStyleSheet(f"font-weight: 600; color: {ThemeTokens.TEXT_MUTED};")
-        val = QLabel(value)
-        val.setObjectName("val_label")
-        val.setStyleSheet(f"font-weight: 800; color: {color};")
-        lay.addWidget(label)
-        lay.addWidget(val)
-        card.val_label = val
+        card_layout = card.layout()
+        title_label = QLabel(title)
+        title_label.setStyleSheet(f"font-weight: 600; color: {ThemeTokens.TEXT_MUTED};")
+        value_label = QLabel(value)
+        value_label.setObjectName("val_label")
+        value_label.setStyleSheet(f"font-weight: 800; color: {color};")
+        card_layout.addWidget(title_label)
+        card_layout.addWidget(value_label)
+        card.val_label = value_label
         return card
 
     def _selected_date(self):
         return self.dt_picker.date().toString("yyyy-MM-dd")
 
-    def _on_date_changed(self, *_):
-        # Date changes affect financial KPIs only. Stock/expiry/audit are not
-        # re-queried unnecessarily.
-        self._refresh_financials()
-
-    def _refresh_financials(self):
+    def _refresh_financials(self, *_):
         selected_date = self._selected_date()
         sales = _REPORTS_CONTROLLER.daily_sales(selected_date) or {}
         collections = _REPORTS_CONTROLLER.credit_collections(selected_date) or {}
@@ -189,7 +182,6 @@ class ReportsScreen(QWidget):
                 self.tbl_reorder.setItem(row, 4, QTableWidgetItem(f"Rs. {float(item['unit_price']):.2f}"))
         finally:
             self.tbl_reorder.setUpdatesEnabled(True)
-        self._loaded_tabs.add(0)
 
     def _refresh_expiry(self):
         rows = _REPORTS_CONTROLLER.expiry_alert(60)
@@ -204,7 +196,6 @@ class ReportsScreen(QWidget):
                 self.tbl_expiry.setItem(row, 4, QTableWidgetItem(str(item["category"])))
         finally:
             self.tbl_expiry.setUpdatesEnabled(True)
-        self._loaded_tabs.add(1)
 
     def _refresh_audit(self):
         rows = _REPORTS_CONTROLLER.audit_log(75)
@@ -217,7 +208,6 @@ class ReportsScreen(QWidget):
                 self.tbl_audit.setItem(row, 2, QTableWidgetItem(f"[{item['event_type']}] {item['description']}"))
         finally:
             self.tbl_audit.setUpdatesEnabled(True)
-        self._loaded_tabs.add(2)
 
     def refresh_all_reports(self):
         self._refresh_financials()
@@ -227,24 +217,27 @@ class ReportsScreen(QWidget):
         self.refresh_all_reports()
 
     @staticmethod
-    def _headers(table):
-        return [
-            table.horizontalHeaderItem(col).text() if table.horizontalHeaderItem(col) else ""
-            for col in range(table.columnCount()) if not table.isColumnHidden(col)
-        ]
+    def _visible_headers(table):
+        headers = []
+        for column in range(table.columnCount()):
+            if table.isColumnHidden(column):
+                continue
+            item = table.horizontalHeaderItem(column)
+            headers.append(item.text() if item else "")
+        return headers
 
     @staticmethod
-    def _row(table, row):
+    def _visible_row(table, row: int):
         values = []
-        for col in range(table.columnCount()):
-            if table.isColumnHidden(col):
+        for column in range(table.columnCount()):
+            if table.isColumnHidden(column):
                 continue
-            item = table.item(row, col)
+            item = table.item(row, column)
             values.append(item.text() if item else "")
         return values
 
     def export_csv(self):
-        # Ensure export is complete even if those tabs have not been opened.
+        # Export must be complete even if a lazy tab has not been opened yet.
         self._refresh_low_stock()
         self._refresh_expiry()
         path, _ = QFileDialog.getSaveFileName(
@@ -259,14 +252,14 @@ class ReportsScreen(QWidget):
             with open(path, "w", newline="", encoding="utf-8") as handle:
                 writer = csv.writer(handle)
                 writer.writerow(["LOW STOCK"])
-                writer.writerow(self._headers(self.tbl_reorder))
+                writer.writerow(self._visible_headers(self.tbl_reorder))
                 for row in range(self.tbl_reorder.rowCount()):
-                    writer.writerow(self._row(self.tbl_reorder, row))
+                    writer.writerow(self._visible_row(self.tbl_reorder, row))
                 writer.writerow([])
                 writer.writerow(["EXPIRING SOON"])
-                writer.writerow(self._headers(self.tbl_expiry))
+                writer.writerow(self._visible_headers(self.tbl_expiry))
                 for row in range(self.tbl_expiry.rowCount()):
-                    writer.writerow(self._row(self.tbl_expiry, row))
+                    writer.writerow(self._visible_row(self.tbl_expiry, row))
             show_toast(self, f"Report saved to:\n{path}", ToastType.SUCCESS)
         except Exception as exc:
             QMessageBox.critical(self, "Could Not Export", f"Could not save the report file: {exc}")
