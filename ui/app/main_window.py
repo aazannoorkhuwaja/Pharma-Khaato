@@ -21,6 +21,11 @@ from controllers.cash_session_controller import CashSessionController
 _CASH_CONTROLLER = CashSessionController()
 
 
+def _qt_button_text(text: str) -> str:
+    """Escape ampersands so Qt shows '&' instead of treating it as a mnemonic."""
+    return str(text).replace("&", "&&")
+
+
 class MainWindow(QMainWindow):
     """Primary shell with adaptive navigation for 900px through 4K desktops."""
 
@@ -123,9 +128,11 @@ class MainWindow(QMainWindow):
         self.lbl_shift_status.setStyleSheet(f"color: {ThemeTokens.WARNING}; font-weight: 700; padding: 0 8px;")
         self.status_bar.addPermanentWidget(self.lbl_shift_status)
 
+        # Keyboard shortcuts remain fully supported, but no longer occupy
+        # permanent visual space. They are available in each nav tooltip.
         self.hint_label = QLabel()
         self.hint_label.setObjectName("caption")
-        self.hint_label.setStyleSheet("font-weight: 600; padding-right: 10px;")
+        self.hint_label.setVisible(False)
         self.status_bar.addPermanentWidget(self.hint_label)
 
         if self.current_user:
@@ -159,16 +166,17 @@ class MainWindow(QMainWindow):
         for key, text, short_text, shortcut_key in self._nav_items:
             btn = self.nav_buttons[key]
             if mode == "full":
-                btn.setText(f"{text}  {shortcut_key}")
+                # Keep the navigation task-first. Shortcuts remain in tooltips
+                # and continue to work through QShortcut.
+                btn.setText(_qt_button_text(text))
             elif mode == "compact":
-                btn.setText(text)
+                btn.setText(_qt_button_text(text))
             else:
-                btn.setText(short_text)
+                btn.setText(_qt_button_text(short_text))
 
         self.brand_label.setText("PHARMA-KHAATO" if mode != "mini" else "P-K")
         self.sub_brand.setVisible(mode == "full")
         self.user_badge.setVisible(mode != "mini")
-        self.hint_label.setVisible(mode == "full")
 
         if mode == "mini":
             self.btn_theme_toggle.setText("Theme")
@@ -178,7 +186,6 @@ class MainWindow(QMainWindow):
             self.btn_logout.setText("Sign Out")
 
         self.update_clock()
-        self.hint_label.setText("Alt+1–Alt+7: switch screens")
 
     def update_clock(self):
         now = datetime.now()
@@ -189,7 +196,8 @@ class MainWindow(QMainWindow):
             self.lbl_clock.setText(now.strftime("%a %d %b  %H:%M"))
             self.lbl_clock.setAlignment(Qt.AlignmentFlag.AlignLeft)
         else:
-            self.lbl_clock.setText(now.strftime("%a, %b %d %Y • %I:%M:%S %p"))
+            # Seconds add movement/noise without helping counter work.
+            self.lbl_clock.setText(now.strftime("%a, %b %d • %I:%M %p"))
             self.lbl_clock.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
     def on_nav_clicked(self, screen_key: str):
@@ -236,7 +244,7 @@ class MainWindow(QMainWindow):
         try:
             active_sess = _CASH_CONTROLLER.active_session(emp_id)
             if active_sess:
-                self.lbl_shift_status.setText(f"Shift #{active_sess[0]} Open")
+                self.lbl_shift_status.setText("Shift Open")
                 self.lbl_shift_status.setStyleSheet(
                     f"color: {ThemeTokens.SUCCESS}; font-weight: 700; padding: 0 8px;"
                 )
@@ -257,7 +265,7 @@ class MainWindow(QMainWindow):
 
         if "pos" in allowed:
             self.on_nav_clicked("pos")
-        self.status_bar.showMessage(f"Signed in: {uname} ({role}) • Ready")
+        self.status_bar.showMessage(f"Signed in: {uname} • Ready")
 
     def on_logout(self, confirm_fn=None):
         uname = ""
