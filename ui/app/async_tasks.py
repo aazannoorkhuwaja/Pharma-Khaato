@@ -1,7 +1,7 @@
 """Small reusable worker pool for non-blocking desktop operations.
 
 Database reads, report generation, backups, exports and other potentially slow
-operations must not block Qt's GUI thread.  ``AsyncTaskRunner`` executes plain
+operations must not block Qt's GUI thread. ``AsyncTaskRunner`` executes plain
 Python callables on ``QThreadPool.globalInstance()`` and marshals results back to
 Qt safely through signals.
 
@@ -50,12 +50,16 @@ class AsyncTaskRunner(QObject):
     def __init__(self, parent: QObject | None = None):
         super().__init__(parent)
         self._pool = QThreadPool.globalInstance()
-        self._active: set[_FunctionTask] = set()
+        self._active: dict[int, _FunctionTask] = {}
         self._versions: dict[str, int] = {}
 
     def _track(self, task: _FunctionTask) -> None:
-        self._active.add(task)
-        task.signals.finished.connect(lambda task=task: self._active.discard(task))
+        token = id(task)
+        self._active[token] = task
+        # Capture only the integer token, not the task itself. This avoids a
+        # Python reference cycle while still keeping the QRunnable alive until
+        # Qt reports that it finished.
+        task.signals.finished.connect(lambda token=token: self._active.pop(token, None))
 
     def run(
         self,
