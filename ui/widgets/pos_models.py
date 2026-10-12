@@ -1,11 +1,15 @@
 from PySide6.QtCore import QAbstractTableModel, Qt, QModelIndex
 
+
 class ProductCatalogModel(QAbstractTableModel):
+    """Virtualized, cashier-friendly product search result model.
+
+    Backend rows retain the selected FEFO batch identifier, but the routine
+    counter view shows only information that helps choose a medicine: product,
+    expiry, available stock, and price.
     """
-    High-performance virtualized model for product search results.
-    Avoids widget allocation per cell and formats strings lazily for 60 FPS scrolling.
-    """
-    HEADERS = ["Product Name", "Batch #", "Expiry Date", "Stock", "Price"]
+
+    HEADERS = ["Product", "Expiry", "In Stock", "Price"]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -27,16 +31,15 @@ class ProductCatalogModel(QAbstractTableModel):
         if not index.isValid() or not (0 <= index.row() < len(self._formatted_rows)):
             return None
 
-        col = index.column()
+        column = index.column()
         row_data = self._formatted_rows[index.row()]
 
         if role == Qt.DisplayRole:
-            return row_data[col]
-        elif role == Qt.TextAlignmentRole:
-            if col in (3, 4):
+            return row_data[column]
+        if role == Qt.TextAlignmentRole:
+            if column in (2, 3):
                 return int(Qt.AlignRight | Qt.AlignVCenter)
             return int(Qt.AlignLeft | Qt.AlignVCenter)
-
         return None
 
     def update_data(self, results: list):
@@ -44,14 +47,15 @@ class ProductCatalogModel(QAbstractTableModel):
         self._raw_data = results or []
         self._formatted_rows = []
         for item in self._raw_data:
-            p_id, p_name, p_price, b_id, b_qty, b_exp = item
-            self._formatted_rows.append((
-                str(p_name),
-                f"Batch #{b_id}",
-                str(b_exp),
-                str(b_qty),
-                f"Rs. {float(p_price):.2f}"
-            ))
+            _product_id, product_name, price, _batch_id, batch_qty, batch_expiry = item
+            self._formatted_rows.append(
+                (
+                    str(product_name),
+                    str(batch_expiry),
+                    str(batch_qty),
+                    f"Rs. {float(price):.2f}",
+                )
+            )
         self.endResetModel()
 
     def get_raw_item(self, row: int):
