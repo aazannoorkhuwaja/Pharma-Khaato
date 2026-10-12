@@ -14,6 +14,7 @@ from ui.widgets.screen_header import ScreenHeader
 from ui.widgets.toast import ToastType, show_toast
 from ui.widgets.table_polish import polish_table
 from ui.widgets.responsive import configure_dialog
+from ui.app.async_tasks import AsyncTaskRunner
 from ui.app.state.session_state import SessionState
 from controllers.khatoo_controller import KhatooController
 
@@ -21,12 +22,14 @@ _KHATOO_CONTROLLER = KhatooController()
 
 
 class RecordPaymentDialog(QDialog):
-    """Record a repayment with its real tender and signed-in staff context."""
+    """Record a repayment without blocking the dialog on database writes."""
 
     def __init__(self, khatoo_id: int, cust_name: str, current_due: float, parent=None):
         super().__init__(parent)
         self.khatoo_id = khatoo_id
         self.current_due = current_due
+        self._tasks = AsyncTaskRunner(self)
+        self._saving = False
         self.setWindowTitle(f"Record Payment — {cust_name}")
         configure_dialog(self, 500, 410, minimum_width=400, minimum_height=330)
 
@@ -103,30 +106,61 @@ class RecordPaymentDialog(QDialog):
             self.lbl_cash_help.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
 
     def on_confirm(self):
+        if self._saving:
+            return
         employee_id = self._current_employee_id()
         if employee_id is None:
             QMessageBox.critical(self, "Sign In Required", "Sign in again before recording a payment.")
             return
-        ok, msg = _KHATOO_CONTROLLER.record_payment(
+
+        args = (
             self.khatoo_id,
             self.spn_amount.value(),
             employee_id,
             self.cmb_method.currentData() or self.cmb_method.currentText(),
             self.txt_note.text().strip(),
         )
+        self._saving = True
+        self.btn_confirm.setEnabled(False)
+        self.btn_cancel.setEnabled(False)
+        self.btn_confirm.setText("Saving…")
+        self._tasks.run(
+            lambda: _KHATOO_CONTROLLER.record_payment(*args),
+            self._payment_saved,
+            lambda _details: self._payment_failed(),
+        )
+
+    def _payment_saved(self, result):
+        self._saving = False
+        ok, msg = result
         if ok:
             show_toast(self.parent() or self, msg, ToastType.SUCCESS)
             self.accept()
-        else:
-            QMessageBox.critical(self, "Payment Could Not Be Saved", msg)
+            return
+        self.btn_confirm.setText("Save Payment")
+        self.btn_confirm.setEnabled(True)
+        self.btn_cancel.setEnabled(True)
+        QMessageBox.critical(self, "Payment Could Not Be Saved", msg)
+
+    def _payment_failed(self):
+        self._saving = False
+        self.btn_confirm.setText("Save Payment")
+        self.btn_confirm.setEnabled(True)
+        self.btn_cancel.setEnabled(True)
+        QMessageBox.critical(
+            self,
+            "Payment Could Not Be Saved",
+            "The payment could not be recorded. Try again.",
+        )
 
 
 class KhatooScreen(QWidget):
-    """Lightweight credit list: one action button, not one QWidget per row."""
+    """Lightweight credit list with worker-backed reads."""
 
     def __init__(self, parent=None, show_message_box: bool = True):
         super().__init__(parent)
         self.show_message_box = show_message_box
+        self._tasks = AsyncTaskRunner(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -136,8 +170,8 @@ class KhatooScreen(QWidget):
             title="Customer Credit",
             subtitle="See open balances and record full or partial repayments."
         )
-        self.pill_total_ledger = BadgePill("Open Credits: 0", BadgePill.TYPE_INFO)
-        self.pill_total_due = BadgePill("Total Due: Rs. 0.00", BadgePill.TYPE_WARNING)
+        self.pill_total_ledger = BadgePill("Open Credits: …", BadgePill.TYPE_INFO)
+        self.pill_total_due = BadgePill("Total Due: …", BadgePill.TYPE_WARNING)
         header_card.add_pill(self.pill_total_ledger)
         header_card.add_pill(self.pill_total_due)
         layout.addWidget(header_card)
@@ -166,9 +200,6 @@ class KhatooScreen(QWidget):
         self.search_timer.timeout.connect(self._run_search)
         self.txt_search.textChanged.connect(self._queue_search)
 
-        # Internal ledger IDs stay in Qt.UserRole instead of becoming visible
-        # columns. Avoiding hundreds of per-row QPushButtons also cuts creation,
-        # style, layout, and repaint overhead substantially on large ledgers.
         self.tbl_ledger = QTableWidget(0, 5)
         self.tbl_ledger.setHorizontalHeaderLabels(
             ["Customer", "Sale", "Paid", "Balance", "CNIC"]
@@ -191,14 +222,35 @@ class KhatooScreen(QWidget):
         self.refresh_all_data()
 
     def refresh_all_data(self):
-        records = _KHATOO_CONTROLLER.load(
-            self.txt_search.text().strip() if hasattr(self, "txt_search") else ""
+        term = self.txt_search.text().strip() if hasattr(self, "txt_search") else ""
+        self.pill_total_ledger.setText("Open Credits: …")
+        self.pill_total_due.setText("Total Due: …")
+
+        def load():
+            return _KHATOO_CONTROLLER.load(term), _KHATOO_CONTROLLER.summary()
+
+        self._tasks.run_latest(
+            "credit-snapshot",
+            load,
+            self._apply_credit_snapshot,
+            lambda _details: self._credit_load_failed(),
         )
+
+    def _apply_credit_snapshot(self, payload):
+        records, total_due = payload
+        records = list(records or [])
         self.populate_ledger_table(records)
         self.pill_total_ledger.setText(f"Open Credits: {len(records)}")
-        self.pill_total_due.setText(f"Total Due: Rs. {_KHATOO_CONTROLLER.summary():.2f}")
+        self.pill_total_due.setText(f"Total Due: Rs. {float(total_due):.2f}")
+
+    def _credit_load_failed(self):
+        self.pill_total_ledger.setText("Open Credits: unavailable")
+        self.pill_total_due.setText("Total Due: unavailable")
+        if self.show_message_box:
+            show_toast(self, "Could not load customer credit. Try again.", ToastType.WARNING)
 
     def populate_ledger_table(self, records):
+        self.tbl_ledger.blockSignals(True)
         self.tbl_ledger.setUpdatesEnabled(False)
         try:
             self.tbl_ledger.clearContents()
@@ -216,6 +268,7 @@ class KhatooScreen(QWidget):
                 self.tbl_ledger.setItem(row, 4, QTableWidgetItem(str(cnic)))
         finally:
             self.tbl_ledger.setUpdatesEnabled(True)
+            self.tbl_ledger.blockSignals(False)
         self._update_payment_action()
 
     def _selected_payment_context(self):
@@ -256,9 +309,22 @@ class KhatooScreen(QWidget):
         self.search_timer.start()
 
     def _run_search(self):
-        records = _KHATOO_CONTROLLER.load(self.txt_search.text().strip())
-        self.populate_ledger_table(records)
-        self.pill_total_ledger.setText(f"Open Credits: {len(records)}")
+        term = self.txt_search.text().strip()
+        self.pill_total_ledger.setText("Open Credits: …")
+
+        def complete(records):
+            if self.txt_search.text().strip() != term:
+                return
+            records = list(records or [])
+            self.populate_ledger_table(records)
+            self.pill_total_ledger.setText(f"Open Credits: {len(records)}")
+
+        self._tasks.run_latest(
+            "credit-search",
+            lambda: _KHATOO_CONTROLLER.load(term),
+            complete,
+            lambda _details: self.pill_total_ledger.setText("Open Credits: unavailable"),
+        )
 
     def on_search(self, text):
         self._queue_search(text)
