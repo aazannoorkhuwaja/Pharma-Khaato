@@ -9,6 +9,7 @@ from config import ApplicationSettings
 from controllers.application_controller import ApplicationController
 from ui.theme.theme_manager import ThemeManager
 from ui.app.main_window import MainWindow
+from ui.app.async_tasks import AsyncTaskRunner
 from ui.app.state.session_state import SessionState
 from ui.screens.first_run_wizard import FirstRunWizardDialog
 from ui.screens.login_screen import LoginDialog
@@ -86,7 +87,6 @@ def run_app():
         return 0
 
     current_user = SessionState.get_instance().current_user
-    health = app_controller.health()
     window = MainWindow()
 
     # The POS is already populated by its constructor, so mark that initial
@@ -141,10 +141,9 @@ def run_app():
         max_age_seconds=60.0,
     )
 
-    if health["db_connected"]:
-        window.status_bar.showMessage(f"Signed in: {current_user.get('username')} • Ready")
-    else:
-        window.status_bar.showMessage(f"Signed in: {current_user.get('username')} • System needs attention")
+    # Do not make a full SQLite integrity check part of the login critical path.
+    # Show the counter first, then update the status bar when diagnostics finish.
+    window.status_bar.showMessage(f"Signed in: {current_user.get('username')} • Ready")
 
     # MainWindow already read the active user once during construction. Avoid a
     # second session/shift query here; just navigate to the ready counter.
@@ -157,4 +156,23 @@ def run_app():
             min(900, max(600, int(area.height() * 0.90))),
         )
     window.show()
+
+    startup_tasks = AsyncTaskRunner(window)
+    window._startup_tasks = startup_tasks
+
+    def apply_health(health):
+        if health.get("db_connected") and health.get("db_integrity_ok"):
+            window.status_bar.showMessage(f"Signed in: {current_user.get('username')} • Ready")
+        else:
+            window.status_bar.showMessage(
+                f"Signed in: {current_user.get('username')} • System needs attention"
+            )
+
+    startup_tasks.run(
+        app_controller.health,
+        apply_health,
+        lambda _details: window.status_bar.showMessage(
+            f"Signed in: {current_user.get('username')} • System check unavailable"
+        ),
+    )
     return app.exec()
