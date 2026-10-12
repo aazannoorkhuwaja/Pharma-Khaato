@@ -7,6 +7,7 @@ from PySide6.QtCore import Qt
 
 from config import ApplicationSettings
 from controllers.application_controller import ApplicationController
+from core.logger import get_logger
 from ui.theme.theme_manager import ThemeManager
 from ui.app.main_window import MainWindow
 from ui.app.async_tasks import AsyncTaskRunner
@@ -14,6 +15,8 @@ from ui.app.state.session_state import SessionState
 from ui.screens.first_run_wizard import FirstRunWizardDialog
 from ui.screens.login_screen import LoginDialog
 from ui.screens.pos_screen import POSScreen
+
+logger = get_logger("PharmaKhaatoApplication")
 
 
 def _inventory_screen():
@@ -89,8 +92,6 @@ def run_app():
     current_user = SessionState.get_instance().current_user
     window = MainWindow()
 
-    # The POS is already populated by its constructor, so mark that initial
-    # snapshot current. Secondary workflows are lazy-created only when needed.
     window.router.register_screen(
         "pos",
         POSScreen(),
@@ -141,12 +142,9 @@ def run_app():
         max_age_seconds=60.0,
     )
 
-    # Do not make a full SQLite integrity check part of the login critical path.
-    # Show the counter first, then update the status bar when diagnostics finish.
+    # Show the counter before health/backup work. Slow disk/database checks must
+    # never be on the cashier's login critical path.
     window.status_bar.showMessage(f"Signed in: {current_user.get('username')} • Ready")
-
-    # MainWindow already read the active user once during construction. Avoid a
-    # second session/shift query here; just navigate to the ready counter.
     window.on_nav_clicked("pos")
     screen = window.screen() or app.primaryScreen()
     if screen is not None:
@@ -175,4 +173,20 @@ def run_app():
             f"Signed in: {current_user.get('username')} • System check unavailable"
         ),
     )
+
+    def create_daily_backup():
+        from core.backup_service import ensure_daily_backup
+        return ensure_daily_backup(retention=14)
+
+    def backup_finished(result):
+        ok, detail = result
+        if not ok:
+            logger.warning("Automatic daily backup was not created: %s", detail)
+
+    startup_tasks.run(
+        create_daily_backup,
+        backup_finished,
+        lambda details: logger.warning("Automatic daily backup task failed: %s", details),
+    )
+
     return app.exec()
