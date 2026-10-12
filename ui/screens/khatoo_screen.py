@@ -122,6 +122,8 @@ class RecordPaymentDialog(QDialog):
 
 
 class KhatooScreen(QWidget):
+    """Lightweight credit list: one action button, not one QWidget per row."""
+
     def __init__(self, parent=None, show_message_box: bool = True):
         super().__init__(parent)
         self.show_message_box = show_message_box
@@ -144,10 +146,19 @@ class KhatooScreen(QWidget):
         table_layout = table_card.layout()
         table_layout.setSpacing(12)
 
+        tools = QHBoxLayout()
         self.txt_search = QLineEdit()
         self.txt_search.setPlaceholderText("Search by customer name or CNIC")
         self.txt_search.setAccessibleName("Search customer credit")
-        table_layout.addWidget(self.txt_search)
+        tools.addWidget(self.txt_search, 1)
+
+        self.btn_record_payment = QPushButton("Record Payment")
+        self.btn_record_payment.setObjectName("primaryButton")
+        self.btn_record_payment.setEnabled(False)
+        self.btn_record_payment.setToolTip("Select a customer balance first")
+        self.btn_record_payment.clicked.connect(self.open_selected_payment)
+        tools.addWidget(self.btn_record_payment)
+        table_layout.addLayout(tools)
 
         self.search_timer = QTimer(self)
         self.search_timer.setSingleShot(True)
@@ -155,28 +166,34 @@ class KhatooScreen(QWidget):
         self.search_timer.timeout.connect(self._run_search)
         self.txt_search.textChanged.connect(self._queue_search)
 
-        self.tbl_ledger = QTableWidget(0, 7)
+        # Internal ledger IDs stay in Qt.UserRole instead of becoming visible
+        # columns. Avoiding hundreds of per-row QPushButtons also cuts creation,
+        # style, layout, and repaint overhead substantially on large ledgers.
+        self.tbl_ledger = QTableWidget(0, 5)
         self.tbl_ledger.setHorizontalHeaderLabels(
-            ["Ref #", "Customer", "Sale", "Paid", "Balance", "CNIC", "Payment"]
+            ["Customer", "Sale", "Paid", "Balance", "CNIC"]
         )
-        self.tbl_ledger.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.tbl_ledger.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.tbl_ledger.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.tbl_ledger.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tbl_ledger.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.tbl_ledger.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.tbl_ledger.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.tbl_ledger.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        self.tbl_ledger.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
-        polish_table(self.tbl_ledger, min_row_height=40)
+        polish_table(self.tbl_ledger, min_row_height=38)
         self.tbl_ledger.verticalHeader().setVisible(False)
         self.tbl_ledger.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tbl_ledger.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tbl_ledger.setSelectionMode(QTableWidget.SingleSelection)
+        self.tbl_ledger.itemSelectionChanged.connect(self._update_payment_action)
+        self.tbl_ledger.doubleClicked.connect(lambda *_: self.open_selected_payment())
         table_layout.addWidget(self.tbl_ledger, 1)
         layout.addWidget(table_card, 1)
 
         self.refresh_all_data()
 
     def refresh_all_data(self):
-        records = _KHATOO_CONTROLLER.load(self.txt_search.text().strip() if hasattr(self, "txt_search") else "")
+        records = _KHATOO_CONTROLLER.load(
+            self.txt_search.text().strip() if hasattr(self, "txt_search") else ""
+        )
         self.populate_ledger_table(records)
         self.pill_total_ledger.setText(f"Open Credits: {len(records)}")
         self.pill_total_due.setText(f"Total Due: Rs. {_KHATOO_CONTROLLER.summary():.2f}")
@@ -184,28 +201,56 @@ class KhatooScreen(QWidget):
     def populate_ledger_table(self, records):
         self.tbl_ledger.setUpdatesEnabled(False)
         try:
+            self.tbl_ledger.clearContents()
             self.tbl_ledger.setRowCount(len(records))
             for row, item in enumerate(records):
                 k_id, cust_name, purchase_id, amount_due, amount_paid, cnic = item
-                self.tbl_ledger.setItem(row, 0, QTableWidgetItem(str(k_id)))
-                self.tbl_ledger.setItem(row, 1, QTableWidgetItem(str(cust_name)))
-                self.tbl_ledger.setItem(row, 2, QTableWidgetItem(f"Sale #{purchase_id}"))
-                self.tbl_ledger.setItem(row, 3, QTableWidgetItem(f"Rs. {float(amount_paid):.2f}"))
-                self.tbl_ledger.setItem(row, 4, QTableWidgetItem(f"Rs. {float(amount_due):.2f}"))
-                self.tbl_ledger.setItem(row, 5, QTableWidgetItem(str(cnic)))
 
-                btn_pay = QPushButton("Pay")
-                btn_pay.setProperty("compact", True)
-                btn_pay.setProperty("accent", True)
-                btn_pay.setMaximumWidth(96)
-                btn_pay.setAccessibleName(f"Record payment for {cust_name}")
-                btn_pay.clicked.connect(
-                    lambda checked=False, kid=k_id, cname=cust_name, due=float(amount_due):
-                    self.open_record_payment_dialog(kid, cname, due)
-                )
-                self.tbl_ledger.setCellWidget(row, 6, btn_pay)
+                customer_item = QTableWidgetItem(str(cust_name))
+                customer_item.setData(Qt.ItemDataRole.UserRole, int(k_id))
+                customer_item.setData(Qt.ItemDataRole.UserRole + 1, float(amount_due))
+                self.tbl_ledger.setItem(row, 0, customer_item)
+                self.tbl_ledger.setItem(row, 1, QTableWidgetItem(f"Sale #{purchase_id}"))
+                self.tbl_ledger.setItem(row, 2, QTableWidgetItem(f"Rs. {float(amount_paid):.2f}"))
+                self.tbl_ledger.setItem(row, 3, QTableWidgetItem(f"Rs. {float(amount_due):.2f}"))
+                self.tbl_ledger.setItem(row, 4, QTableWidgetItem(str(cnic)))
         finally:
             self.tbl_ledger.setUpdatesEnabled(True)
+        self._update_payment_action()
+
+    def _selected_payment_context(self):
+        selected = self.tbl_ledger.selectionModel().selectedRows()
+        if not selected:
+            return None
+        row = selected[0].row()
+        customer_item = self.tbl_ledger.item(row, 0)
+        if customer_item is None:
+            return None
+        try:
+            return (
+                int(customer_item.data(Qt.ItemDataRole.UserRole)),
+                customer_item.text(),
+                float(customer_item.data(Qt.ItemDataRole.UserRole + 1)),
+            )
+        except (TypeError, ValueError):
+            return None
+
+    def _update_payment_action(self):
+        context = self._selected_payment_context()
+        enabled = context is not None
+        self.btn_record_payment.setEnabled(enabled)
+        self.btn_record_payment.setToolTip(
+            "Record a full or partial repayment for the selected balance"
+            if enabled
+            else "Select a customer balance first"
+        )
+
+    def open_selected_payment(self):
+        context = self._selected_payment_context()
+        if context is None:
+            show_toast(self, "Select a customer balance first.", ToastType.INFO)
+            return
+        self.open_record_payment_dialog(*context)
 
     def _queue_search(self, *_):
         self.search_timer.start()
