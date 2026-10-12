@@ -12,7 +12,7 @@ from typing import Callable, Iterable
 
 from PySide6.QtWidgets import QStackedWidget, QWidget
 
-from core.data_revision import snapshot
+from controllers.navigation_controller import NavigationController
 from core.logger import get_logger
 
 logger = get_logger("PharmaKhaatoRouter")
@@ -35,6 +35,10 @@ class AppRouter(QStackedWidget):
     @staticmethod
     def _clean_domains(domains: Iterable[str] | None) -> tuple[str, ...]:
         return tuple(sorted({str(item).strip().lower() for item in (domains or ()) if str(item).strip()}))
+
+    @staticmethod
+    def _revision_snapshot(domains):
+        return NavigationController.revision_snapshot(domains)
 
     def register_screen(
         self,
@@ -73,7 +77,7 @@ class AppRouter(QStackedWidget):
     def mark_screen_current(self, name: str) -> None:
         """Record that a screen currently reflects its declared data domains."""
         domains = self._screen_domains.get(name, ())
-        self._rendered_revisions[name] = snapshot(domains)
+        self._rendered_revisions[name] = self._revision_snapshot(domains)
         self._last_refresh_at[name] = perf_counter()
 
     def mark_current_screen_current(self) -> None:
@@ -90,7 +94,7 @@ class AppRouter(QStackedWidget):
             return True
 
         domains = self._screen_domains.get(name, ())
-        if snapshot(domains) != self._rendered_revisions.get(name):
+        if self._revision_snapshot(domains) != self._rendered_revisions.get(name):
             return True
 
         max_age = self._screen_max_age.get(name, 30.0)
