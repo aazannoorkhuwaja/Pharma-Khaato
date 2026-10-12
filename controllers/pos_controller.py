@@ -1,5 +1,5 @@
 from models import CustomerModel, InventoryModel, POSModel
-from core.data_revision import touch
+from core.data_revision import current, touch
 
 
 class POSController:
@@ -9,6 +9,8 @@ class POSController:
         self.pos = pos_model or POSModel()
         self.inventory = inventory_model or InventoryModel()
         self.customer = customer_model or CustomerModel()
+        self._tax_rate_cache = None
+        self._tax_settings_revision = None
 
     @staticmethod
     def _current_employee_id():
@@ -19,13 +21,37 @@ class POSController:
         except (TypeError, ValueError):
             return None
 
-    def search_products(self, term): return self.inventory.search_products(term.strip())
-    def product_by_barcode(self, barcode): return self.inventory.product_by_barcode(barcode.strip())
-    def search_customers(self, text): return self.customer.search(text.strip())
-    def customer_total_debt(self, cnic): return self.customer.total_debt(cnic)
-    def tax_rate(self): return self.pos.tax_rate()
-    def hold_sale(self, customer_id, employee_id, cart): return self.pos.hold_sale(customer_id, employee_id, cart)
-    def held_sales(self): return self.pos.held_sales(self._current_employee_id())
+    def search_products(self, term):
+        return self.inventory.search_products(term.strip())
+
+    def product_by_barcode(self, barcode):
+        return self.inventory.product_by_barcode(barcode.strip())
+
+    def search_customers(self, text):
+        return self.customer.search(text.strip())
+
+    def customer_total_debt(self, cnic):
+        return self.customer.total_debt(cnic)
+
+    def tax_rate(self):
+        """Return tax without re-reading Settings on every cart repaint.
+
+        Quantity, discount and cash-received edits can repaint the POS summary
+        many times per second. The tax rate only changes when Settings does, so
+        key the small in-memory cache to that revision instead of issuing SQL on
+        every repaint.
+        """
+        revision = current("settings")
+        if self._tax_rate_cache is None or self._tax_settings_revision != revision:
+            self._tax_rate_cache = self.pos.tax_rate()
+            self._tax_settings_revision = revision
+        return self._tax_rate_cache
+
+    def hold_sale(self, customer_id, employee_id, cart):
+        return self.pos.hold_sale(customer_id, employee_id, cart)
+
+    def held_sales(self):
+        return self.pos.held_sales(self._current_employee_id())
 
     def recall_sale(self, hold_id):
         employee_id = self._current_employee_id()
@@ -33,8 +59,11 @@ class POSController:
             return False, "Sign in again before resuming a held sale."
         return self.pos.recall_sale(hold_id, employee_id)
 
-    def active_session(self, employee_id): return self.pos.active_session(employee_id)
-    def checkout_request(self, **kwargs): return self.pos.checkout_request(**kwargs)
+    def active_session(self, employee_id):
+        return self.pos.active_session(employee_id)
+
+    def checkout_request(self, **kwargs):
+        return self.pos.checkout_request(**kwargs)
 
     def process_checkout(self, request):
         result = self.pos.process_checkout(request)
@@ -49,4 +78,5 @@ class POSController:
         return result
 
     @property
-    def discount_threshold_pct(self): return self.pos.discount_threshold_pct
+    def discount_threshold_pct(self):
+        return self.pos.discount_threshold_pct
