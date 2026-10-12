@@ -1,22 +1,20 @@
 import os
 import sqlite3
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, date
 from pathlib import Path
 
 from core.path_manager import PathManager
 from core.logger import get_logger
 
 logger = get_logger("PharmaKhaatoBackup")
+AUTO_BACKUP_PREFIX = "auto_pharmacy_db_backup"
 
 
 def _validate_sqlite_database(path: str) -> tuple[bool, str]:
     """Validate that a file is an intact SQLite database before trusting it."""
     try:
         uri = Path(path).resolve().as_uri() + "?mode=ro"
-        # sqlite3.Connection's context manager commits/rolls back but does not
-        # close the handle. That distinction matters on Windows, where an open
-        # handle prevents the verified .partial file from being renamed.
         with closing(sqlite3.connect(uri, uri=True)) as conn:
             row = conn.execute("PRAGMA quick_check;").fetchone()
         ok = bool(row and str(row[0]).lower() == "ok")
@@ -25,21 +23,20 @@ def _validate_sqlite_database(path: str) -> tuple[bool, str]:
         return False, str(exc)
 
 
-def backup_database():
+def backup_database(prefix="pharmacy_db_backup"):
     """Create an integrity-checked, timestamped online SQLite snapshot."""
     db_path = PathManager.get_db_path()
     if not os.path.exists(db_path):
         return False, "Database file does not exist."
 
+    safe_prefix = "".join(ch for ch in str(prefix) if ch.isalnum() or ch in "_-") or "pharmacy_db_backup"
     backup_dir = PathManager.get_backups_dir()
     os.makedirs(backup_dir, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    dest_path = os.path.join(backup_dir, f"pharmacy_db_backup_{ts}.sqlite")
+    dest_path = os.path.join(backup_dir, f"{safe_prefix}_{ts}.sqlite")
     temp_path = dest_path + ".partial"
 
     try:
-        # Explicitly close both handles before integrity checking/renaming.
-        # sqlite3's native context manager alone does not close connections.
         with closing(sqlite3.connect(db_path)) as src_conn:
             with closing(sqlite3.connect(temp_path)) as dst_conn:
                 src_conn.backup(dst_conn)
@@ -50,7 +47,7 @@ def backup_database():
             raise sqlite3.DatabaseError(f"Backup integrity check failed: {reason}")
 
         os.replace(temp_path, dest_path)
-        logger.info(f"Database snapshot successfully created: {dest_path}")
+        logger.info("Database snapshot successfully created: %s", dest_path)
         return True, dest_path
     except Exception as exc:
         try:
@@ -58,8 +55,51 @@ def backup_database():
                 os.remove(temp_path)
         except OSError:
             pass
-        logger.error(f"Database backup failed: {exc}")
+        logger.error("Database backup failed: %s", exc)
         return False, "Backup could not be created. Check the system details for more information."
+
+
+def ensure_daily_backup(retention=14):
+    """Create at most one automatic backup per local day and prune old autos.
+
+    Manual backups and pre-migration safety backups are never removed here.
+    """
+    try:
+        retention = max(3, min(int(retention), 90))
+    except (TypeError, ValueError):
+        retention = 14
+
+    backup_dir = PathManager.get_backups_dir()
+    os.makedirs(backup_dir, exist_ok=True)
+    today = date.today()
+
+    autos = []
+    for name in os.listdir(backup_dir):
+        if not (name.startswith(AUTO_BACKUP_PREFIX + "_") and name.endswith(".sqlite")):
+            continue
+        path = os.path.join(backup_dir, name)
+        try:
+            stat = os.stat(path)
+        except OSError:
+            continue
+        autos.append((stat.st_mtime, path))
+        if datetime.fromtimestamp(stat.st_mtime).date() == today:
+            valid, _reason = _validate_sqlite_database(path)
+            if valid:
+                return True, path
+
+    ok, result = backup_database(AUTO_BACKUP_PREFIX)
+    if not ok:
+        return False, result
+
+    autos.append((os.path.getmtime(result), result))
+    autos.sort(reverse=True)
+    for _mtime, old_path in autos[retention:]:
+        try:
+            os.remove(old_path)
+        except OSError as exc:
+            logger.warning("Could not prune automatic backup %s: %s", old_path, exc)
+    return True, result
 
 
 def create_db_backup():
@@ -97,7 +137,7 @@ def restore_database(backup_filepath):
 
     valid, reason = _validate_sqlite_database(backup_filepath)
     if not valid:
-        logger.warning(f"Rejected invalid backup '{backup_filepath}': {reason}")
+        logger.warning("Rejected invalid backup '%s': %s", backup_filepath, reason)
         return False, "This backup file is damaged or is not a valid Pharma-Khaato database."
 
     try:
@@ -115,12 +155,12 @@ def restore_database(backup_filepath):
 
         restored_ok, restored_reason = _validate_sqlite_database(db_path)
         if not restored_ok:
-            logger.error(f"Restored DB failed integrity check: {restored_reason}")
+            logger.error("Restored DB failed integrity check: %s", restored_reason)
             return False, f"Restore failed its integrity check. Safety backup: {safety_path}"
 
         reset_thread_connections()
-        logger.info(f"Database successfully restored from: {backup_filepath}")
+        logger.info("Database successfully restored from: %s", backup_filepath)
         return True, "Backup restored successfully."
     except Exception as exc:
-        logger.error(f"Database restore failed: {exc}")
+        logger.error("Database restore failed: %s", exc)
         return False, "Restore could not be completed. Your safety backup was kept."
