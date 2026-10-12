@@ -23,6 +23,8 @@ _TRANSLATION_CACHE = {}
 _THREAD_LOCAL = threading.local()
 _MIGRATED_PATHS = set()
 _MIGRATION_LOCK = threading.Lock()
+_SQLITE_BUSY_TIMEOUT_MS = 3000
+
 
 class UnifiedCursor:
     """Cursor wrapper that translates SQL syntax where necessary."""
@@ -58,13 +60,13 @@ class UnifiedCursor:
     def _translate_sql(self, sql):
         if sql in _TRANSLATION_CACHE:
             return _TRANSLATION_CACHE[sql]
-        
+
         translated = sql.replace("%s", "?")
         translated = translated.replace("CURDATE()", "DATE('now')")
         translated = translated.replace("DATE_ADD(DATE('now'), INTERVAL ? DAY)", "DATE('now', '+' || ? || ' days')")
         translated = translated.replace("DATE_ADD(CURDATE(), INTERVAL ? DAY)", "DATE('now', '+' || ? || ' days')")
         translated = translated.replace("FOR UPDATE", "")
-        
+
         _TRANSLATION_CACHE[sql] = translated
         return translated
 
@@ -102,14 +104,12 @@ class UnifiedConnection:
 
 
 def _get_sqlite_connection():
-    """Initializes and returns a long-lived thread-local SQLite database connection with performance PRAGMAs."""
+    """Initialize and return a long-lived thread-local SQLite connection."""
     db_path = PathManager.get_db_path()
 
-    # Reuse thread-local connection if active for the same db_path
     if hasattr(_THREAD_LOCAL, "sqlite_conn") and _THREAD_LOCAL.sqlite_conn is not None:
         if getattr(_THREAD_LOCAL, "sqlite_path", None) == db_path:
             try:
-                # Test connection Liveness
                 _THREAD_LOCAL.sqlite_conn.execute("SELECT 1")
                 return UnifiedConnection(_THREAD_LOCAL.sqlite_conn, is_sqlite=True, engine_type="SQLite")
             except (sqlite3.Error, OSError) as e:
@@ -118,16 +118,22 @@ def _get_sqlite_connection():
                 _THREAD_LOCAL.sqlite_path = None
 
     first_time = not os.path.exists(db_path)
-    conn = sqlite3.connect(db_path, check_same_thread=False)
-    
-    # High Performance PRAGMA tuning
+    conn = sqlite3.connect(
+        db_path,
+        check_same_thread=False,
+        timeout=_SQLITE_BUSY_TIMEOUT_MS / 1000.0,
+    )
+
+    # High-performance desktop settings. WAL keeps reads concurrent with normal
+    # writes; a short busy timeout avoids turning lock contention into a
+    # 15-second apparent application freeze.
     conn.execute("PRAGMA journal_mode = WAL;")
     conn.execute("PRAGMA synchronous = NORMAL;")
     conn.execute("PRAGMA cache_size = -64000;")  # 64MB memory cache
     conn.execute("PRAGMA temp_store = MEMORY;")
     conn.execute("PRAGMA foreign_keys = ON;")
-    conn.execute("PRAGMA busy_timeout = 15000;")
-    
+    conn.execute(f"PRAGMA busy_timeout = {_SQLITE_BUSY_TIMEOUT_MS};")
+
     if first_time:
         logger.info(f"Creating fresh SQLite embedded database at: {db_path}")
         schema_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schema_sqlite.sql")
@@ -136,8 +142,8 @@ def _get_sqlite_connection():
                 conn.executescript(f.read())
             conn.commit()
             logger.info("SQLite schema initialized successfully.")
-    
-    # Apply migrations ONCE per db_path process-wide to avoid overhead on every query
+
+    # Apply migrations once per database path process-wide.
     if db_path not in _MIGRATED_PATHS:
         with _MIGRATION_LOCK:
             if db_path not in _MIGRATED_PATHS:
@@ -151,15 +157,12 @@ def _get_sqlite_connection():
 
 
 def get_conn():
-    """
-    Main database connection factory.
-    Operates exclusively on local SQLite database in WAL mode.
-    """
+    """Main database connection factory for the local SQLite database."""
     return _get_sqlite_connection()
 
 
 def reset_thread_connections():
-    """Resets and closes all thread-local persistent database connections for safe backup/restore operations."""
+    """Reset the current thread's persistent SQLite connection."""
     if hasattr(_THREAD_LOCAL, "sqlite_conn") and _THREAD_LOCAL.sqlite_conn is not None:
         try:
             _THREAD_LOCAL.sqlite_conn.close()
@@ -171,21 +174,7 @@ def reset_thread_connections():
 
 @contextmanager
 def get_db():
-    """
-    Context manager for database access. Preferred entry point for all service functions.
-
-    Usage:
-        with get_db() as (conn, cur):
-            cur.execute(...)
-            return cur.fetchall()
-
-    Behaviour:
-        - Acquires a long-lived thread-safe connection via get_conn().
-        - Yields (UnifiedConnection, UnifiedCursor) to the caller.
-        - Calls conn.commit() on clean exit.
-        - Calls conn.rollback() if an exception is raised, then re-raises.
-        - Reuses long-lived thread connections across operations.
-    """
+    """Preferred transaction-aware database context manager."""
     conn = get_conn()
     if not conn:
         raise RuntimeError("Database connection unavailable.")
