@@ -33,11 +33,11 @@ def test_flow() -> int:
 
     from core.auth_service import login_user
     from core.cash_session_service import get_active_session, get_session_cash_summary
-    from core.credit_query_service import credit_snapshot
+    from core.credit_query_service import load_open_credit
     from core.inventory_service import search_products
     from core.readiness_service import run_readiness_checks
     from core.reports_service import get_daily_sales_report
-    from core.return_service import get_sale_for_return
+    from core.return_service import get_returnable_sale
 
     print("[1/7] Authentication")
     user = login_user(DEMO_ADMIN_USER, DEMO_ADMIN_PASSWORD)
@@ -57,9 +57,8 @@ def test_flow() -> int:
     assert cash["cash_credit_collections"] > 0, "Cash credit collection is missing"
 
     print("[4/7] Customer Credit history")
-    credit = credit_snapshot("", limit=100)
-    rows = credit.get("rows", []) if isinstance(credit, dict) else []
-    assert rows, "Demo customer-credit ledger is empty"
+    credit_rows = load_open_credit("", limit=100)
+    assert credit_rows, "Demo customer-credit ledger is empty"
 
     print("[5/7] Tender-aware reports")
     report = get_daily_sales_report()
@@ -67,7 +66,7 @@ def test_flow() -> int:
 
     print("[6/7] Return lookup")
     return_sale_id = summary["sale_ids"]["cash"]
-    sale = get_sale_for_return(return_sale_id)
+    sale = get_returnable_sale(return_sale_id)
     assert sale and sale.get("lines"), "A seeded sale cannot be loaded for Returns"
 
     print("[7/7] Launch self-check")
