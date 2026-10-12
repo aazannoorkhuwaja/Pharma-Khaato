@@ -17,6 +17,8 @@ class SystemHealthService:
             "backups_dir": PathManager.get_backups_dir(),
             "logs_dir": PathManager.get_logs_dir(),
             "wal_enabled": False,
+            "db_integrity_ok": False,
+            "free_space_mb": 0,
             "writable_directories": False,
             "issues": [],
         }
@@ -44,10 +46,25 @@ class SystemHealthService:
                 results["wal_enabled"] = bool(row and str(row[0]).lower() == "wal")
                 if not results["wal_enabled"]:
                     results["issues"].append("SQLite WAL mode disabled")
+                cur.execute("PRAGMA quick_check;")
+                check = cur.fetchone()
+                results["db_integrity_ok"] = bool(check and str(check[0]).lower() == "ok")
+                if not results["db_integrity_ok"]:
+                    results["issues"].append("Database integrity check failed")
             else:
                 results["wal_enabled"] = True
+                results["db_integrity_ok"] = True
             conn.close()
         except Exception as exc:
             results["issues"].append(f"Database error: {exc}")
+
+        try:
+            stat = os.statvfs(PathManager.get_base_data_dir())
+            results["free_space_mb"] = int((stat.f_bavail * stat.f_frsize) / (1024 * 1024))
+            if results["free_space_mb"] < 200:
+                results["issues"].append("Less than 200 MB free space is available for data and backups")
+        except (AttributeError, OSError):
+            # Windows does not expose statvfs; disk-space reporting is optional there.
+            pass
 
         return results

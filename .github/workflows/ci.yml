@@ -1,10 +1,14 @@
-name: CI Test Suite
+name: CI Quality Gate
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, develop-ui ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, develop-ui ]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -12,18 +16,28 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
+        python-version: ["3.12", "3.14"]
     runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python 3.12
+      - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Install Dependencies
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
-      - name: Run Core + MVC Test Suite
-        env:
-          QT_QPA_PLATFORM: offscreen
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Compile source
+        run: python -m compileall -q main.py controllers core models ui scripts
+      - name: Run UI source audit
+        run: python scripts/ui_audit.py
+      - name: Run test suite
         run: python -m pytest -q

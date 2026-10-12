@@ -1,39 +1,69 @@
 """
-Developer Helper Launcher — Pharma-Khaato
-Auto-detects virtual environments (proj, venv, .venv) for local CLI development.
+Developer launcher for Pharma-Khaato.
+
+One command bootstraps a private .venv when needed, installs dependencies when
+requirements change, and launches the application without touching system Python.
 """
 
+from __future__ import annotations
+
+import hashlib
 import os
-import sys
+from pathlib import Path
 import subprocess
-import platform
+import sys
+import venv
 
-IS_WINDOWS = platform.system() == "Windows"
+ROOT = Path(__file__).resolve().parents[1]
+VENV_DIR = ROOT / ".venv"
+REQUIREMENTS = ROOT / "requirements.txt"
+STAMP_FILE = VENV_DIR / ".pharma_requirements.sha256"
 
-def find_venv_python():
-    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    candidates = []
-    if IS_WINDOWS:
-        for name in ("venv", "proj", ".venv", "env"):
-            candidates.append(os.path.join(base, name, "Scripts", "python.exe"))
-    else:
-        for name in ("venv", "proj", ".venv", "env"):
-            candidates.append(os.path.join(base, name, "bin", "python3"))
-            candidates.append(os.path.join(base, name, "bin", "python"))
 
-    for path in candidates:
-        if os.path.isfile(path):
-            return path
-    return None
+def _venv_python() -> Path:
+    if os.name == "nt":
+        return VENV_DIR / "Scripts" / "python.exe"
+    return VENV_DIR / "bin" / "python"
 
-def main():
-    venv_py = find_venv_python()
-    main_py = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "main.py")
-    if venv_py and os.path.abspath(sys.executable) != os.path.abspath(venv_py):
-        print(f"Developer launcher using virtual environment: {venv_py}")
-        sys.exit(subprocess.call([venv_py, main_py] + sys.argv[1:]))
-    else:
-        sys.exit(subprocess.call([sys.executable, main_py] + sys.argv[1:]))
+
+def _requirements_digest() -> str:
+    return hashlib.sha256(REQUIREMENTS.read_bytes()).hexdigest()
+
+
+def _run(cmd: list[str]) -> None:
+    subprocess.run(cmd, cwd=ROOT, check=True)
+
+
+def ensure_environment() -> Path:
+    py = _venv_python()
+    if not py.exists():
+        print("[Pharma-Khaato] Creating local .venv...")
+        venv.EnvBuilder(with_pip=True, clear=False).create(VENV_DIR)
+
+    digest = _requirements_digest()
+    installed_digest = STAMP_FILE.read_text(encoding="utf-8").strip() if STAMP_FILE.exists() else ""
+
+    # Reinstall only on first bootstrap or when requirements.txt changes.
+    if digest != installed_digest:
+        print("[Pharma-Khaato] Installing/updating dependencies...")
+        _run([str(py), "-m", "pip", "install", "--upgrade", "pip"])
+        _run([str(py), "-m", "pip", "install", "-r", str(REQUIREMENTS)])
+        STAMP_FILE.write_text(digest, encoding="utf-8")
+
+    return py
+
+
+def main() -> int:
+    try:
+        py = ensure_environment()
+        return subprocess.call([str(py), str(ROOT / "main.py"), *sys.argv[1:]], cwd=ROOT)
+    except subprocess.CalledProcessError as exc:
+        print(f"[Pharma-Khaato] Setup failed with exit code {exc.returncode}.", file=sys.stderr)
+        return exc.returncode or 1
+    except Exception as exc:
+        print(f"[Pharma-Khaato] Could not start the development environment: {exc}", file=sys.stderr)
+        return 1
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
