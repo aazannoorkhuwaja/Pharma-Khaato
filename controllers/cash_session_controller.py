@@ -1,4 +1,5 @@
 from models import CashSessionModel
+from core.data_revision import touch
 
 
 class CashSessionController:
@@ -9,13 +10,22 @@ class CashSessionController:
         return self.model.active_session(employee_id)
 
     def open_session(self, employee_id, opening_cash):
-        return self.model.open_session(employee_id, opening_cash)
+        result = self.model.open_session(employee_id, opening_cash)
+        if isinstance(result, tuple) and result and result[0]:
+            touch("cash", "reports")
+        return result
 
     def close_session(self, session_id, actual_cash, notes):
-        return self.model.close_session(session_id, actual_cash, notes)
+        result = self.model.close_session(session_id, actual_cash, notes)
+        if isinstance(result, tuple) and result and result[0]:
+            touch("cash", "reports")
+        return result
 
     def record_movement(self, session_id, employee_id, movement_type, amount, reason):
-        return self.model.record_movement(session_id, employee_id, movement_type, amount, reason)
+        result = self.model.record_movement(session_id, employee_id, movement_type, amount, reason)
+        if isinstance(result, tuple) and result and result[0]:
+            touch("cash", "reports")
+        return result
 
     def expected_cash(self, session_id):
         return self.model.expected_cash(session_id)
