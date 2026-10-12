@@ -11,6 +11,7 @@ from ui.widgets.card import Card
 from ui.widgets.badge_pill import BadgePill
 from ui.widgets.screen_header import ScreenHeader
 from ui.widgets.toast import ToastType, show_toast
+from ui.app.async_tasks import AsyncTaskRunner
 from ui.app.state.session_state import SessionState
 from ui.widgets.table_polish import polish_table
 from ui.widgets.responsive import configure_dialog
@@ -24,6 +25,8 @@ class OpenSessionDialog(QDialog):
     def __init__(self, employee_id: int, parent=None):
         super().__init__(parent)
         self.employee_id = employee_id
+        self._tasks = AsyncTaskRunner(self)
+        self._saving = False
         self.setWindowTitle("Start Cash Shift")
         configure_dialog(self, 480, 320, minimum_width=390, minimum_height=270)
 
@@ -48,23 +51,48 @@ class OpenSessionDialog(QDialog):
         layout.addLayout(form)
 
         row = QHBoxLayout()
-        cancel = QPushButton("Cancel")
-        cancel.clicked.connect(self.reject)
-        start = QPushButton("Start Shift")
-        start.setObjectName("primaryButton")
-        start.clicked.connect(self.on_open)
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self.reject)
+        self.btn_start = QPushButton("Start Shift")
+        self.btn_start.setObjectName("primaryButton")
+        self.btn_start.clicked.connect(self.on_open)
         row.addStretch()
-        row.addWidget(cancel)
-        row.addWidget(start)
+        row.addWidget(self.btn_cancel)
+        row.addWidget(self.btn_start)
         layout.addLayout(row)
 
     def on_open(self):
-        ok, result = _CASH_CONTROLLER.open_session(self.employee_id, self.spn_opening.value())
+        if self._saving:
+            return
+        opening_cash = self.spn_opening.value()
+        self._saving = True
+        self.btn_start.setEnabled(False)
+        self.btn_cancel.setEnabled(False)
+        self.btn_start.setText("Starting…")
+        self._tasks.run(
+            lambda: _CASH_CONTROLLER.open_session(self.employee_id, opening_cash),
+            self._open_complete,
+            lambda _details: self._open_failed(),
+        )
+
+    def _open_complete(self, result):
+        self._saving = False
+        ok, value = result
         if ok:
             show_toast(self.parent() or self, "Cash shift started.", ToastType.SUCCESS)
             self.accept()
-        else:
-            QMessageBox.critical(self, "Could Not Start Shift", str(result))
+            return
+        self.btn_start.setText("Start Shift")
+        self.btn_start.setEnabled(True)
+        self.btn_cancel.setEnabled(True)
+        QMessageBox.critical(self, "Could Not Start Shift", str(value))
+
+    def _open_failed(self):
+        self._saving = False
+        self.btn_start.setText("Start Shift")
+        self.btn_start.setEnabled(True)
+        self.btn_cancel.setEnabled(True)
+        QMessageBox.critical(self, "Could Not Start Shift", "The shift could not be started. Try again.")
 
 
 class RecordMovementDialog(QDialog):
@@ -72,6 +100,8 @@ class RecordMovementDialog(QDialog):
         super().__init__(parent)
         self.session_id = session_id
         self.employee_id = employee_id
+        self._tasks = AsyncTaskRunner(self)
+        self._saving = False
         self.setWindowTitle("Add / Remove Cash")
         configure_dialog(self, 520, 390, minimum_width=410, minimum_height=320)
 
@@ -106,33 +136,58 @@ class RecordMovementDialog(QDialog):
         layout.addLayout(form)
 
         row = QHBoxLayout()
-        cancel = QPushButton("Cancel")
-        cancel.clicked.connect(self.reject)
-        save = QPushButton("Save Cash Entry")
-        save.setObjectName("primaryButton")
-        save.clicked.connect(self.on_save)
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self.reject)
+        self.btn_save = QPushButton("Save Cash Entry")
+        self.btn_save.setObjectName("primaryButton")
+        self.btn_save.clicked.connect(self.on_save)
         row.addStretch()
-        row.addWidget(cancel)
-        row.addWidget(save)
+        row.addWidget(self.btn_cancel)
+        row.addWidget(self.btn_save)
         layout.addLayout(row)
 
     def on_save(self):
+        if self._saving:
+            return
         reason = self.txt_reason.text().strip()
         if not reason:
             show_toast(self, "Add a short note explaining this cash entry.", ToastType.WARNING)
             return
-        ok, msg = _CASH_CONTROLLER.record_movement(
+        args = (
             self.session_id,
             self.employee_id,
             self.cmb_type.currentData() or self.cmb_type.currentText(),
             self.spn_amount.value(),
             reason,
         )
+        self._saving = True
+        self.btn_save.setEnabled(False)
+        self.btn_cancel.setEnabled(False)
+        self.btn_save.setText("Saving…")
+        self._tasks.run(
+            lambda: _CASH_CONTROLLER.record_movement(*args),
+            self._save_complete,
+            lambda _details: self._save_failed(),
+        )
+
+    def _save_complete(self, result):
+        self._saving = False
+        ok, msg = result
         if ok:
             show_toast(self.parent() or self, msg, ToastType.SUCCESS)
             self.accept()
-        else:
-            QMessageBox.critical(self, "Could Not Save Cash Entry", msg)
+            return
+        self.btn_save.setText("Save Cash Entry")
+        self.btn_save.setEnabled(True)
+        self.btn_cancel.setEnabled(True)
+        QMessageBox.critical(self, "Could Not Save Cash Entry", msg)
+
+    def _save_failed(self):
+        self._saving = False
+        self.btn_save.setText("Save Cash Entry")
+        self.btn_save.setEnabled(True)
+        self.btn_cancel.setEnabled(True)
+        QMessageBox.critical(self, "Could Not Save Cash Entry", "The cash entry could not be saved. Try again.")
 
 
 class CloseSessionDialog(QDialog):
@@ -140,6 +195,8 @@ class CloseSessionDialog(QDialog):
         super().__init__(parent)
         self.session_id = session_id
         self.expected_cash = expected_cash
+        self._tasks = AsyncTaskRunner(self)
+        self._saving = False
         self.setWindowTitle("Close Cash Shift")
         configure_dialog(self, 540, 420, minimum_width=420, minimum_height=340)
 
@@ -171,14 +228,14 @@ class CloseSessionDialog(QDialog):
         self.update_discrepancy_label(self.spn_actual.value())
 
         row = QHBoxLayout()
-        cancel = QPushButton("Cancel")
-        cancel.clicked.connect(self.reject)
-        close = QPushButton("Close Shift")
-        close.setObjectName("dangerButton")
-        close.clicked.connect(self.on_close)
+        self.btn_cancel = QPushButton("Cancel")
+        self.btn_cancel.clicked.connect(self.reject)
+        self.btn_close = QPushButton("Close Shift")
+        self.btn_close.setObjectName("dangerButton")
+        self.btn_close.clicked.connect(self.on_close)
         row.addStretch()
-        row.addWidget(cancel)
-        row.addWidget(close)
+        row.addWidget(self.btn_cancel)
+        row.addWidget(self.btn_close)
         layout.addLayout(row)
 
     def update_discrepancy_label(self, value):
@@ -194,16 +251,38 @@ class CloseSessionDialog(QDialog):
             self.lbl_disc.setStyleSheet(f"font-weight: 700; color: {ThemeTokens.DANGER};")
 
     def on_close(self):
-        ok, result = _CASH_CONTROLLER.close_session(
-            self.session_id,
-            self.spn_actual.value(),
-            self.txt_notes.text().strip() or "Standard shift close",
+        if self._saving:
+            return
+        actual = self.spn_actual.value()
+        notes = self.txt_notes.text().strip() or "Standard shift close"
+        self._saving = True
+        self.btn_close.setEnabled(False)
+        self.btn_cancel.setEnabled(False)
+        self.btn_close.setText("Closing…")
+        self._tasks.run(
+            lambda: _CASH_CONTROLLER.close_session(self.session_id, actual, notes),
+            self._close_complete,
+            lambda _details: self._close_failed(),
         )
+
+    def _close_complete(self, result):
+        self._saving = False
+        ok, value = result
         if ok:
             show_toast(self.parent() or self, "Cash shift closed.", ToastType.SUCCESS)
             self.accept()
-        else:
-            QMessageBox.critical(self, "Could Not Close Shift", str(result))
+            return
+        self.btn_close.setText("Close Shift")
+        self.btn_close.setEnabled(True)
+        self.btn_cancel.setEnabled(True)
+        QMessageBox.critical(self, "Could Not Close Shift", str(value))
+
+    def _close_failed(self):
+        self._saving = False
+        self.btn_close.setText("Close Shift")
+        self.btn_close.setEnabled(True)
+        self.btn_cancel.setEnabled(True)
+        QMessageBox.critical(self, "Could Not Close Shift", "The shift could not be closed. Try again.")
 
 
 class CashSessionScreen(QWidget):
@@ -211,6 +290,8 @@ class CashSessionScreen(QWidget):
         super().__init__(parent)
         self.show_message_box = show_message_box
         self.active_session = None
+        self._current_summary = {}
+        self._tasks = AsyncTaskRunner(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -220,14 +301,14 @@ class CashSessionScreen(QWidget):
             "Shift & Cash",
             "Track only physical drawer cash. Card and wallet payments stay outside the till."
         )
-        self.pill_status = BadgePill("Shift Closed", BadgePill.TYPE_DANGER)
+        self.pill_status = BadgePill("Checking Shift", BadgePill.TYPE_INFO)
         header.add_pill(self.pill_status)
         layout.addWidget(header)
 
         control = Card()
         control_layout = control.layout()
         control_layout.setSpacing(10)
-        self.lbl_session_info = QLabel("Checking shift status...")
+        self.lbl_session_info = QLabel("Checking shift status…")
         self.lbl_session_info.setWordWrap(True)
         control_layout.addWidget(self.lbl_session_info)
 
@@ -273,9 +354,33 @@ class CashSessionScreen(QWidget):
 
     def refresh_all_data(self):
         emp_id = self.get_current_employee_id()
-        self.active_session = _CASH_CONTROLLER.active_session(emp_id)
+        self.pill_status.setText("Checking Shift")
+        self.pill_status.set_pill_type(BadgePill.TYPE_INFO)
+        self.lbl_session_info.setText("Updating drawer totals…")
+
+        def load():
+            session = _CASH_CONTROLLER.active_session(emp_id)
+            if not session:
+                return None, {}, []
+            session_id = session["id"]
+            return (
+                session,
+                _CASH_CONTROLLER.cash_summary(session_id) or {},
+                _CASH_CONTROLLER.session_movements(session_id, 50),
+            )
+
+        self._tasks.run_latest(
+            "cash-snapshot",
+            load,
+            self._apply_cash_snapshot,
+            lambda _details: self._cash_load_failed(),
+        )
+
+    def _apply_cash_snapshot(self, payload):
+        session, summary, rows = payload
+        self.active_session = session
+        self._current_summary = summary or {}
         if self.active_session:
-            summary = _CASH_CONTROLLER.cash_summary(self.active_session["id"]) or {}
             self.pill_status.setText("Shift Open")
             self.pill_status.set_pill_type(BadgePill.TYPE_SUCCESS)
             self.lbl_session_info.setText(
@@ -298,26 +403,29 @@ class CashSessionScreen(QWidget):
             self.btn_open_session.show()
             self.btn_add_movement.hide()
             self.btn_close_session.hide()
-        self.populate_movements_table()
+        self.populate_movements_table(rows or [])
 
-    def populate_movements_table(self):
-        current_id = self.active_session["id"] if self.active_session else None
+    def _cash_load_failed(self):
+        self.pill_status.setText("Could Not Check")
+        self.pill_status.set_pill_type(BadgePill.TYPE_DANGER)
+        self.lbl_session_info.setText("Could not read the current cash shift. Try again.")
+        self.tbl_movements.setRowCount(0)
+
+    def populate_movements_table(self, rows=None):
+        rows = list(rows or [])
+        self.tbl_movements.setUpdatesEnabled(False)
         try:
-            rows = _CASH_CONTROLLER.recent_movements(100)
-            if current_id is not None:
-                rows = [item for item in rows if int(item[1]) == int(current_id)][:50]
-            else:
-                rows = []
-            self.tbl_movements.setUpdatesEnabled(False)
             self.tbl_movements.setRowCount(len(rows))
             for row, item in enumerate(rows):
                 _movement_id, _session_id, movement_type, amount, reason, timestamp = item
-                self.tbl_movements.setItem(row, 0, QTableWidgetItem(CASH_MOVEMENT_LABELS.get(str(movement_type), str(movement_type))))
+                self.tbl_movements.setItem(
+                    row,
+                    0,
+                    QTableWidgetItem(CASH_MOVEMENT_LABELS.get(str(movement_type), str(movement_type))),
+                )
                 self.tbl_movements.setItem(row, 1, QTableWidgetItem(f"Rs. {float(amount):.2f}"))
                 self.tbl_movements.setItem(row, 2, QTableWidgetItem(str(reason)))
                 self.tbl_movements.setItem(row, 3, QTableWidgetItem(str(timestamp)))
-        except Exception:
-            self.tbl_movements.setRowCount(0)
         finally:
             self.tbl_movements.setUpdatesEnabled(True)
 
@@ -330,18 +438,16 @@ class CashSessionScreen(QWidget):
         if not self.active_session:
             show_toast(self, "Start a shift before recording drawer cash.", ToastType.WARNING)
             return
-        dialog = RecordMovementDialog(self.active_session["id"], self.get_current_employee_id(), self)
+        dialog = RecordMovementDialog(
+            self.active_session["id"], self.get_current_employee_id(), self
+        )
         if dialog.exec() == QDialog.Accepted:
             self.refresh_all_data()
 
     def close_current_session(self):
         if not self.active_session:
             return
-        summary = _CASH_CONTROLLER.cash_summary(self.active_session["id"]) or {}
-        dialog = CloseSessionDialog(
-            self.active_session["id"],
-            float(summary.get("expected_cash", 0.0)),
-            self,
-        )
+        expected_cash = float(self._current_summary.get("expected_cash", 0.0))
+        dialog = CloseSessionDialog(self.active_session["id"], expected_cash, self)
         if dialog.exec() == QDialog.Accepted:
             self.refresh_all_data()
