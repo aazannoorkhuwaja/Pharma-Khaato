@@ -6,6 +6,14 @@ on:
     tags:
       - "v*"
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  QT_QPA_PLATFORM: offscreen
+  PYTHONUTF8: "1"
+
 jobs:
   build:
     strategy:
@@ -15,22 +23,56 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Linux Qt runtime libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
-      - name: Test
-        env:
-          QT_QPA_PLATFORM: offscreen
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Validate tag/version consistency
+        run: python -c "import os; from config import ApplicationSettings as A; tag=os.getenv('GITHUB_REF_NAME',''); assert not tag.startswith('v') or tag == 'v' + A.APP_VERSION, f'Tag {tag} does not match app version v{A.APP_VERSION}'"
+
+      - name: Compile source
+        run: python -m compileall -q main.py controllers core models ui scripts
+
+      - name: UI source audit
+        run: python scripts/ui_audit.py
+
+      - name: Full test suite
         run: python -m pytest -q
-      - name: Build native package
+
+      - name: Installed-runtime source self-check
+        env:
+          PHARMA_KHAATO_DATA_DIR: ${{ runner.temp }}/pharma-khaato-release-check
+        run: python main.py --self-check --headless
+
+      - name: Complete demo preflight
+        run: python scripts/demo_mode.py --no-launch
+
+      - name: Build native package and checksum
         run: python scripts/build_release.py
+
+      - name: Smoke-test packaged executable
+        run: python scripts/smoke_packaged.py
+
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
           name: pharma-khaato-${{ runner.os }}
           path: release/*
           if-no-files-found: error
+          retention-days: 30
