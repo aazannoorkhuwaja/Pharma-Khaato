@@ -12,7 +12,7 @@ def test_navigation_uses_task_language_and_has_help_text():
     labels = [item.label for item in NAV_ITEMS]
     assert labels == [
         "New Sale", "Customers", "Customer Credit", "Stock & Products",
-        "Shift & Cash", "Reports", "Settings",
+        "Shift & Cash", "Reports", "Settings", "Returns & Refunds",
     ]
     assert all(item.help_text.strip() for item in NAV_ITEMS)
     assert all(item.shortcut.startswith("Alt+") for item in NAV_ITEMS)
