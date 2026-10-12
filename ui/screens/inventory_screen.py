@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox, QDateEdit, QTabWidget, QDialog, QFormLayout,
     QCheckBox, QMessageBox
 )
-from PySide6.QtCore import QDate
+from PySide6.QtCore import QDate, QTimer, Qt
 
 from ui.theme.tokens import ThemeTokens
 from ui.widgets.card import Card
@@ -198,11 +198,16 @@ class AddSupplierDialog(QDialog):
 
 
 class InventoryScreen(QWidget):
+    """Inventory UI optimized to avoid loading hidden tabs and row widgets."""
+
     def __init__(self, parent=None, show_message_box: bool = True):
         super().__init__(parent)
         self.show_message_box = show_message_box
         self.all_products_raw = []
         self._low_stock_names = set()
+        self._low_stock_raw = []
+        self._near_expiry_raw = []
+        self._intake_loaded = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -235,11 +240,16 @@ class InventoryScreen(QWidget):
         self.setup_alerts_tab()
         self.tabs.addTab(self.tab_alerts, "Stock Alerts")
 
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self.tabs, 1)
-        self.refresh_all_data()
+
+        # The default Products view only loads catalog + alert counts. The
+        # heavier batch/supplier table is deferred until Add Stock is opened.
+        self.refresh_catalog_data()
 
     def on_screen_show(self):
-        self.refresh_all_data()
+        self.refresh_catalog_data()
+        self._refresh_visible_tab()
 
     def setup_catalog_tab(self):
         layout = QVBoxLayout(self.tab_catalog)
@@ -250,29 +260,42 @@ class InventoryScreen(QWidget):
         self.txt_catalog_search = QLineEdit()
         self.txt_catalog_search.setPlaceholderText("Search by product, formula, or barcode")
         self.txt_catalog_search.setAccessibleName("Search stock and products")
-        self.txt_catalog_search.textChanged.connect(self.on_filter_catalog)
+
+        self.catalog_search_timer = QTimer(self)
+        self.catalog_search_timer.setSingleShot(True)
+        self.catalog_search_timer.setInterval(160)
+        self.catalog_search_timer.timeout.connect(self._run_catalog_filter)
+        self.txt_catalog_search.textChanged.connect(self._queue_catalog_filter)
+
+        self.btn_selected_stock = QPushButton("Add Stock")
+        self.btn_selected_stock.setEnabled(False)
+        self.btn_selected_stock.setToolTip("Select a product first")
+        self.btn_selected_stock.clicked.connect(self.quick_intake_selected)
 
         self.btn_add_prod = QPushButton("Add Product")
         self.btn_add_prod.setObjectName("primaryButton")
         self.btn_add_prod.clicked.connect(self.open_add_product_dialog)
 
         bar.addWidget(self.txt_catalog_search, 1)
+        bar.addWidget(self.btn_selected_stock)
         bar.addWidget(self.btn_add_prod)
         layout.addLayout(bar)
 
-        self.tbl_products = QTableWidget(0, 5)
+        self.tbl_products = QTableWidget(0, 4)
         self.tbl_products.setHorizontalHeaderLabels(
-            ["Product", "Price", "In Stock", "Status", "Action"]
+            ["Product", "Price", "In Stock", "Status"]
         )
         self.tbl_products.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tbl_products.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tbl_products.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.tbl_products.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.tbl_products.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        polish_table(self.tbl_products, min_row_height=40)
+        polish_table(self.tbl_products, min_row_height=38)
         self.tbl_products.verticalHeader().setVisible(False)
         self.tbl_products.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tbl_products.setSelectionBehavior(QTableWidget.SelectRows)
+        self.tbl_products.setSelectionMode(QTableWidget.SingleSelection)
+        self.tbl_products.itemSelectionChanged.connect(self._update_catalog_actions)
+        self.tbl_products.doubleClicked.connect(lambda *_: self.quick_intake_selected())
         layout.addWidget(self.tbl_products, 1)
 
     def setup_intake_tab(self):
@@ -328,7 +351,7 @@ class InventoryScreen(QWidget):
 
         list_card = Card()
         list_layout = list_card.layout()
-        list_title = QLabel("Current Stock by Expiry")
+        list_title = QLabel("Current Stock by Expiry (nearest 300 batches)")
         list_title.setStyleSheet(f"font-weight: 700; color: {ThemeTokens.TEXT_PRIMARY};")
         list_layout.addWidget(list_title)
 
@@ -382,12 +405,24 @@ class InventoryScreen(QWidget):
         self.tbl_low_stock.verticalHeader().setVisible(False)
         layout.addWidget(self.tbl_low_stock, 1)
 
-    def refresh_all_data(self):
+    def _on_tab_changed(self, _index):
+        self._refresh_visible_tab()
+
+    def _refresh_visible_tab(self):
+        index = self.tabs.currentIndex()
+        if index == 1 and not self._intake_loaded:
+            self._load_intake_data()
+        elif index == 2:
+            self.populate_alerts_tables(self._near_expiry_raw, self._low_stock_raw)
+
+    def refresh_catalog_data(self):
         products = _INVENTORY_CONTROLLER.products()
         low_stock = _INVENTORY_CONTROLLER.low_stock()
         near_expiry = _INVENTORY_CONTROLLER.near_expiry(30)
 
         self.all_products_raw = list(products)
+        self._low_stock_raw = list(low_stock)
+        self._near_expiry_raw = list(near_expiry)
         self._low_stock_names = {str(item[0]) for item in low_stock}
         self.populate_catalog_table(self.all_products_raw)
 
@@ -395,9 +430,28 @@ class InventoryScreen(QWidget):
         self.pill_low_stock.setText(f"Low Stock: {len(low_stock)}")
         self.pill_near_expiry.setText(f"Expiring Soon: {len(near_expiry)}")
 
+        # Product master changes make the intake combo stale, but do not load
+        # supplier/batch data until the Add Stock tab is actually opened.
+        self._intake_loaded = False
+
+    def refresh_all_data(self):
+        self.refresh_catalog_data()
+        self._refresh_visible_tab()
+
+    def _sync_product_combo(self):
+        selected_id = self.cmb_intake_prod.currentData()
+        self.cmb_intake_prod.blockSignals(True)
         self.cmb_intake_prod.clear()
-        for product_id, product_name, _price, _stock in products:
+        for product_id, product_name, _price, _stock in self.all_products_raw:
             self.cmb_intake_prod.addItem(str(product_name), product_id)
+        if selected_id is not None:
+            index = self.cmb_intake_prod.findData(selected_id)
+            if index >= 0:
+                self.cmb_intake_prod.setCurrentIndex(index)
+        self.cmb_intake_prod.blockSignals(False)
+
+    def _load_intake_data(self):
+        self._sync_product_combo()
 
         suppliers = _INVENTORY_CONTROLLER.suppliers()
         self.cmb_intake_supp.clear()
@@ -408,71 +462,82 @@ class InventoryScreen(QWidget):
                     label = f"{supplier_name} — {company_name}"
                 self.cmb_intake_supp.addItem(label, supplier_id)
             self.cmb_intake_supp.setEnabled(True)
-            self.btn_submit_intake.setEnabled(bool(products))
+            self.btn_submit_intake.setEnabled(bool(self.all_products_raw))
         else:
             self.cmb_intake_supp.addItem("Add a supplier first", None)
             self.cmb_intake_supp.setEnabled(False)
             self.btn_submit_intake.setEnabled(False)
 
-        self.populate_batches_table(_INVENTORY_CONTROLLER.active_batches())
-        self.populate_alerts_tables(near_expiry, low_stock)
+        self.populate_batches_table(_INVENTORY_CONTROLLER.active_batches(300))
+        self._intake_loaded = True
 
     def populate_catalog_table(self, products):
-        self.tbl_products.setRowCount(len(products))
-        for row, item in enumerate(products):
-            product_id, product_name, price, stock = item
-            product_name = str(product_name)
-            stock = int(stock or 0)
+        self.tbl_products.setUpdatesEnabled(False)
+        try:
+            self.tbl_products.clearContents()
+            self.tbl_products.setRowCount(len(products))
+            for row, item in enumerate(products):
+                product_id, product_name, price, stock = item
+                product_name = str(product_name)
+                stock = int(stock or 0)
 
-            self.tbl_products.setItem(row, 0, QTableWidgetItem(product_name))
-            self.tbl_products.setItem(row, 1, QTableWidgetItem(f"Rs. {float(price):.2f}"))
-            self.tbl_products.setItem(row, 2, QTableWidgetItem(str(stock)))
+                product_item = QTableWidgetItem(product_name)
+                product_item.setData(Qt.ItemDataRole.UserRole, product_id)
+                self.tbl_products.setItem(row, 0, product_item)
+                self.tbl_products.setItem(row, 1, QTableWidgetItem(f"Rs. {float(price):.2f}"))
+                self.tbl_products.setItem(row, 2, QTableWidgetItem(str(stock)))
 
-            if stock <= 0:
-                status = "Out of Stock"
-            elif product_name in self._low_stock_names:
-                status = "Low Stock"
-            else:
-                status = "In Stock"
-            self.tbl_products.setItem(row, 3, QTableWidgetItem(status))
-
-            button = QPushButton("Add Stock")
-            button.setProperty("compact", True)
-            button.setMinimumWidth(88)
-            button.setMaximumWidth(104)
-            button.setAccessibleName(f"Add stock for {product_name}")
-            button.clicked.connect(
-                lambda checked=False, pid=product_id: self.quick_intake_for_product(pid)
-            )
-            self.tbl_products.setCellWidget(row, 4, button)
+                if stock <= 0:
+                    status = "Out of Stock"
+                elif product_name in self._low_stock_names:
+                    status = "Low Stock"
+                else:
+                    status = "In Stock"
+                self.tbl_products.setItem(row, 3, QTableWidgetItem(status))
+        finally:
+            self.tbl_products.setUpdatesEnabled(True)
+        self._update_catalog_actions()
 
     def populate_batches_table(self, batches):
-        self.tbl_batches.setRowCount(len(batches))
-        for row, item in enumerate(batches):
-            _batch_id, product_name, supplier_name, quantity, expiry = item
-            self.tbl_batches.setItem(row, 0, QTableWidgetItem(str(product_name)))
-            self.tbl_batches.setItem(row, 1, QTableWidgetItem(str(supplier_name)))
-            self.tbl_batches.setItem(row, 2, QTableWidgetItem(str(quantity)))
-            self.tbl_batches.setItem(row, 3, QTableWidgetItem(str(expiry)))
+        self.tbl_batches.setUpdatesEnabled(False)
+        try:
+            self.tbl_batches.setRowCount(len(batches))
+            for row, item in enumerate(batches):
+                _batch_id, product_name, supplier_name, quantity, expiry = item
+                self.tbl_batches.setItem(row, 0, QTableWidgetItem(str(product_name)))
+                self.tbl_batches.setItem(row, 1, QTableWidgetItem(str(supplier_name)))
+                self.tbl_batches.setItem(row, 2, QTableWidgetItem(str(quantity)))
+                self.tbl_batches.setItem(row, 3, QTableWidgetItem(str(expiry)))
+        finally:
+            self.tbl_batches.setUpdatesEnabled(True)
 
     def populate_alerts_tables(self, near_expiry, low_stock):
-        self.tbl_near_expiry.setRowCount(len(near_expiry))
-        for row, item in enumerate(near_expiry):
-            _batch_id, product_name, supplier_name, quantity, expiry = item
-            self.tbl_near_expiry.setItem(row, 0, QTableWidgetItem(str(product_name)))
-            self.tbl_near_expiry.setItem(row, 1, QTableWidgetItem(str(supplier_name)))
-            self.tbl_near_expiry.setItem(row, 2, QTableWidgetItem(str(quantity)))
-            self.tbl_near_expiry.setItem(row, 3, QTableWidgetItem(str(expiry)))
+        self.tbl_near_expiry.setUpdatesEnabled(False)
+        self.tbl_low_stock.setUpdatesEnabled(False)
+        try:
+            self.tbl_near_expiry.setRowCount(len(near_expiry))
+            for row, item in enumerate(near_expiry):
+                _batch_id, product_name, supplier_name, quantity, expiry = item
+                self.tbl_near_expiry.setItem(row, 0, QTableWidgetItem(str(product_name)))
+                self.tbl_near_expiry.setItem(row, 1, QTableWidgetItem(str(supplier_name)))
+                self.tbl_near_expiry.setItem(row, 2, QTableWidgetItem(str(quantity)))
+                self.tbl_near_expiry.setItem(row, 3, QTableWidgetItem(str(expiry)))
 
-        self.tbl_low_stock.setRowCount(len(low_stock))
-        for row, item in enumerate(low_stock):
-            product_name, quantity, alert_level = item
-            self.tbl_low_stock.setItem(row, 0, QTableWidgetItem(str(product_name)))
-            self.tbl_low_stock.setItem(row, 1, QTableWidgetItem(str(quantity)))
-            self.tbl_low_stock.setItem(row, 2, QTableWidgetItem(str(alert_level)))
+            self.tbl_low_stock.setRowCount(len(low_stock))
+            for row, item in enumerate(low_stock):
+                product_name, quantity, alert_level = item
+                self.tbl_low_stock.setItem(row, 0, QTableWidgetItem(str(product_name)))
+                self.tbl_low_stock.setItem(row, 1, QTableWidgetItem(str(quantity)))
+                self.tbl_low_stock.setItem(row, 2, QTableWidgetItem(str(alert_level)))
+        finally:
+            self.tbl_near_expiry.setUpdatesEnabled(True)
+            self.tbl_low_stock.setUpdatesEnabled(True)
 
-    def on_filter_catalog(self, text):
-        term = text.strip()
+    def _queue_catalog_filter(self, *_):
+        self.catalog_search_timer.start()
+
+    def _run_catalog_filter(self):
+        term = self.txt_catalog_search.text().strip()
         if not term:
             self.populate_catalog_table(self.all_products_raw)
             return
@@ -484,27 +549,55 @@ class InventoryScreen(QWidget):
             if lowered in str(product_name).casefold()
         }
 
-        # Backend search adds formula/barcode matching. Use only its product IDs,
-        # then display the canonical product total from all_products_raw rather
-        # than a single batch quantity returned by the search query.
+        # Formula/barcode/generic lookup is deferred until the user pauses typing
+        # rather than hitting SQLite for every keystroke.
         for result in _INVENTORY_CONTROLLER.search_products(term):
             matching_ids.add(result[0])
 
         filtered = [item for item in self.all_products_raw if item[0] in matching_ids]
         self.populate_catalog_table(filtered)
 
+    def on_filter_catalog(self, _text):
+        self._queue_catalog_filter()
+
+    def _selected_product_id(self):
+        selected = self.tbl_products.selectionModel().selectedRows()
+        if not selected:
+            return None
+        item = self.tbl_products.item(selected[0].row(), 0)
+        return item.data(Qt.ItemDataRole.UserRole) if item else None
+
+    def _update_catalog_actions(self):
+        selected = self._selected_product_id() is not None
+        self.btn_selected_stock.setEnabled(selected)
+        self.btn_selected_stock.setToolTip(
+            "Receive stock for the selected product" if selected else "Select a product first"
+        )
+
+    def quick_intake_selected(self):
+        product_id = self._selected_product_id()
+        if product_id is None:
+            show_toast(self, "Select a product first.", ToastType.INFO)
+            return
+        self.quick_intake_for_product(product_id)
+
     def open_add_product_dialog(self):
         dialog = AddProductDialog(self)
         if dialog.exec() == QDialog.Accepted:
-            self.refresh_all_data()
+            self.refresh_catalog_data()
+            self._refresh_visible_tab()
 
     def open_add_supplier_dialog(self):
         dialog = AddSupplierDialog(self)
         if dialog.exec() == QDialog.Accepted:
-            self.refresh_all_data()
+            self._intake_loaded = False
+            if self.tabs.currentIndex() == 1:
+                self._load_intake_data()
 
     def quick_intake_for_product(self, product_id):
         self.tabs.setCurrentIndex(1)
+        if not self._intake_loaded:
+            self._load_intake_data()
         index = self.cmb_intake_prod.findData(product_id)
         if index >= 0:
             self.cmb_intake_prod.setCurrentIndex(index)
@@ -542,6 +635,10 @@ class InventoryScreen(QWidget):
         )
         if ok:
             show_toast(self, msg, ToastType.SUCCESS)
-            self.refresh_all_data()
+            self.refresh_catalog_data()
+            self._intake_loaded = False
+            self._load_intake_data()
+            if self.tabs.currentIndex() == 2:
+                self.populate_alerts_tables(self._near_expiry_raw, self._low_stock_raw)
         else:
             QMessageBox.critical(self, "Could Not Add Stock", msg)
