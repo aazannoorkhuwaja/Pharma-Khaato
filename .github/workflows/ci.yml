@@ -10,17 +10,56 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  QT_QPA_PLATFORM: offscreen
+  PYTHONUTF8: "1"
+
 jobs:
-  test:
+  # Fast feedback for day-to-day development. We use the same Python version as
+  # the current Linux development machine and still run the complete test suite.
+  develop-fast:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop-ui'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Compile source
+        run: python -m compileall -q main.py controllers core models ui scripts
+
+      - name: Run UI source audit
+        run: python scripts/ui_audit.py
+
+      - name: Run test suite
+        run: python -m pytest -q
+
+  # Full portability gate for pull requests and protected/release branches.
+  full-matrix:
+    if: github.event_name != 'push' || github.ref != 'refs/heads/develop-ui'
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.12", "3.14"]
     runs-on: ${{ matrix.os }}
-    env:
-      QT_QPA_PLATFORM: offscreen
-      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
 
