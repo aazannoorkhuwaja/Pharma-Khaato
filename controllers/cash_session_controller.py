@@ -35,3 +35,7 @@ class CashSessionController:
 
     def recent_movements(self, limit=50):
         return self.model.recent_movements(limit)
+
+    def session_movements(self, session_id, limit=50):
+        from core.cash_query_service import get_session_movements
+        return get_session_movements(session_id, limit)
