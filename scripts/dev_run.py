@@ -1,8 +1,9 @@
 """
-Developer launcher for Pharma-Khaato.
+Developer/demo launcher for Pharma-Khaato.
 
 One command bootstraps a private .venv when needed, installs dependencies when
-requirements change, and launches the application without touching system Python.
+requirements change, and launches either the normal application or a completely
+isolated resettable demo without touching system Python.
 """
 
 from __future__ import annotations
@@ -43,7 +44,6 @@ def ensure_environment() -> Path:
     digest = _requirements_digest()
     installed_digest = STAMP_FILE.read_text(encoding="utf-8").strip() if STAMP_FILE.exists() else ""
 
-    # Reinstall only on first bootstrap or when requirements.txt changes.
     if digest != installed_digest:
         print("[Pharma-Khaato] Installing/updating dependencies...")
         _run([str(py), "-m", "pip", "install", "--upgrade", "pip"])
@@ -53,10 +53,22 @@ def ensure_environment() -> Path:
     return py
 
 
+def _launch_command(py: Path, args: list[str]) -> list[str]:
+    if "--demo" in args or "--demo-keep" in args or "--demo-check" in args:
+        demo_args = []
+        if "--demo-keep" in args:
+            demo_args.append("--keep")
+        if "--demo-check" in args:
+            demo_args.append("--no-launch")
+        # Other main.py flags are intentionally not mixed into demo_mode.
+        return [str(py), str(ROOT / "scripts" / "demo_mode.py"), *demo_args]
+    return [str(py), str(ROOT / "main.py"), *args]
+
+
 def main() -> int:
     try:
         py = ensure_environment()
-        return subprocess.call([str(py), str(ROOT / "main.py"), *sys.argv[1:]], cwd=ROOT)
+        return subprocess.call(_launch_command(py, sys.argv[1:]), cwd=ROOT)
     except subprocess.CalledProcessError as exc:
         print(f"[Pharma-Khaato] Setup failed with exit code {exc.returncode}.", file=sys.stderr)
         return exc.returncode or 1
