@@ -2,113 +2,123 @@
 
 Pharma-Khaato is an offline-first desktop application for pharmacy sales, customers, customer credit, stock, cash shifts, reports, staff access, and backups. The interface is designed for fast counter work while remaining easy to learn for non-technical staff.
 
-> **Database Engine Notice:** Pharma-Khaato operates exclusively on a local, zero-configuration SQLite database in WAL mode.
-
----
+> **Database:** local SQLite in WAL mode. Keep the live database on the pharmacy computer; do not place it on a shared/network drive.
 
 ## Architecture
 
-Pharma-Khaato now uses an explicit **Model-View-Controller (MVC)** boundary: PySide6 screens are Views, `controllers/` coordinates workflows, `models/` provides Qt-free backend facades, and `core/` contains business/data services. Views are guarded by tests from importing backend services directly.
+The application uses an explicit **Model-View-Controller (MVC)** boundary:
 
-The app is packaged natively for both **Windows and Linux**. See `docs/ARCHITECTURE.md` and `docs/DEPLOYMENT.md`.
+- `ui/` — PySide6 views, reusable widgets, theme, accessibility and user-facing copy
+- `controllers/` — workflow orchestration and UI boundary normalization
+- `models/` — Qt-free backend facades
+- `core/` — transactional business rules, SQLite access, security, reports and backups
+- `migrations/` — versioned schema changes
+- `tests/` — backend, architecture, UI-source and regression tests
 
----
+## Key features
 
-## Key Features
+- **New Sale:** barcode/product search, cart editing, discounts, hold/resume, multiple payment methods and keyboard shortcuts.
+- **Stock & Products:** products, suppliers, stock intake, low-stock alerts, expiry alerts and earliest-expiry-first allocation.
+- **Customers & Customer Credit:** customer lookup, balances, credit sales and partial/full payment recording.
+- **Shift & Cash:** opening cash, drawer movements, expected cash and closing reconciliation.
+- **Reports:** sales totals, low stock, expiring products and activity history.
+- **Staff & Access:** separate Cashier, Pharmacist and Administrator accounts.
+- **Data safety:** atomic checkout, SQLite WAL, integrity-checked backups, safety backup before restore and system health checks.
+- **Security:** PBKDF2-HMAC-SHA256 password hashing, persistent login lockout and audit logging.
+- **Responsive desktop UI:** adaptive navigation, DPI-aware sizing and 1.0x/1.25x/1.5x interface scaling.
+- **Cross-platform quality gate:** Windows/Linux CI on Python 3.12 and 3.14.
 
-- **New Sale:** Fast barcode/product search, cart editing, discounts, hold/resume, multiple payment methods, and keyboard shortcuts.
-- **Stock & Products:** Products, suppliers, batch intake, low-stock alerts, expiry alerts, and automatic earliest-expiry-first stock allocation.
-- **Customers & Customer Credit:** Customer lookup, balances, credit sales, limits, and partial/full payment recording.
-- **Shift & Cash:** Opening cash, cash movements, expected drawer balance, and shift closing reconciliation.
-- **Reports:** Sales totals, payment mix, low stock, expiring products, and activity history.
-- **Staff & Access:** Role-based access for Cashiers, Pharmacists, and Administrators.
-- **Responsive Desktop UI:** Adaptive navigation, DPI-aware sizing, flexible work panels, and 1.0x/1.25x/1.5x interface scaling.
-- **Security & Reliability:** Versioned PBKDF2-HMAC-SHA256 password hashing, login lockout, audit logs, atomic transactions, SQLite WAL mode, backups, and global crash logging.
-- **HCI/SDE Language Layer:** User-friendly labels are separated from stable backend values through `ui/ux_copy.py`, so wording/localization can change without breaking business logic.
-- **Cross-platform Delivery:** Native Windows/Linux build workflows plus a single universal test launcher for GUI acceptance testing.
+## Quick start — development branch
 
----
-
-## Quick Start
-
-### 1. Installation & Environment Setup
-
-```bash
-# Clone repository
-git clone https://github.com/aazannoorkhuwaja/Pharma-Khaato.git
-cd Pharma-Khaato/project
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 2. Launch Application
+The active PySide6 product is currently developed on `develop-ui`.
 
 ```bash
-python3 main.py
+git clone -b develop-ui https://github.com/aazannoorkhuwaja/Pharma-Khaato.git
+cd Pharma-Khaato
+python3 scripts/dev_run.py
 ```
 
-### One-file Windows/Linux UI test
+`dev_run.py` creates/reuses a local `.venv`, installs the correct PySide6 version for the current Python interpreter when needed, and launches the app without modifying system Python.
 
-The release bundle includes `PharmaKhaato-v2.3.1-Universal-Test.py`. The **same file** can be launched on Windows or Linux with Python 3.10+:
+After the first setup, the normal development/test loop is:
 
 ```bash
-# Windows
-py PharmaKhaato-v2.3.1-Universal-Test.py
-
-# Linux
-python3 PharmaKhaato-v2.3.1-Universal-Test.py
+cd Pharma-Khaato
+git pull
+python3 scripts/dev_run.py
 ```
 
-On first launch it extracts an isolated test copy, creates a private virtual environment, installs the Python-compatible PySide6 runtime, and opens the desktop application. First launch therefore needs internet access; later runs reuse the cached runtime. Test data is stored separately from a normal Pharma-Khaato installation. A single precompiled native executable cannot be shared between Windows and Linux because Qt/PyInstaller binaries are OS-specific.
+### Manual environment setup
 
+If you prefer to manage the environment yourself:
 
----
-
-## Project Structure
-
-```
-project/
-├── main.py                  # Entry point with environment detector
-├── salesman_app.py          # Backward-compatibility UI wrapper
-├── controllers/             # MVC workflow/orchestration layer
-├── models/                  # Qt-free MVC model facades
-├── core/                    # Core Business Services & Data Layer
-│   ├── auth_service.py      # Authentication & PBKDF2 security
-│   ├── pos_service.py       # Checkout, transaction processing & expiry allocation
-│   ├── customer_service.py  # Customer registration & credit ledger
-│   ├── inventory_service.py # Products, batches & supplier master data
-│   ├── backup_service.py   # Snapshot database backup & restore
-│   ├── logger.py           # Centralized rotating file logger
-│   └── db_engine.py         # SQLite WAL connection/transaction factory
-├── ui/                      # Modular PySide6 Desktop Interface
-│   ├── app/                 # Main application shell, router & state manager
-│   ├── theme/               # Design tokens, typography & theme manager
-│   ├── widgets/             # Reusable UI components & QAbstractTableModel models
-│   ├── ux_copy.py            # Central user-facing terminology / domain label mapping
-│   └── screens/             # Independent task screens (Sale, Customer, Credit, etc.)
-├── migrations/              # Database versioned DDL scripts
-├── scripts/                 # Automated test suites & benchmarks
-└── pharma_khaato.spec       # PyInstaller packaging configuration
+```bash
+python3 -m venv .venv
+source .venv/bin/activate          # Linux/macOS
+# .venv\Scripts\activate           # Windows PowerShell/cmd equivalent
+python -m pip install -U pip
+python -m pip install -r requirements.txt
+python main.py
 ```
 
----
+Do not install dependencies into the system Python and do not use `--break-system-packages`.
 
-## Documentation Index
+## Project structure
 
-- [Architecture Guide](docs/ARCHITECTURE.md)
-- [Database Schema & Migrations](docs/DATABASE.md)
-- [Deployment & Packaging Guide](docs/DEPLOYMENT.md)
-- [Developer Workflow](docs/DEVELOPER_WORKFLOW.md)
-- [Counter User Guide](docs/USER_GUIDE.md)
-- [UI/UX & Product Review](docs/UI_UX_PRODUCT_REVIEW.md)
-- [HCI/SDE Usability Review](docs/HCI_SDE_USABILITY_REVIEW.md)
+```text
+Pharma-Khaato/
+├── main.py
+├── controllers/
+├── models/
+├── core/
+├── ui/
+│   ├── app/
+│   ├── screens/
+│   ├── theme/
+│   └── widgets/
+├── migrations/
+├── tests/
+├── scripts/
+├── packaging/
+├── docs/
+├── requirements.txt
+├── requirements-dev.txt
+└── pharma_khaato.spec
+```
 
+## Testing
 
-## Cross-platform Release Build
+Install development dependencies once:
+
+```bash
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+```
+
+Then run the same core gates used by CI:
+
+```bash
+python -m compileall -q main.py controllers core models ui scripts
+python scripts/ui_audit.py
+QT_QPA_PLATFORM=offscreen python -m pytest -q
+```
+
+GitHub CI executes those checks on Windows and Linux with Python 3.12 and 3.14.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Database & migrations](docs/DATABASE.md)
+- [Deployment & packaging](docs/DEPLOYMENT.md)
+- [Developer workflow](docs/DEVELOPER_WORKFLOW.md)
+- [Counter user guide](docs/USER_GUIDE.md)
+- [UI/UX product review](docs/UI_UX_PRODUCT_REVIEW.md)
+- [HCI/SDE usability review](docs/HCI_SDE_USABILITY_REVIEW.md)
+
+## Release build
 
 ```bash
 python scripts/build_release.py
 ```
 
-Build on Windows for the Windows artifact and Linux for the Linux artifact, or use the included cross-platform GitHub Actions release workflow.
+Build Windows artifacts on Windows and Linux artifacts on Linux, or use the included release workflow. Test a release against a fresh data directory before distributing it.
