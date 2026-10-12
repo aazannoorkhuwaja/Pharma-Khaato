@@ -1,4 +1,4 @@
--- Durable held-sale lifecycle, historical line pricing, and refund ledger.
+-- Durable held-sale lifecycle, historical line pricing, shift attribution, and refund ledger.
 
 ALTER TABLE Hold_Sales ADD COLUMN status TEXT NOT NULL DEFAULT 'HELD';
 ALTER TABLE Hold_Sales ADD COLUMN resumed_at TEXT;
@@ -6,6 +6,25 @@ ALTER TABLE Hold_Sales ADD COLUMN completed_at TEXT;
 ALTER TABLE Hold_Sales ADD COLUMN updated_at TEXT;
 CREATE INDEX IF NOT EXISTS idx_hold_sales_status_employee
     ON Hold_Sales(status, employee_id, id DESC);
+
+-- Capture the exact open shift for every new sale. Historical rows are left
+-- NULL because assigning them after the fact would be a guess.
+ALTER TABLE Purchase ADD COLUMN session_id INTEGER;
+CREATE INDEX IF NOT EXISTS idx_purchase_session_payment
+    ON Purchase(session_id, payment_method);
+
+CREATE TRIGGER IF NOT EXISTS purchase_capture_session_ai
+AFTER INSERT ON Purchase
+WHEN NEW.session_id IS NULL
+BEGIN
+    UPDATE Purchase
+    SET session_id = (
+        SELECT id FROM Cash_Register_Session
+        WHERE employee_id = NEW.employee_id AND status = 'OPEN'
+        ORDER BY id DESC LIMIT 1
+    )
+    WHERE id = NEW.id;
+END;
 
 ALTER TABLE Sales_details ADD COLUMN unit_price REAL;
 ALTER TABLE Sales_details ADD COLUMN line_subtotal REAL;
