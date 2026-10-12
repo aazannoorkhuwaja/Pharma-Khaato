@@ -27,12 +27,15 @@ CREATE INDEX IF NOT EXISTS idx_purchase_employee_payment
 CREATE INDEX IF NOT EXISTS idx_khatoo_open_customer
     ON Customer_Khatoo(customer_id, amount_due);
 
--- Migration 008 created the FTS table/triggers, but existing products were not
--- backfilled. INSERT OR IGNORE makes this safe on already-indexed installs.
-INSERT OR IGNORE INTO product_fts(product_id, product_name, formula, generic_name, brand_name)
-SELECT id,
-       product_name,
-       COALESCE(formula, ''),
-       COALESCE(generic_name, ''),
-       COALESCE(brand_name, '')
-FROM Products;
+-- Migration 008 created the FTS table/triggers but did not backfill products
+-- that existed before the migration. Insert only rows that are truly missing.
+INSERT INTO product_fts(product_id, product_name, formula, generic_name, brand_name)
+SELECT p.id,
+       p.product_name,
+       COALESCE(p.formula, ''),
+       COALESCE(p.generic_name, ''),
+       COALESCE(p.brand_name, '')
+FROM Products p
+WHERE NOT EXISTS (
+    SELECT 1 FROM product_fts f WHERE CAST(f.product_id AS INTEGER) = p.id
+);
