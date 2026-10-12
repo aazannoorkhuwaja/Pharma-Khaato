@@ -45,3 +45,29 @@ class SettingsController:
         if isinstance(result, tuple) and result and result[0]:
             touch("staff")
         return result
+
+    @staticmethod
+    def receipt_template_options():
+        from core.receipt_service import get_receipt_template_options
+        return get_receipt_template_options()
+
+    @staticmethod
+    def receipt_preview(template):
+        from core.receipt_service import generate_invoice_text
+        return generate_invoice_text(
+            1024,
+            "Walk-in Customer",
+            [
+                {"name": "Augmentin 625mg", "qty": 1, "price": 450.0},
+                {"name": "Panadol 500mg", "qty": 2, "price": 50.0},
+                {"name": "Brufen 400mg", "qty": 1, "price": 80.0},
+            ],
+            total=630.0,
+            tax=0.0,
+            discount=0.0,
+            payment_method="Cash",
+            cashier_name="Admin",
+            amount_received=1000.0,
+            change=370.0,
+            template=template,
+        )
