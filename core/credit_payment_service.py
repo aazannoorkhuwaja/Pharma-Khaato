@@ -5,6 +5,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from core.db_engine import get_db
 from core.logger import get_logger
+from core.permission_service import require_permission
 
 logger = get_logger("PharmaKhaatoCreditPayments")
 
@@ -28,6 +29,10 @@ def record_credit_payment(ledger_id, amount, employee_id, payment_method="Cash",
     if amount_dec <= Decimal("0.00"):
         return False, "Payment amount must be greater than zero."
 
+    allowed, reason = require_permission(employee_id, "credit.collect")
+    if not allowed:
+        return False, reason
+
     method = _ALLOWED_METHODS.get(str(payment_method or "Cash").strip().lower())
     if method is None:
         return False, "Choose Cash, Card, Easypaisa, or JazzCash."
@@ -36,10 +41,6 @@ def record_credit_payment(ledger_id, amount, employee_id, payment_method="Cash",
         session_id = None
         customer_ref = None
         with get_db() as (_conn, cur):
-            cur.execute("SELECT Employee_id FROM Employee WHERE Employee_id = %s", (employee_id,))
-            if not cur.fetchone():
-                raise ValueError("Your staff account could not be verified. Sign in again.")
-
             cur.execute(
                 "SELECT amount_due, amount_paid, customer_id FROM Customer_Khatoo WHERE id = %s",
                 (ledger_id,),
