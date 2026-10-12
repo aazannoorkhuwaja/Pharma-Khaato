@@ -4,6 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from core.db_engine import get_db
 from core.logger import get_logger
 from core.audit_service import log_audit_event
+from core.permission_service import require_permission
 
 logger = get_logger("PharmaKhaatoCashSession")
 
@@ -14,11 +15,16 @@ def _money(value) -> Decimal:
 
 def open_session(employee_id, opening_cash=0.0):
     try:
+        employee_id = int(employee_id)
         dec_open = _money(opening_cash)
         if dec_open < Decimal("0.00"):
             return False, "Opening cash float cannot be negative."
     except (ValueError, TypeError):
         return False, "Invalid opening cash float specified."
+
+    allowed, reason = require_permission(employee_id, "cash.own_shift")
+    if not allowed:
+        return False, reason
 
     try:
         with get_db() as (_conn, cur):
@@ -68,29 +74,31 @@ def record_cash_movement(session_id, employee_id, movement_type, amount, reason=
     if movement_type not in ("CASH_IN", "CASH_OUT", "REFUND"):
         return False, "Invalid cash-entry type."
     try:
+        session_id = int(session_id)
+        employee_id = int(employee_id)
         dec_amt = _money(amount)
-        emp_id_int = int(employee_id)
         if dec_amt <= Decimal("0.00"):
             return False, "Cash amount must be greater than zero."
     except (ValueError, TypeError):
         return False, "Invalid cash-entry information."
 
+    allowed, permission_reason = require_permission(employee_id, "cash.own_shift")
+    if not allowed:
+        return False, permission_reason
+
     try:
         with get_db() as (_conn, cur):
-            cur.execute("SELECT Employee_id FROM Employee WHERE Employee_id = %s", (emp_id_int,))
-            if not cur.fetchone():
-                raise ValueError("Your staff account could not be verified. Sign in again.")
             cur.execute("SELECT employee_id, status FROM Cash_Register_Session WHERE id = %s", (session_id,))
             sess = cur.fetchone()
             if not sess or sess[1] != "OPEN":
                 raise ValueError("This cash shift is not open.")
-            if int(sess[0]) != emp_id_int:
+            if int(sess[0]) != employee_id:
                 raise ValueError("This cash shift belongs to another staff member.")
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cur.execute(
                 "INSERT INTO Cash_Movement (session_id, employee_id, movement_type, amount, reason, created_at) "
                 "VALUES (%s, %s, %s, %s, %s, %s)",
-                (session_id, emp_id_int, movement_type, float(dec_amt), reason or "N/A", now_str),
+                (session_id, employee_id, movement_type, float(dec_amt), reason or "N/A", now_str),
             )
         log_audit_event(employee_id, f"CASH_MOVEMENT_{movement_type}", f"Cash entry {movement_type}: Rs.{dec_amt:.2f} ({reason or 'No note'}).")
         return True, f"Cash entry of Rs.{dec_amt:.2f} saved."
@@ -102,7 +110,11 @@ def record_cash_movement(session_id, employee_id, movement_type, amount, reason=
 
 
 def get_session_cash_summary(session_id):
-    """Return only money that actually changes the physical drawer."""
+    """Return only money that actually changes the physical drawer.
+
+    New sales carry an explicit Purchase.session_id, so this is an indexed
+    lookup rather than an employee/time-range inference.
+    """
     try:
         with get_db() as (_conn, cur):
             cur.execute(
@@ -113,14 +125,12 @@ def get_session_cash_summary(session_id):
             session = cur.fetchone()
             if not session:
                 return None
-            emp_id, opened_at, opening_cash_raw, status = session
+            _employee_id, _opened_at, opening_cash_raw, status = session
 
             cur.execute(
-                "SELECT COALESCE(SUM(p.price_with_tax), 0) "
-                "FROM Purchase p JOIN Receipt r ON p.id = r.purchase_id "
-                "WHERE p.employee_id = %s AND p.payment_method = 'Cash' "
-                "AND (r.printing_date || ' ' || r.time) >= %s",
-                (emp_id, opened_at),
+                "SELECT COALESCE(SUM(price_with_tax), 0) FROM Purchase "
+                "WHERE session_id = %s AND payment_method = 'Cash'",
+                (session_id,),
             )
             cash_sales = _money((cur.fetchone() or [0])[0])
 
@@ -142,7 +152,9 @@ def get_session_cash_summary(session_id):
         cash_in = movements.get("CASH_IN", Decimal("0.00"))
         cash_out = movements.get("CASH_OUT", Decimal("0.00"))
         refunds = movements.get("REFUND", Decimal("0.00"))
-        expected = (opening_cash + cash_sales + cash_credit_collections + cash_in - cash_out - refunds).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        expected = (
+            opening_cash + cash_sales + cash_credit_collections + cash_in - cash_out - refunds
+        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         return {
             "session_id": int(session_id),
             "status": status,
@@ -188,7 +200,10 @@ def close_session(session_id, closing_cash_actual, notes=""):
                 raise ValueError("This cash shift could not be found.")
             if row[1] == "CLOSED":
                 raise ValueError("This cash shift is already closed.")
-            emp_id = row[0]
+            emp_id = int(row[0])
+            allowed, permission_reason = require_permission(emp_id, "cash.own_shift")
+            if not allowed:
+                raise ValueError(permission_reason)
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cur.execute(
                 "UPDATE Cash_Register_Session SET closed_at = %s, closing_cash_actual = %s, "
