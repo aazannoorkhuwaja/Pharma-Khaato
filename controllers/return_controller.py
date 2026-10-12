@@ -1,4 +1,5 @@
 from models.return_model import ReturnModel
+from core.data_revision import touch
 
 
 class ReturnController:
@@ -13,4 +14,7 @@ class ReturnController:
         return self.model.sale(purchase_id)
 
     def process(self, purchase_id, items, employee_id, reason, condition):
-        return self.model.process(purchase_id, items, employee_id, reason, condition)
+        result = self.model.process(purchase_id, items, employee_id, reason, condition)
+        if isinstance(result, tuple) and result and result[0]:
+            touch("returns", "sales", "inventory", "cash", "credit", "customers", "reports")
+        return result
