@@ -22,6 +22,11 @@ pharmacy_db.sqlite
 *.sqlite3
 *.sqlite3-journal
 
+# Isolated demo/runtime data
+.demo-data/
+.release-smoke-data/
+artifacts/
+
 # Receipt Invoices
 receipts/*.txt
 !receipts/.gitkeep
