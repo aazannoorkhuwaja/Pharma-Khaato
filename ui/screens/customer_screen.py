@@ -14,6 +14,7 @@ from ui.widgets.screen_header import ScreenHeader
 from ui.widgets.toast import ToastType, show_toast
 from ui.widgets.table_polish import polish_table
 from ui.widgets.responsive import configure_dialog, flexible_side_panel
+from ui.app.async_tasks import AsyncTaskRunner
 from controllers.customer_controller import CustomerController
 
 _CUSTOMER_CONTROLLER = CustomerController()
@@ -95,6 +96,8 @@ class CustomerScreen(QWidget):
     def __init__(self, parent=None, show_message_box: bool = True):
         super().__init__(parent)
         self.show_message_box = show_message_box
+        self._tasks = AsyncTaskRunner(self)
+        self._selected_cnic: str | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -188,16 +191,34 @@ class CustomerScreen(QWidget):
         self.refresh_all_data()
 
     def _load_rows(self, text=""):
-        rows = _CUSTOMER_CONTROLLER.search_with_debt(text.strip())
-        self.populate_customers_table(rows)
-        self.pill_total_custs.setText(f"Customers shown: {len(rows)}")
-        return rows
+        term = text.strip()
+        self.pill_total_custs.setText("Customers shown: …")
+
+        def complete(rows):
+            self.populate_customers_table(rows or [])
+            self.pill_total_custs.setText(f"Customers shown: {len(rows or [])}")
+
+        self._tasks.run_latest(
+            "customer-list",
+            lambda: _CUSTOMER_CONTROLLER.search_with_debt(term),
+            complete,
+            lambda _message: self._customer_load_failed(),
+        )
+
+    def _refresh_total_credit(self):
+        self._tasks.run_latest(
+            "customer-credit-total",
+            _CUSTOMER_CONTROLLER.khatoo_summary,
+            lambda total: self.pill_total_debt.setText(f"Credit Due: Rs. {float(total):.2f}"),
+            lambda _message: self.pill_total_debt.setText("Credit Due: unavailable"),
+        )
 
     def refresh_all_data(self):
         self._load_rows(self.txt_search.text() if hasattr(self, "txt_search") else "")
-        self.pill_total_debt.setText(f"Credit Due: Rs. {_CUSTOMER_CONTROLLER.khatoo_summary():.2f}")
+        self._refresh_total_credit()
 
     def populate_customers_table(self, customers):
+        self.tbl_customers.blockSignals(True)
         self.tbl_customers.setUpdatesEnabled(False)
         try:
             self.tbl_customers.setRowCount(len(customers))
@@ -210,6 +231,12 @@ class CustomerScreen(QWidget):
                 self.tbl_customers.setItem(row, 3, QTableWidgetItem(f"Rs. {float(debt):.2f}"))
         finally:
             self.tbl_customers.setUpdatesEnabled(True)
+            self.tbl_customers.blockSignals(False)
+
+    def _customer_load_failed(self):
+        self.pill_total_custs.setText("Customers: unavailable")
+        if self.show_message_box:
+            show_toast(self, "Could not load customers. Try again.", ToastType.WARNING)
 
     def _run_search(self):
         self._load_rows(self.txt_search.text())
@@ -222,15 +249,49 @@ class CustomerScreen(QWidget):
         if not rows:
             return
         row = rows[0].row()
-        customer_name = self.tbl_customers.item(row, 0).text()
-        cnic = self.tbl_customers.item(row, 1).text()
-        debt = _CUSTOMER_CONTROLLER.total_debt(cnic)
-        aging = _CUSTOMER_CONTROLLER.debt_aging(cnic)
+        name_item = self.tbl_customers.item(row, 0)
+        cnic_item = self.tbl_customers.item(row, 1)
+        if not name_item or not cnic_item:
+            return
+        customer_name = name_item.text()
+        cnic = cnic_item.text()
+        self._selected_cnic = cnic
         self.lbl_selected_cust.setText(f"{customer_name}\nCNIC: {cnic}")
+        self.lbl_total_cust_debt.setText("Total Due: …")
+        self.lbl_age_30.setText("0 - 30 Days: …")
+        self.lbl_age_60.setText("31 - 60 Days: …")
+        self.lbl_age_plus.setText("61+ Days: …")
+
+        def load_detail():
+            return (
+                cnic,
+                _CUSTOMER_CONTROLLER.total_debt(cnic),
+                _CUSTOMER_CONTROLLER.debt_aging(cnic),
+            )
+
+        self._tasks.run_latest(
+            "customer-detail",
+            load_detail,
+            self._apply_customer_detail,
+            lambda _message: self._customer_detail_failed(cnic),
+        )
+
+    def _apply_customer_detail(self, payload):
+        cnic, debt, aging = payload
+        if cnic != self._selected_cnic:
+            return
         self.lbl_total_cust_debt.setText(f"Total Due: Rs. {float(debt):.2f}")
         self.lbl_age_30.setText(f"0 - 30 Days: Rs. {aging['0_30']:.2f}")
         self.lbl_age_60.setText(f"31 - 60 Days: Rs. {aging['31_60']:.2f}")
         self.lbl_age_plus.setText(f"61+ Days: Rs. {aging['61_plus']:.2f}")
+
+    def _customer_detail_failed(self, cnic: str):
+        if cnic != self._selected_cnic:
+            return
+        self.lbl_total_cust_debt.setText("Total Due: unavailable")
+        self.lbl_age_30.setText("0 - 30 Days: unavailable")
+        self.lbl_age_60.setText("31 - 60 Days: unavailable")
+        self.lbl_age_plus.setText("61+ Days: unavailable")
 
     def open_add_customer_dialog(self):
         dlg = AddCustomerDialog(self)
