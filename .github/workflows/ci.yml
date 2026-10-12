@@ -15,8 +15,8 @@ env:
   PYTHONUTF8: "1"
 
 jobs:
-  # Fast feedback for day-to-day development. The full business demo preflight
-  # runs here too, so a green develop-ui head is presentation-safe.
+  # Fast feedback for day-to-day development. A green develop-ui head has also
+  # completed the same isolated business/UI flow used for the live demo.
   develop-fast:
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop-ui'
     runs-on: ubuntu-latest
@@ -58,6 +58,12 @@ jobs:
 
       - name: Prepare complete isolated demo
         run: python scripts/demo_mode.py --no-launch
+
+      - name: Verify complete demo business flow
+        run: python scripts/test_flow.py
+
+      - name: Smoke-test every major GUI screen
+        run: python scripts/test_gui_auto.py
 
   # Full portability gate for pull requests and protected/release branches.
   full-matrix:
@@ -105,6 +111,12 @@ jobs:
           PHARMA_KHAATO_DATA_DIR: ${{ runner.temp }}/pharma-khaato-self-check
         run: python main.py --self-check --headless
 
-      - name: Prepare complete isolated demo on current runtimes
+      - name: Prepare and verify complete demo on current runtimes
         if: matrix.python-version == '3.14'
-        run: python scripts/demo_mode.py --no-launch
+        run: |
+          python scripts/demo_mode.py --no-launch
+          python scripts/test_flow.py
+
+      - name: Smoke-test major GUI screens on Linux current runtime
+        if: runner.os == 'Linux' && matrix.python-version == '3.14'
+        run: python scripts/test_gui_auto.py
