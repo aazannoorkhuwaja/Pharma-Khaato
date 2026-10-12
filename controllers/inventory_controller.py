@@ -23,10 +23,25 @@ class InventoryController:
             touch("inventory", "reports")
         return result
 
-    def search_products(self, term): return self.model.search_products(term.strip())
-    def product_by_barcode(self, barcode): return self.model.product_by_barcode(barcode.strip())
-    def products(self): return self.model.products()
-    def suppliers(self): return self.model.suppliers()
+    def search_products(self, term):
+        return self.model.search_products(term.strip())
+
+    def product_by_barcode(self, barcode):
+        return self.model.product_by_barcode(barcode.strip())
+
+    def products(self):
+        return self.model.products()
+
+    def suppliers(self):
+        return self.model.suppliers()
+
+    def catalog_snapshot(self, product_limit=400, alert_limit=100):
+        from core.inventory_query_service import catalog_snapshot
+        return catalog_snapshot(product_limit, alert_limit)
+
+    def catalog_search(self, term, limit=150):
+        from core.inventory_query_service import search_catalog_products
+        return search_catalog_products(term.strip(), limit)
 
     def register_product(self, *args, **kwargs):
         allowed, reason = self._mutation_allowed()
@@ -46,9 +61,14 @@ class InventoryController:
             return False, reason
         return self._after_inventory_mutation(self.model.add_batch(*args, **kwargs))
 
-    def near_expiry(self, days): return self.model.near_expiry(days)
-    def expired_stock(self): return self.model.expired_stock()
-    def low_stock(self): return self.model.low_stock()
+    def near_expiry(self, days):
+        return self.model.near_expiry(days)
+
+    def expired_stock(self):
+        return self.model.expired_stock()
+
+    def low_stock(self):
+        return self.model.low_stock()
 
     def active_batches(self, limit=300):
         from core.inventory_query_service import active_batches
