@@ -1,25 +1,14 @@
 """Pharma-Khaato first-run setup dialog.
 
 The setup experience intentionally uses the same global design system as the rest
-of the application.  It is a short, task-focused form rather than a technical
-configuration page, and it remains comfortable when the dialog is maximised or
-used on a small / high-DPI display.
+of the application. It is a short, task-focused form rather than a technical
+configuration page, and remains comfortable on small or high-DPI displays.
 """
 
 from PySide6.QtWidgets import (
-    QDialog,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QGridLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QFrame,
-    QMessageBox,
-    QDoubleSpinBox,
-    QScrollArea,
-    QSizePolicy,
+    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
+    QLineEdit, QPushButton, QFrame, QMessageBox, QDoubleSpinBox,
+    QScrollArea, QSizePolicy,
 )
 from PySide6.QtCore import Qt
 
@@ -51,7 +40,6 @@ class FirstRunWizardDialog(QDialog):
         root.setContentsMargins(24, 22, 24, 20)
         root.setSpacing(16)
 
-        # ── Intro: centered to the same readable width as the form ──────────
         header = QWidget()
         header.setMaximumWidth(self.FORM_MAX_WIDTH)
         header_layout = QVBoxLayout(header)
@@ -77,7 +65,6 @@ class FirstRunWizardDialog(QDialog):
         header_layout.addWidget(required_note)
         root.addLayout(self._centered_row(header))
 
-        # ── Scrollable content: only the cards scroll on short displays ─────
         self.scroll = QScrollArea()
         self.scroll.setObjectName("setupScroll")
         self.scroll.setWidgetResizable(True)
@@ -98,11 +85,8 @@ class FirstRunWizardDialog(QDialog):
         form_column_layout.setContentsMargins(0, 0, 0, 0)
         form_column_layout.setSpacing(14)
 
-        # ── Pharmacy details ───────────────────────────────────────────────
         pharmacy_card, pharmacy_body = self._section_card(
-            "1",
-            "Pharmacy details",
-            "These details appear on receipts and reports.",
+            "1", "Pharmacy details", "These details appear on receipts and reports."
         )
         self.pharmacy_grid = QGridLayout()
         self.pharmacy_grid.setContentsMargins(0, 0, 0, 0)
@@ -136,7 +120,9 @@ class FirstRunWizardDialog(QDialog):
         self.spn_tax.setValue(0.0)
         self.spn_tax.setSuffix(" %")
         self.spn_tax.setAccessibleName("Default Sales Tax Percentage")
-        self.spn_tax.setToolTip("Default tax used for new sales. You can change this later in Settings.")
+        self.spn_tax.setToolTip(
+            "Default tax used for new sales. You can change this later in Settings."
+        )
 
         self._pharmacy_fields = [
             self._field("Pharmacy name", self.txt_name, required=True),
@@ -148,7 +134,6 @@ class FirstRunWizardDialog(QDialog):
         ]
         form_column_layout.addWidget(pharmacy_card)
 
-        # ── Administrator account ─────────────────────────────────────────
         admin_card, admin_body = self._section_card(
             "2",
             "Administrator account",
@@ -174,14 +159,19 @@ class FirstRunWizardDialog(QDialog):
 
         self.txt_pass = QLineEdit()
         self.txt_pass.setEchoMode(QLineEdit.EchoMode.Password)
-        self.txt_pass.setPlaceholderText("At least 6 characters")
+        self.txt_pass.setPlaceholderText("At least 8 characters")
         self.txt_pass.setAccessibleName("Administrator Password")
 
         self._admin_fields = [
             self._field("First name", self.txt_fname, required=True),
             self._field("Last name", self.txt_lname, optional=True),
             self._field("Username", self.txt_user, required=True),
-            self._field("Password", self.txt_pass, required=True, helper="Use at least 6 characters."),
+            self._field(
+                "Password",
+                self.txt_pass,
+                required=True,
+                helper="Use at least 8 characters. A longer passphrase is fine.",
+            ),
         ]
         form_column_layout.addWidget(admin_card)
         form_column_layout.addStretch(1)
@@ -191,7 +181,6 @@ class FirstRunWizardDialog(QDialog):
         self.scroll.setWidget(scroll_body)
         root.addWidget(self.scroll, 1)
 
-        # ── Sticky footer: never overlaps the form and stays easy to find ──
         footer = QFrame()
         footer.setObjectName("setupFooter")
         footer.setMaximumWidth(self.FORM_MAX_WIDTH)
@@ -254,12 +243,17 @@ class FirstRunWizardDialog(QDialog):
         desc.setObjectName("subtitle")
         desc.setWordWrap(True)
         layout.addWidget(desc)
-
         return card, layout
 
     @staticmethod
-    def _field(label_text: str, editor: QWidget, *, required: bool = False,
-               optional: bool = False, helper: str = None) -> QWidget:
+    def _field(
+        label_text: str,
+        editor: QWidget,
+        *,
+        required: bool = False,
+        optional: bool = False,
+        helper: str = None,
+    ) -> QWidget:
         wrapper = QWidget()
         layout = QVBoxLayout(wrapper)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -277,7 +271,6 @@ class FirstRunWizardDialog(QDialog):
             hint.setObjectName("caption")
             hint.setWordWrap(True)
             layout.addWidget(hint)
-
         return wrapper
 
     @staticmethod
@@ -286,7 +279,6 @@ class FirstRunWizardDialog(QDialog):
             layout.takeAt(0)
 
     def _apply_form_layout(self, *, force: bool = False) -> None:
-        """Reflow setup fields instead of stretching one long form across the monitor."""
         wide = self.width() >= self.TWO_COLUMN_AT
         if not force and wide == self._wide_form:
             return
@@ -296,8 +288,6 @@ class FirstRunWizardDialog(QDialog):
         self._clear_grid(self.admin_grid)
 
         if wide:
-            # Required identity fields receive full-row emphasis; shorter details
-            # use two balanced columns to reduce scrolling and eye travel.
             self.pharmacy_grid.addWidget(self._pharmacy_fields[0], 0, 0, 1, 2)
             self.pharmacy_grid.addWidget(self._pharmacy_fields[1], 1, 0, 1, 2)
             self.pharmacy_grid.addWidget(self._pharmacy_fields[2], 2, 0)
@@ -356,8 +346,8 @@ class FirstRunWizardDialog(QDialog):
         if not password:
             self._warn_and_focus(self.txt_pass, "Create a password for the administrator account.")
             return
-        if len(password) < 6:
-            self._warn_and_focus(self.txt_pass, "Use a password with at least 6 characters.")
+        if len(password) < 8:
+            self._warn_and_focus(self.txt_pass, "Use a password with at least 8 characters.")
             return
 
         settings = {
@@ -368,7 +358,14 @@ class FirstRunWizardDialog(QDialog):
             "license_number": self.txt_license.text().strip(),
             "default_tax_rate": str(self.spn_tax.value()),
         }
-        _SETTINGS_CONTROLLER.update(settings)
+        if not _SETTINGS_CONTROLLER.update(settings):
+            if self.show_message_box:
+                QMessageBox.critical(
+                    self,
+                    "Could not save pharmacy details",
+                    "The pharmacy settings could not be saved. Please try again.",
+                )
+            return
 
         ok, msg = _AUTH_CONTROLLER.register_initial_admin(
             username,
@@ -382,5 +379,9 @@ class FirstRunWizardDialog(QDialog):
             return
 
         if self.show_message_box:
-            show_toast(self, "Setup complete. Sign in to start using Pharma-Khaato.", ToastType.SUCCESS)
+            show_toast(
+                self,
+                "Setup complete. Sign in to start using Pharma-Khaato.",
+                ToastType.SUCCESS,
+            )
         self.accept()
