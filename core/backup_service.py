@@ -1,5 +1,6 @@
 import os
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -13,7 +14,10 @@ def _validate_sqlite_database(path: str) -> tuple[bool, str]:
     """Validate that a file is an intact SQLite database before trusting it."""
     try:
         uri = Path(path).resolve().as_uri() + "?mode=ro"
-        with sqlite3.connect(uri, uri=True) as conn:
+        # sqlite3.Connection's context manager commits/rolls back but does not
+        # close the handle. That distinction matters on Windows, where an open
+        # handle prevents the verified .partial file from being renamed.
+        with closing(sqlite3.connect(uri, uri=True)) as conn:
             row = conn.execute("PRAGMA quick_check;").fetchone()
         ok = bool(row and str(row[0]).lower() == "ok")
         return ok, "ok" if ok else f"Integrity check returned: {row[0] if row else 'no result'}"
@@ -34,8 +38,12 @@ def backup_database():
     temp_path = dest_path + ".partial"
 
     try:
-        with sqlite3.connect(db_path) as src_conn, sqlite3.connect(temp_path) as dst_conn:
-            src_conn.backup(dst_conn)
+        # Explicitly close both handles before integrity checking/renaming.
+        # sqlite3's native context manager alone does not close connections.
+        with closing(sqlite3.connect(db_path)) as src_conn:
+            with closing(sqlite3.connect(temp_path)) as dst_conn:
+                src_conn.backup(dst_conn)
+                dst_conn.commit()
 
         valid, reason = _validate_sqlite_database(temp_path)
         if not valid:
@@ -100,8 +108,10 @@ def restore_database(backup_filepath):
         if not ok:
             return False, "Restore stopped because a safety backup could not be created first."
 
-        with sqlite3.connect(db_path) as dst_conn, sqlite3.connect(backup_filepath) as src_conn:
-            src_conn.backup(dst_conn)
+        with closing(sqlite3.connect(db_path)) as dst_conn:
+            with closing(sqlite3.connect(backup_filepath)) as src_conn:
+                src_conn.backup(dst_conn)
+                dst_conn.commit()
 
         restored_ok, restored_reason = _validate_sqlite_database(db_path)
         if not restored_ok:
