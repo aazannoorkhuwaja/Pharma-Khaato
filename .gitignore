@@ -1,0 +1,57 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environments
+proj/
+venv/
+env/
+.venv/
+ENV/
+
+# Configuration & Secrets
+.env
+
+# Dynamic Database Files & Directories
+data/*.sqlite
+data/*.sqlite3
+pharmacy_db.sqlite
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+
+# Receipt Invoices
+receipts/*.txt
+!receipts/.gitkeep
+
+# Backups
+backups/*.sqlite
+!backups/.gitkeep
+
+# Application Logs
+logs/*.log
+!logs/.gitkeep
+
+# Packaging & Build Artifacts
+build/
+dist/
+
+# IDEs & Scratch
+.vscode/
+.idea/
+scratch/
+
+# Release hygiene
+__pycache__/
+receipts/*.txt
+logs/*
+!logs/.gitkeep
+backups/*
+!backups/.gitkeep
+.agents/
+.claude/
+
+release/
+dist_installer/

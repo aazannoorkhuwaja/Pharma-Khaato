@@ -1,0 +1,24 @@
+from models import CustomerModel, InventoryModel, POSModel
+
+
+class POSController:
+    """Coordinates POS workflows across inventory, customer, and transaction models."""
+
+    def __init__(self, pos_model=None, inventory_model=None, customer_model=None):
+        self.pos = pos_model or POSModel()
+        self.inventory = inventory_model or InventoryModel()
+        self.customer = customer_model or CustomerModel()
+
+    def search_products(self, term): return self.inventory.search_products(term.strip())
+    def product_by_barcode(self, barcode): return self.inventory.product_by_barcode(barcode.strip())
+    def search_customers(self, text): return self.customer.search(text.strip())
+    def customer_total_debt(self, cnic): return self.customer.total_debt(cnic)
+    def tax_rate(self): return self.pos.tax_rate()
+    def hold_sale(self, customer_id, employee_id, cart): return self.pos.hold_sale(customer_id, employee_id, cart)
+    def held_sales(self): return self.pos.held_sales()
+    def recall_sale(self, hold_id): return self.pos.recall_sale(hold_id)
+    def active_session(self, employee_id): return self.pos.active_session(employee_id)
+    def checkout_request(self, **kwargs): return self.pos.checkout_request(**kwargs)
+    def process_checkout(self, request): return self.pos.process_checkout(request)
+    @property
+    def discount_threshold_pct(self): return self.pos.discount_threshold_pct

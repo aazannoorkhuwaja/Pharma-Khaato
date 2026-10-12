@@ -1,0 +1,155 @@
+
+<div style="padding: 1rem 0; font-size: 14px; color: var(--color-text-primary);">
+  <h2 style="font-size: 18px; font-weight: 500; margin: 0 0 1.5rem;">Pharma-Khaato — complete system flow map</h2>
+
+  <!-- Flow 1 -->
+  <div style="margin-bottom: 1.5rem;">
+    <div style="font-size: 13px; font-weight: 500; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem;">Flow A — Customer registration</div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+      <div style="background: var(--color-background-info); color: var(--color-text-info); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">UI input (CNIC + name)</div>
+      <span style="color: var(--color-text-tertiary)">→</span>
+      <div style="background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">db_register_customer()</div>
+      <span style="color: var(--color-text-tertiary)">→</span>
+      <div style="background: var(--color-background-success); color: var(--color-text-success); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">Customers table</div>
+    </div>
+    <div style="margin-top: 6px; font-size: 12px; color: var(--color-text-danger); display: flex; gap: 6px; align-items: center;">
+      <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-background-danger); flex-shrink: 0;"></span>
+      Gap: no phone number field in UI or schema; email marked NOT NULL in SQL but optional in UI
+    </div>
+  </div>
+
+  <!-- Flow 2 -->
+  <div style="margin-bottom: 1.5rem;">
+    <div style="font-size: 13px; font-weight: 500; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem;">Flow B — Make a bill (POS sale)</div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px;">
+      <div style="background: var(--color-background-info); color: var(--color-text-info); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">Search customer</div>
+      <span style="color: var(--color-text-tertiary)">→</span>
+      <div style="background: var(--color-background-info); color: var(--color-text-info); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">Search + add products to cart</div>
+      <span style="color: var(--color-text-tertiary)">→</span>
+      <div style="background: var(--color-background-info); color: var(--color-text-info); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">Set discount + payment method</div>
+      <span style="color: var(--color-text-tertiary)">→</span>
+      <div style="background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">db_confirm_sale()</div>
+    </div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-left: 16px;">
+      <span style="font-size: 12px; color: var(--color-text-secondary)">writes to →</span>
+      <div style="background: var(--color-background-success); color: var(--color-text-success); padding: 4px 10px; border-radius: var(--border-radius-md); font-size: 12px;">Purchase</div>
+      <div style="background: var(--color-background-success); color: var(--color-text-success); padding: 4px 10px; border-radius: var(--border-radius-md); font-size: 12px;">Sales_details</div>
+      <div style="background: var(--color-background-success); color: var(--color-text-success); padding: 4px 10px; border-radius: var(--border-radius-md); font-size: 12px;">Receipt</div>
+      <div style="background: var(--color-background-success); color: var(--color-text-success); padding: 4px 10px; border-radius: var(--border-radius-md); font-size: 12px;">Batch (qty--)</div>
+      <div style="background: var(--color-background-success); color: var(--color-text-success); padding: 4px 10px; border-radius: var(--border-radius-md); font-size: 12px;">Products (stock--)</div>
+      <div style="background: var(--color-background-warning); color: var(--color-text-warning); padding: 4px 10px; border-radius: var(--border-radius-md); font-size: 12px;">Customer_Khatoo (if credit)</div>
+    </div>
+    <div style="margin-top: 6px; font-size: 12px; color: var(--color-text-danger); display: flex; gap: 6px; align-items: center;">
+      <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-background-danger); flex-shrink: 0;"></span>
+      Gap: tax always 10% hardcoded — not stored in schema; employee hardcoded as ID=1 when no login session
+    </div>
+  </div>
+
+  <!-- Flow 3 -->
+  <div style="margin-bottom: 1.5rem;">
+    <div style="font-size: 13px; font-weight: 500; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem;">Flow C — Khatoo (credit ledger)</div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+      <div style="background: var(--color-background-info); color: var(--color-text-info); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">Credit sale triggers Khatoo insert</div>
+      <span style="color: var(--color-text-tertiary)">→</span>
+      <div style="background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">db_record_payment()</div>
+      <span style="color: var(--color-text-tertiary)">→</span>
+      <div style="background: var(--color-background-success); color: var(--color-text-success); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">amount_due decremented</div>
+    </div>
+    <div style="margin-top: 6px; font-size: 12px; color: var(--color-text-danger); display: flex; gap: 6px; align-items: center;">
+      <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-background-danger); flex-shrink: 0;"></span>
+      Gap: Cash sales also insert a Khatoo row (amount_due=0) — ERD implies Khatoo is credit-only; no partial payment history log
+    </div>
+  </div>
+
+  <!-- Flow 4 -->
+  <div style="margin-bottom: 1.5rem;">
+    <div style="font-size: 13px; font-weight: 500; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem;">Flow D — Inventory / batch management</div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+      <div style="background: var(--color-background-info); color: var(--color-text-info); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">Create product / supplier</div>
+      <span style="color: var(--color-text-tertiary)">→</span>
+      <div style="background: var(--color-background-info); color: var(--color-text-info); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">Add shipment (batch)</div>
+      <span style="color: var(--color-text-tertiary)">→</span>
+      <div style="background: var(--color-background-success); color: var(--color-text-success); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">Batch + Products.stock_quantity++</div>
+    </div>
+    <div style="margin-top: 6px; font-size: 12px; color: var(--color-text-danger); display: flex; gap: 6px; align-items: center;">
+      <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-background-danger); flex-shrink: 0;"></span>
+      Gap: no way to edit/delete a product or supplier; no purchase price (cost price) stored on batch — only selling price
+    </div>
+  </div>
+
+  <!-- Flow 5 -->
+  <div style="margin-bottom: 1.5rem;">
+    <div style="font-size: 13px; font-weight: 500; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem;">Flow E — Alerts & expiry management</div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+      <div style="background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">db_get_near_expiry(30)</div>
+      <div style="background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">db_get_expired()</div>
+      <div style="background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">db_get_low_stock()</div>
+    </div>
+    <div style="margin-top: 6px; font-size: 12px; color: var(--color-text-danger); display: flex; gap: 6px; align-items: center;">
+      <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-background-danger); flex-shrink: 0;"></span>
+      Gap: expired batches are flagged but cannot be marked as "removed/disposed" — no disposal/write-off workflow in ERD or code
+    </div>
+  </div>
+
+  <!-- Flow 6 -->
+  <div style="margin-bottom: 1.5rem;">
+    <div style="font-size: 13px; font-weight: 500; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.75rem;">Flow F — Authentication (login)</div>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+      <div style="background: var(--color-background-info); color: var(--color-text-info); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">db_login() in salesman_app.py</div>
+      <span style="color: var(--color-text-tertiary)">→</span>
+      <div style="background: var(--color-background-danger); color: var(--color-text-danger); padding: 6px 14px; border-radius: var(--border-radius-md); font-size: 13px;">Never called — hardcoded user (1, "Admin")</div>
+    </div>
+    <div style="margin-top: 6px; font-size: 12px; color: var(--color-text-danger); display: flex; gap: 6px; align-items: center;">
+      <span style="display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--color-background-danger); flex-shrink: 0;"></span>
+      Critical gap: login screen exists in code but is never wired to SalesmanApp; employee tracking in Purchase is always ID=1
+    </div>
+  </div>
+
+  <!-- ERD vs Code gaps table -->
+  <div style="border-top: 0.5px solid var(--color-border-tertiary); padding-top: 1.5rem; margin-top: 0.5rem;">
+    <div style="font-size: 13px; font-weight: 500; color: var(--color-text-secondary); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 1rem;">ERD vs implementation gaps</div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+
+      <div style="background: var(--color-background-danger); border: 0.5px solid var(--color-border-danger); border-radius: var(--border-radius-md); padding: 10px 14px;">
+        <div style="font-size: 12px; font-weight: 500; color: var(--color-text-danger); margin-bottom: 4px;">In ERD, missing in code</div>
+        <div style="font-size: 12px; color: var(--color-text-danger); line-height: 1.7;">
+          • Stock entity (ERD annotation) — no Stock table in SQL<br>
+          • id_card_number as FK works but is a VARCHAR PK (fragile)<br>
+          • Employee–Customer direct relation (ERD note) — not implemented<br>
+          • Receipt.number_of_items vs Purchase.number_of_products redundancy
+        </div>
+      </div>
+
+      <div style="background: var(--color-background-warning); border: 0.5px solid var(--color-border-warning); border-radius: var(--border-radius-md); padding: 10px 14px;">
+        <div style="font-size: 12px; font-weight: 500; color: var(--color-text-warning); margin-bottom: 4px;">In code, not in ERD</div>
+        <div style="font-size: 12px; color: var(--color-text-warning); line-height: 1.7;">
+          • Invoice file generated on disk (not in DB)<br>
+          • Auto-start MySQL OS-level logic<br>
+          • SHA-256 password hashing (ERD shows plain password field)<br>
+          • Batch consolidation logic (duplicate batch_id merge in cart)
+        </div>
+      </div>
+
+      <div style="background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 10px 14px;">
+        <div style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary); margin-bottom: 4px;">SQL schema issues</div>
+        <div style="font-size: 12px; color: var(--color-text-secondary); line-height: 1.7;">
+          • INSERT data uses integer customer IDs — schema is VARCHAR(20) CNIC<br>
+          • Email_Address is LONGTEXT (should be VARCHAR)<br>
+          • Supplier.phone_number VARCHAR(15) — too short for intl. numbers<br>
+          • Products.formula VARCHAR(255) — insufficient for long formulas
+        </div>
+      </div>
+
+      <div style="background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 10px 14px;">
+        <div style="font-size: 12px; font-weight: 500; color: var(--color-text-secondary); margin-bottom: 4px;">Business logic gaps</div>
+        <div style="font-size: 12px; color: var(--color-text-secondary); line-height: 1.7;">
+          • No return/refund flow anywhere<br>
+          • No role-based access (admin vs salesman)<br>
+          • No audit trail for stock edits<br>
+          • Tax rate not configurable — hardcoded 10%
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>

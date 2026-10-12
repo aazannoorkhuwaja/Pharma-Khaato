@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Pharma-Khaato POS
+Comment=Offline pharmacy POS and Khatoo management
+Exec=pharma-khaato
+Terminal=false
+Categories=Office;Utility;
+StartupNotify=true
