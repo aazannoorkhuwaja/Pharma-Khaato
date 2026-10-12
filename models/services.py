@@ -77,11 +77,11 @@ class CustomerModel:
 
 class InventoryModel:
     def search_products(self, term: str):
-        from core.inventory_service import search_products
-        return search_products(term)
+        from core.product_search_service import search_sellable_products
+        return search_sellable_products(term)
 
     def product_by_barcode(self, barcode: str):
-        from core.inventory_service import get_product_by_barcode
+        from core.product_search_service import get_product_by_barcode
         return get_product_by_barcode(barcode)
 
     def products(self):
