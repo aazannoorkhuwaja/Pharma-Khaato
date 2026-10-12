@@ -30,3 +30,65 @@ def test_credit_screen_uses_task_language_and_currency_formatting():
     assert 'f"Rs. {float(amount_due):.2f}"' in source
     assert "Credit Ref:" not in source
     assert 'setPrefix("Rs. ")' in source
+
+
+def test_customer_directory_is_task_relevant_not_database_shaped():
+    source = read("ui/screens/customer_screen.py")
+    assert '["Customer", "CNIC", "Area", "Amount Due"]' in source
+    assert '"EMAIL"' not in source
+    assert "Rs. {float(debt):.2f}" in source
+
+
+def test_inventory_does_not_create_placeholder_supplier_or_show_product_id():
+    source = read("ui/screens/inventory_screen.py")
+    assert "Default Supplier" not in source
+    assert '["Product", "Price", "In Stock", "Status", "Action"]' in source
+    assert 'QPushButton("Add Supplier")' in source
+    assert 'setMaximumWidth(104)' in source
+
+
+def test_cash_screen_does_not_expose_shift_or_movement_ids():
+    source = read("ui/screens/cash_session_screen.py")
+    assert '["Type", "Amount", "Note", "Time"]' in source
+    assert "Staff ID:" not in source
+    assert "Shift #" not in source
+    assert 'setPrefix("Rs. ")' in source
+
+
+def test_staff_settings_hide_employee_ids_and_use_current_password_policy():
+    source = read("ui/screens/settings_screen.py")
+    assert '["Username", "Staff Member", "Role", "Action"]' in source
+    assert "At least 8 characters" in source
+    assert "At least 6 characters" not in source
+
+
+def test_first_run_setup_matches_eight_character_policy():
+    source = read("ui/screens/first_run_wizard.py")
+    assert "At least 8 characters" in source
+    assert "at least 8 characters" in source
+    assert "at least 6 characters" not in source
+
+
+def test_pos_keeps_shortcuts_but_removes_hotkey_wall_and_internal_batch_ids():
+    source = read("ui/screens/pos_screen.py")
+    model_source = read("ui/widgets/pos_models.py")
+    held_source = read("ui/widgets/pos_widgets.py")
+
+    assert "HotkeyBadge" not in source
+    assert 'QShortcut(QKeySequence("F10")' in source
+    assert 'QPushButton("Complete Sale")' in source
+    assert 'QPushButton("Complete Sale (F10)")' not in source
+    assert 'setPrefix("Rs. ")' in source
+    assert "No matching sellable stock" in source
+    assert "No shift open" in source
+    assert 'HEADERS = ["Product", "Expiry", "In Stock", "Price"]' in model_source
+    assert "Batch #" not in model_source
+    assert 'setHorizontalHeaderLabels(["Held At", "Customer", "Items", "Total"])' in held_source
+    assert "import json" in held_source
+
+
+def test_reports_export_visible_business_columns_only():
+    source = read("ui/screens/reports_screen.py")
+    assert "_visible_headers" in source
+    assert "_visible_row" in source
+    assert "isColumnHidden" in source
