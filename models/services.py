@@ -122,17 +122,33 @@ class InventoryModel:
 
 
 class POSModel:
+    def __init__(self):
+        self._active_recalled_hold_id: int | None = None
+
     def hold_sale(self, customer_id, employee_id, cart):
-        from core.hold_sale_service import hold_sale
+        from core.hold_sale_service import hold_sale, rehold_sale
+        if self._active_recalled_hold_id is not None:
+            ok, result = rehold_sale(
+                self._active_recalled_hold_id,
+                customer_id,
+                employee_id,
+                cart,
+            )
+            if ok:
+                self._active_recalled_hold_id = None
+            return ok, result
         return hold_sale(customer_id, employee_id, cart)
 
-    def held_sales(self):
+    def held_sales(self, employee_id=None):
         from core.hold_sale_service import get_held_sales
-        return get_held_sales()
+        return get_held_sales(employee_id=employee_id)
 
-    def recall_sale(self, hold_id):
+    def recall_sale(self, hold_id, employee_id):
         from core.hold_sale_service import recall_sale
-        return recall_sale(hold_id)
+        ok, result = recall_sale(hold_id, employee_id)
+        if ok:
+            self._active_recalled_hold_id = int(hold_id)
+        return ok, result
 
     def active_session(self, employee_id: int):
         from core.cash_session_service import get_active_session
@@ -148,7 +164,18 @@ class POSModel:
 
     def process_checkout(self, request):
         from core.pos_service import POSTransactionEngine
-        return POSTransactionEngine.process_checkout(request)
+        result = POSTransactionEngine.process_checkout(request)
+        if result.success and self._active_recalled_hold_id is not None:
+            try:
+                from core.hold_sale_service import complete_hold
+                complete_hold(
+                    self._active_recalled_hold_id,
+                    request.employee_id,
+                    result.purchase_id,
+                )
+            finally:
+                self._active_recalled_hold_id = None
+        return result
 
     @property
     def discount_threshold_pct(self) -> float:
