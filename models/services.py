@@ -275,6 +275,10 @@ class SettingsModel:
         from core.settings_service import SettingsService
         return SettingsService.get_setting(key, default)
 
+    def get_many(self, keys, defaults=None) -> dict:
+        from core.settings_service import SettingsService
+        return SettingsService.get_many(keys, defaults)
+
     def set(self, key: str, value: str) -> bool:
         from core.settings_service import SettingsService
         return SettingsService.set_setting(key, value)
