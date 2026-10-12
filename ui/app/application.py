@@ -88,24 +88,66 @@ def run_app():
     current_user = SessionState.get_instance().current_user
     health = app_controller.health()
     window = MainWindow()
-    window.set_active_user(current_user)
 
-    # Only the counter is imported/constructed eagerly. Secondary workflows
-    # import on first navigation, reducing login-to-counter startup work.
-    window.router.register_screen("pos", POSScreen())
-    window.router.register_screen_factory("inventory", _inventory_screen)
-    window.router.register_screen_factory("customers", _customer_screen)
-    window.router.register_screen_factory("khatoo", _credit_screen)
-    window.router.register_screen_factory("cash_session", _cash_screen)
-    window.router.register_screen_factory("reports", _reports_screen)
-    window.router.register_screen_factory("returns", _returns_screen)
-    window.router.register_screen_factory("settings", _settings_screen)
+    # The POS is already populated by its constructor, so mark that initial
+    # snapshot current. Secondary workflows are lazy-created only when needed.
+    window.router.register_screen(
+        "pos",
+        POSScreen(),
+        domains=("cash",),
+        max_age_seconds=5.0,
+        data_is_current=True,
+    )
+    window.router.register_screen_factory(
+        "inventory",
+        _inventory_screen,
+        domains=("inventory",),
+        max_age_seconds=30.0,
+    )
+    window.router.register_screen_factory(
+        "customers",
+        _customer_screen,
+        domains=("customers", "credit"),
+        max_age_seconds=30.0,
+    )
+    window.router.register_screen_factory(
+        "khatoo",
+        _credit_screen,
+        domains=("credit", "customers"),
+        max_age_seconds=20.0,
+    )
+    window.router.register_screen_factory(
+        "cash_session",
+        _cash_screen,
+        domains=("cash", "sales", "credit", "returns"),
+        max_age_seconds=10.0,
+    )
+    window.router.register_screen_factory(
+        "reports",
+        _reports_screen,
+        domains=("reports", "sales", "inventory", "credit", "returns"),
+        max_age_seconds=30.0,
+    )
+    window.router.register_screen_factory(
+        "returns",
+        _returns_screen,
+        domains=("returns", "sales"),
+        max_age_seconds=30.0,
+    )
+    window.router.register_screen_factory(
+        "settings",
+        _settings_screen,
+        domains=("settings", "staff", "backups"),
+        max_age_seconds=60.0,
+    )
 
     if health["db_connected"]:
         window.status_bar.showMessage(f"Signed in: {current_user.get('username')} • Ready")
     else:
         window.status_bar.showMessage(f"Signed in: {current_user.get('username')} • System needs attention")
 
+    # MainWindow already read the active user once during construction. Avoid a
+    # second session/shift query here; just navigate to the ready counter.
     window.on_nav_clicked("pos")
     screen = window.screen() or app.primaryScreen()
     if screen is not None:
