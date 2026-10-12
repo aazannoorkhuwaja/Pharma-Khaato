@@ -20,7 +20,6 @@ from ui.widgets.responsive import flexible_side_panel, configure_dialog
 from ui.ux_copy import ROLE_OPTIONS, role_label
 from ui.app.state.health_checker import SystemHealthChecker
 from controllers.settings_controller import SettingsController
-from core.receipt_service import get_receipt_template_options, generate_invoice_text
 
 _SETTINGS_CONTROLLER = SettingsController()
 
@@ -134,7 +133,7 @@ class SettingsScreen(QWidget):
         form = QFormLayout()
         form.setSpacing(10)
         self.cmb_receipt_template = QComboBox()
-        for key, label, description in get_receipt_template_options():
+        for key, label, description in _SETTINGS_CONTROLLER.receipt_template_options():
             self.cmb_receipt_template.addItem(label, key)
             index = self.cmb_receipt_template.count() - 1
             self.cmb_receipt_template.setItemData(index, description, 3)
@@ -188,29 +187,13 @@ class SettingsScreen(QWidget):
 
     def _update_receipt_template_help(self):
         index = self.cmb_receipt_template.currentIndex()
-        options = get_receipt_template_options()
+        options = _SETTINGS_CONTROLLER.receipt_template_options()
         if 0 <= index < len(options):
             self.lbl_receipt_template_help.setText(options[index][2])
 
     def preview_receipt(self):
         template = self.cmb_receipt_template.currentData() or "standard_80"
-        receipt = generate_invoice_text(
-            1024,
-            "Walk-in Customer",
-            [
-                {"name": "Augmentin 625mg", "qty": 1, "price": 450.0},
-                {"name": "Panadol 500mg", "qty": 2, "price": 50.0},
-                {"name": "Brufen 400mg", "qty": 1, "price": 80.0},
-            ],
-            total=630.0,
-            tax=0.0,
-            discount=0.0,
-            payment_method="Cash",
-            cashier_name="Admin",
-            amount_received=1000.0,
-            change=370.0,
-            template=template,
-        )
+        receipt = _SETTINGS_CONTROLLER.receipt_preview(template)
         dialog = QDialog(self)
         dialog.setWindowTitle(f"Receipt Preview — {self.cmb_receipt_template.currentText()}")
         configure_dialog(dialog, 620, 700, minimum_width=430, minimum_height=450)
