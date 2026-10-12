@@ -1,14 +1,12 @@
-"""
-POS widgets extracted from the POS screen for maintainability:
-search input, search results table, cart table, and recall-sale dialog.
-"""
+"""Reusable POS input, result, cart, and held-sale widgets."""
+
+import json
 
 from PySide6.QtWidgets import (
     QLineEdit, QTableView, QTableWidget, QDialog, QVBoxLayout, QHBoxLayout,
-    QLabel, QWidget, QPushButton, QTableWidgetItem, QHeaderView, QMessageBox
+    QLabel, QPushButton, QTableWidgetItem, QHeaderView,
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeyEvent
 
 from ui.theme.tokens import ThemeTokens
 from ui.widgets.responsive import configure_dialog
@@ -16,7 +14,8 @@ from ui.widgets.table_polish import polish_table
 
 
 class SearchLineEdit(QLineEdit):
-    """Custom QLineEdit providing Key_Down arrow navigation to Search Results Table."""
+    """Search input with Down-arrow and Escape navigation helpers."""
+
     def __init__(self, parent=None, on_down_callback=None, on_escape_callback=None):
         super().__init__(parent)
         self.on_down_callback = on_down_callback
@@ -34,7 +33,8 @@ class SearchLineEdit(QLineEdit):
 
 
 class SearchResultsTable(QTableView):
-    """Custom virtualized QTableView providing Return (select) & Escape (cancel) key navigation."""
+    """Virtualized product-result table with keyboard selection."""
+
     def __init__(self, parent=None, on_select_callback=None, on_cancel_callback=None):
         super().__init__(parent)
         self.on_select_callback = on_select_callback
@@ -55,8 +55,7 @@ class SearchResultsTable(QTableView):
 
     def selectRow(self, row):
         if self.model() and 0 <= row < self.model().rowCount():
-            index = self.model().index(row, 0)
-            self.setCurrentIndex(index)
+            self.setCurrentIndex(self.model().index(row, 0))
 
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key_Return, Qt.Key_Enter):
@@ -76,7 +75,8 @@ class SearchResultsTable(QTableView):
 
 
 class CartTableWidget(QTableWidget):
-    """Custom QTableWidget providing Delete, +, - key bindings to remove/adjust highlighted cart rows."""
+    """Cart table with Delete and +/- keyboard quantity controls."""
+
     def __init__(self, parent=None, on_delete_callback=None, on_qty_change_callback=None):
         super().__init__(0, 6, parent)
         self.on_delete_callback = on_delete_callback
@@ -100,61 +100,61 @@ class CartTableWidget(QTableWidget):
         super().keyPressEvent(event)
 
 
-
 class RecallSaleDialog(QDialog):
-    """Dialog for picking a held sale when multiple held sales exist."""
+    """Choose a held sale without exposing internal hold IDs."""
+
     def __init__(self, held_sales, parent=None):
         super().__init__(parent)
         self.selected_hold_id = None
-        self.setWindowTitle("Resume Held Sale")
+        self.setWindowTitle("Held Sales")
         configure_dialog(self, 680, 440, minimum_width=500, minimum_height=340)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        lbl_title = QLabel("Held Sales")
-        lbl_title.setObjectName("h2")
-        lbl_title.setStyleSheet(f" font-weight: 800; color: {ThemeTokens.ACCENT};")
-        layout.addWidget(lbl_title)
+        title = QLabel("Held Sales")
+        title.setObjectName("h2")
+        title.setStyleSheet(f"font-weight: 800; color: {ThemeTokens.ACCENT};")
+        layout.addWidget(title)
 
-        lbl_sub = QLabel("Choose the held sale you want to continue.")
-        lbl_sub.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
-        layout.addWidget(lbl_sub)
+        subtitle = QLabel("Choose the sale you want to continue.")
+        subtitle.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
+        layout.addWidget(subtitle)
 
-        self.table = QTableWidget(len(held_sales), 5)
-        self.table.setHorizontalHeaderLabels(["Hold #", "Held At", "Customer", "Items", "Total"])
+        self.table = QTableWidget(len(held_sales), 4)
+        self.table.setHorizontalHeaderLabels(["Held At", "Customer", "Items", "Total"])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         polish_table(self.table)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setAccessibleName("Held sales")
 
         self.held_ids = []
         for row, item in enumerate(held_sales):
-            h_id, h_time, c_id, e_id, cart_json, note = item
-            self.held_ids.append(h_id)
+            hold_id, held_at, customer_id, _employee_id, cart_json, _note = item
+            self.held_ids.append(hold_id)
             try:
                 cart_data = json.loads(cart_json)
-                qty_sum = sum(i.get("qty", 1) for i in cart_data)
-                tot_sum = sum(i.get("subtotal", 0.0) for i in cart_data)
-            except Exception:
-                qty_sum = 0
-                tot_sum = 0.0
+                item_count = sum(int(entry.get("qty", 1)) for entry in cart_data)
+                total = sum(float(entry.get("subtotal", 0.0)) for entry in cart_data)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                item_count = 0
+                total = 0.0
 
-            self.table.setItem(row, 0, QTableWidgetItem(f"#{h_id}"))
-            self.table.setItem(row, 1, QTableWidgetItem(str(h_time)))
-            self.table.setItem(row, 2, QTableWidgetItem(str(c_id)))
-            self.table.setItem(row, 3, QTableWidgetItem(str(qty_sum)))
-            self.table.setItem(row, 4, QTableWidgetItem(f"Rs. {tot_sum:.2f}"))
+            customer_text = "Walk-in customer" if str(customer_id) == "WALKIN" else str(customer_id)
+            self.table.setItem(row, 0, QTableWidgetItem(str(held_at)))
+            self.table.setItem(row, 1, QTableWidgetItem(customer_text))
+            self.table.setItem(row, 2, QTableWidgetItem(str(item_count)))
+            self.table.setItem(row, 3, QTableWidgetItem(f"Rs. {total:.2f}"))
 
         layout.addWidget(self.table, 1)
 
-        btn_box = QHBoxLayout()
+        buttons = QHBoxLayout()
         self.btn_recall = QPushButton("Resume Sale")
         self.btn_recall.setObjectName("primaryButton")
         self.btn_recall.clicked.connect(self.on_confirm)
@@ -162,19 +162,17 @@ class RecallSaleDialog(QDialog):
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.clicked.connect(self.reject)
 
-        btn_box.addStretch()
-        btn_box.addWidget(self.btn_cancel)
-        btn_box.addWidget(self.btn_recall)
-        layout.addLayout(btn_box)
+        buttons.addStretch()
+        buttons.addWidget(self.btn_cancel)
+        buttons.addWidget(self.btn_recall)
+        layout.addLayout(buttons)
 
         self.table.doubleClicked.connect(self.on_confirm)
-        if len(held_sales) > 0:
+        if held_sales:
             self.table.selectRow(0)
 
     def on_confirm(self):
         row = self.table.currentRow()
-        if row >= 0 and row < len(self.held_ids):
+        if 0 <= row < len(self.held_ids):
             self.selected_hold_id = self.held_ids[row]
             self.accept()
-
-
