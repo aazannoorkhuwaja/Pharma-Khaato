@@ -15,8 +15,8 @@ env:
   PYTHONUTF8: "1"
 
 jobs:
-  # Fast feedback for day-to-day development. We use the same Python version as
-  # the current Linux development machine and still run the complete test suite.
+  # Fast feedback for day-to-day development. The full business demo preflight
+  # runs here too, so a green develop-ui head is presentation-safe.
   develop-fast:
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop-ui'
     runs-on: ubuntu-latest
@@ -50,6 +50,14 @@ jobs:
 
       - name: Run test suite
         run: python -m pytest -q
+
+      - name: Run isolated launch self-check
+        env:
+          PHARMA_KHAATO_DATA_DIR: ${{ runner.temp }}/pharma-khaato-self-check
+        run: python main.py --self-check --headless
+
+      - name: Prepare complete isolated demo
+        run: python scripts/demo_mode.py --no-launch
 
   # Full portability gate for pull requests and protected/release branches.
   full-matrix:
@@ -91,3 +99,12 @@ jobs:
 
       - name: Run test suite
         run: python -m pytest -q
+
+      - name: Run isolated launch self-check
+        env:
+          PHARMA_KHAATO_DATA_DIR: ${{ runner.temp }}/pharma-khaato-self-check
+        run: python main.py --self-check --headless
+
+      - name: Prepare complete isolated demo on current runtimes
+        if: matrix.python-version == '3.14'
+        run: python scripts/demo_mode.py --no-launch
