@@ -23,13 +23,15 @@ def test_shared_table_polish_does_not_stretch_action_column():
     assert "ResizeToContents" in source
 
 
-def test_credit_screen_uses_task_language_and_currency_formatting():
+def test_credit_screen_uses_task_language_currency_and_one_selected_row_action():
     source = read("ui/screens/khatoo_screen.py")
-    assert '"Balance"' in source
-    assert '"Payment"' in source
+    assert '["Customer", "Sale", "Paid", "Balance", "CNIC"]' in source
+    assert 'QPushButton("Record Payment")' in source
+    assert 'setCellWidget(row' not in source
     assert 'f"Rs. {float(amount_due):.2f}"' in source
     assert "Credit Ref:" not in source
     assert 'setPrefix("Rs. ")' in source
+    assert "Qt.ItemDataRole.UserRole" in source
 
 
 def test_customer_directory_is_task_relevant_not_database_shaped():
@@ -39,12 +41,17 @@ def test_customer_directory_is_task_relevant_not_database_shaped():
     assert "Rs. {float(debt):.2f}" in source
 
 
-def test_inventory_does_not_create_placeholder_supplier_or_show_product_id():
+def test_inventory_uses_one_selected_product_action_and_lazy_intake():
     source = read("ui/screens/inventory_screen.py")
     assert "Default Supplier" not in source
-    assert '["Product", "Price", "In Stock", "Status", "Action"]' in source
+    assert '["Product", "Price", "In Stock", "Status"]' in source
     assert 'QPushButton("Add Supplier")' in source
-    assert 'setMaximumWidth(104)' in source
+    assert 'self.btn_selected_stock = QPushButton("Add Stock")' in source
+    assert 'setCellWidget(row' not in source
+    assert "catalog_search_timer" in source
+    assert "_load_intake_data" in source
+    assert "active_batches(300)" in source
+    assert "Qt.ItemDataRole.UserRole" in source
 
 
 def test_cash_screen_does_not_expose_shift_or_movement_ids():
