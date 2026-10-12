@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 
 from controllers.return_controller import ReturnController
+from ui.app.async_tasks import AsyncTaskRunner
 from ui.app.state.session_state import SessionState
 from ui.theme.tokens import ThemeTokens
 from ui.widgets.card import Card
@@ -19,13 +20,15 @@ _RETURN_CONTROLLER = ReturnController()
 
 
 class ReturnsScreen(QWidget):
-    """Exact sale lookup keeps the return workflow fast even on large databases."""
+    """Exact sale lookup with non-blocking database and refund work."""
 
     def __init__(self, parent=None, show_message_box: bool = True):
         super().__init__(parent)
         self.show_message_box = show_message_box
         self.current_sale = None
         self._qty_widgets: dict[int, QSpinBox] = {}
+        self._tasks = AsyncTaskRunner(self)
+        self._processing = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -126,6 +129,9 @@ class ReturnsScreen(QWidget):
             return None
 
     def clear_sale(self):
+        if self._processing:
+            return
+        self._tasks.invalidate("return-lookup")
         self.current_sale = None
         self._qty_widgets.clear()
         self.tbl_items.setRowCount(0)
@@ -142,15 +148,34 @@ class ReturnsScreen(QWidget):
 
         self.btn_find.setEnabled(False)
         self.btn_find.setText("Finding…")
-        try:
-            sale = _RETURN_CONTROLLER.sale(raw)
-        finally:
+        self.lbl_sale_summary.setText(f"Finding Sale #{raw}…")
+
+        def complete(sale):
+            if self.txt_sale_id.text().strip().replace("Sale", "").replace("#", "").strip() != raw:
+                return
             self.btn_find.setEnabled(True)
             self.btn_find.setText("Find Sale")
+            self._apply_sale_lookup(raw, sale)
 
+        def failed(_details):
+            self.btn_find.setEnabled(True)
+            self.btn_find.setText("Find Sale")
+            self.lbl_sale_summary.setText("Could not load that sale. Try again.")
+
+        self._tasks.run_latest(
+            "return-lookup",
+            lambda: _RETURN_CONTROLLER.sale(raw),
+            complete,
+            failed,
+        )
+
+    def _apply_sale_lookup(self, raw, sale):
         if not sale:
-            self.clear_sale()
-            self.txt_sale_id.setText(raw)
+            self.current_sale = None
+            self._qty_widgets.clear()
+            self.tbl_items.setRowCount(0)
+            self.btn_process.setEnabled(False)
+            self.lbl_sale_summary.setText(f"Sale #{raw} was not found.")
             show_toast(self, f"Sale #{raw} was not found.", ToastType.WARNING)
             return
 
@@ -176,6 +201,9 @@ class ReturnsScreen(QWidget):
                 self.tbl_items.setItem(row, 3, QTableWidgetItem(str(line["remaining_returnable"])))
                 self.tbl_items.setItem(row, 5, QTableWidgetItem(str(line["expiry_date"])))
 
+                # A sale contains a small number of lines, so an inline quantity
+                # control is appropriate here and does not create the hundreds
+                # of QWidget instances that hurt ledger/catalog performance.
                 qty = QSpinBox()
                 qty.setRange(0, int(line["remaining_returnable"]))
                 qty.setValue(0)
@@ -187,7 +215,7 @@ class ReturnsScreen(QWidget):
             self.tbl_items.setUpdatesEnabled(True)
 
     def process_return(self):
-        if not self.current_sale:
+        if not self.current_sale or self._processing:
             return
         employee_id = self._employee_id()
         if employee_id is None:
@@ -219,21 +247,30 @@ class ReturnsScreen(QWidget):
         if reply != QMessageBox.StandardButton.Yes:
             return
 
+        purchase_id = self.current_sale["purchase_id"]
+        condition = self.cmb_condition.currentData()
+        self._processing = True
         self.btn_process.setEnabled(False)
         self.btn_process.setText("Processing…")
-        self.setCursor(Qt.WaitCursor)
-        try:
-            ok, result = _RETURN_CONTROLLER.process(
-                self.current_sale["purchase_id"],
+        self.btn_clear.setEnabled(False)
+
+        self._tasks.run(
+            lambda: _RETURN_CONTROLLER.process(
+                purchase_id,
                 items,
                 employee_id,
                 reason,
-                self.cmb_condition.currentData(),
-            )
-        finally:
-            self.setCursor(Qt.ArrowCursor)
-            self.btn_process.setText("Process Return")
+                condition,
+            ),
+            self._return_complete,
+            lambda _details: self._return_failed(),
+        )
 
+    def _return_complete(self, payload):
+        self._processing = False
+        self.btn_process.setText("Process Return")
+        self.btn_clear.setEnabled(True)
+        ok, result = payload
         if not ok:
             self.btn_process.setEnabled(True)
             QMessageBox.critical(self, "Return Could Not Be Completed", str(result))
@@ -251,8 +288,17 @@ class ReturnsScreen(QWidget):
         )
         self.find_sale()
 
+    def _return_failed(self):
+        self._processing = False
+        self.btn_process.setText("Process Return")
+        self.btn_process.setEnabled(True)
+        self.btn_clear.setEnabled(True)
+        QMessageBox.critical(
+            self,
+            "Return Could Not Be Completed",
+            "The return could not be completed. No retry was submitted automatically; check the sale and try again.",
+        )
+
     def on_screen_show(self):
-        # Exact lookup only when a sale is already loaded; otherwise opening the
-        # screen performs no database scan.
         if self.current_sale:
             self.find_sale()
