@@ -1,4 +1,5 @@
 from models import CustomerModel
+from core.data_revision import touch
 
 
 class CustomerController:
@@ -6,7 +7,13 @@ class CustomerController:
         self.model = model or CustomerModel()
 
     def validate_cnic(self, cnic): return self.model.validate_cnic(cnic)
-    def register(self, cnic, first_name, last_name, email, city): return self.model.register(cnic, first_name, last_name, email, city)
+
+    def register(self, cnic, first_name, last_name, email, city):
+        result = self.model.register(cnic, first_name, last_name, email, city)
+        if isinstance(result, tuple) and result and result[0]:
+            touch("customers")
+        return result
+
     def search(self, text): return self.model.search(text.strip())
     def search_with_debt(self, text): return self.model.search_with_debt(text.strip())
     def total_debt(self, cnic): return self.model.total_debt(cnic)
