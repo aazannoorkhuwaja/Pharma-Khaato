@@ -249,9 +249,6 @@ class InventoryScreen(QWidget):
 
         self.tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self.tabs, 1)
-
-        # Constructor schedules the read and returns immediately so the router
-        # can paint this screen instead of waiting on SQLite/table population.
         self.refresh_catalog_data()
 
     def on_screen_show(self):
@@ -460,7 +457,6 @@ class InventoryScreen(QWidget):
         total = int(snapshot.get("total_products", len(products)) or 0)
         low_count = int(snapshot.get("low_stock_count", len(low_stock)) or 0)
         near_count = int(snapshot.get("near_expiry_count", len(near_expiry)) or 0)
-        limit = int(snapshot.get("product_limit", len(products)) or len(products))
         self.pill_total_prods.setText(f"Products: {total}")
         self.pill_low_stock.setText(f"Low Stock: {low_count}")
         self.pill_near_expiry.setText(f"Expiring Soon: {near_count}")
@@ -505,7 +501,8 @@ class InventoryScreen(QWidget):
 
         self.cmb_intake_prod.blockSignals(True)
         self.cmb_intake_prod.clear()
-        for product_id, product_name, _price, _stock in rows:
+        for item in rows:
+            product_id, product_name = item[0], item[1]
             self.cmb_intake_prod.addItem(str(product_name), product_id)
         if selected_id is not None:
             index = self.cmb_intake_prod.findData(selected_id)
@@ -580,7 +577,8 @@ class InventoryScreen(QWidget):
             self.tbl_products.clearContents()
             self.tbl_products.setRowCount(len(products))
             for row, item in enumerate(products):
-                product_id, product_name, price, stock = item
+                product_id, product_name, price, stock = item[:4]
+                reorder_level = int(item[4] or 0) if len(item) > 4 else None
                 product_name = str(product_name)
                 stock = int(stock or 0)
 
@@ -592,6 +590,8 @@ class InventoryScreen(QWidget):
 
                 if stock <= 0:
                     status = "Out of Stock"
+                elif reorder_level is not None and stock <= reorder_level:
+                    status = "Low Stock"
                 elif product_name in self._low_stock_names:
                     status = "Low Stock"
                 else:
