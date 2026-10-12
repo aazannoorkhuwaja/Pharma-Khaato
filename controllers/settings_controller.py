@@ -10,6 +10,9 @@ class SettingsController:
     def get(self, key, default=None):
         return self.settings.get(key, default)
 
+    def get_many(self, keys, defaults=None):
+        return self.settings.get_many(keys, defaults)
+
     def set(self, key, value):
         result = self.settings.set(key, value)
         if result:
