@@ -2,12 +2,10 @@
 
 This module deliberately separates UI language from backend/domain values.
 That keeps the interface easy to rename/localise without changing business
-logic (for example a friendly "Customer Credit" label can still map to the
-canonical backend value ``Khatoo Credit``).
+logic.
 """
 
 from __future__ import annotations
-
 from dataclasses import dataclass
 
 
@@ -26,14 +24,13 @@ NAV_ITEMS = (
     NavItem("khatoo", "Customer Credit", "Credit", "Alt+3", "View customer credit and record payments."),
     NavItem("inventory", "Stock & Products", "Stock", "Alt+4", "Manage products, batches, stock, and expiry alerts."),
     NavItem("cash_session", "Shift & Cash", "Shift", "Alt+5", "Open or close the cash shift and record drawer cash."),
-    NavItem("reports", "Reports", "Report", "Alt+6", "Review sales, low stock, expiry, and activity."),
+    NavItem("reports", "Reports", "Report", "Alt+6", "Review sales, payment mix, stock, expiry, and activity."),
     NavItem("settings", "Settings", "Setup", "Alt+7", "Change pharmacy settings, staff access, and backups."),
+    NavItem("returns", "Returns & Refunds", "Return", "Alt+8", "Return items from an existing sale and refund safely."),
 )
 
 NAV_BY_KEY = {item.key: item for item in NAV_ITEMS}
 
-# Display label -> stable backend value.  Never make business logic depend on
-# translated or revised UI wording.
 PAYMENT_OPTIONS = (
     ("Cash", "Cash"),
     ("Card", "Credit Card"),
@@ -60,6 +57,5 @@ ROLE_LABELS = {value.lower(): label for label, value in ROLE_OPTIONS}
 
 
 def role_label(value: str) -> str:
-    """Return a friendly role name while keeping unknown custom roles intact."""
     raw = str(value or "Staff")
     return ROLE_LABELS.get(raw.lower(), raw)
