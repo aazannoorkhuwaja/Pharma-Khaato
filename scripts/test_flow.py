@@ -1,98 +1,87 @@
-import os
+#!/usr/bin/env python3
+"""Production-safe end-to-end business-flow verification.
+
+This script intentionally uses the same isolated ``.demo-data`` database as the
+presentation launcher. It can be run before a demo without touching normal
+Pharma-Khaato data.
+"""
+
+from __future__ import annotations
+
 import sys
-import time
+from pathlib import Path
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
-from datetime import date
-from core.auth_service import login_user, has_registered_employees, register_initial_admin
-from core.customer_service import register_customer, search_customer, load_khatoo, record_payment
-from core.inventory_service import search_products, get_near_expiry, get_expired_stock, clear_inventory_cache
-from core.pos_service import confirm_sale, get_sales_history
+# Importing demo_mode establishes PHARMA_KHAATO_DATA_DIR before core imports.
+from scripts.demo_mode import (
+    DEMO_ADMIN_PASSWORD,
+    DEMO_ADMIN_USER,
+    reset_demo_storage,
+    seed_demo_database,
+)
 
-def test_flow():
-    print("=" * 60)
-    print("  PHARMA-KHAATO SYSTEM INTEGRATION & END-TO-END SUITE  ")
-    print("=" * 60)
-    
-    try:
-        clear_inventory_cache()
-        # Seed test admin if DB is fresh
-        if not has_registered_employees():
-            register_initial_admin("admin", "admin123", "Usman", "Admin")
 
-        # 1. Authentication
-        print("\n[1/6] Testing Employee Authentication...")
-        user = login_user("admin", "admin123")
-        assert user is not None, "Login failed for default admin user!"
-        print(f"   ✓ Logged in as: {user[1]} ({user[3]})")
+def test_flow() -> int:
+    print("=" * 68)
+    print("PHARMA-KHAATO DEMO / LAUNCH BUSINESS-FLOW VERIFICATION")
+    print("=" * 68)
 
-        # 2. Register Customer
-        print("\n[2/6] Testing Customer Registration...")
-        test_cnic = f"999{int(time.time())}"[:13]
-        ok, msg = register_customer(test_cnic, "Integration", "Tester", "test@pharma.pk", "Peshawar")
-        print(f"   ✓ Status: {msg}")
+    reset_demo_storage()
+    summary = seed_demo_database()
 
-        # 3. Search Customer
-        print("\n[3/6] Testing Customer Search...")
-        custs = search_customer(test_cnic)
-        assert len(custs) > 0, "Registered customer not found!"
-        print(f"   ✓ Found: {custs[0][1]} {custs[0][2]} ({custs[0][0]})")
+    from core.auth_service import login_user
+    from core.cash_session_service import get_active_session, get_session_cash_summary
+    from core.credit_query_service import credit_snapshot
+    from core.inventory_service import search_products
+    from core.readiness_service import run_readiness_checks
+    from core.reports_service import get_daily_sales_report
+    from core.return_service import get_sale_for_return
 
-        # 4. Product & Stock Search
-        print("\n[4/6] Testing FEFO Stock & Product Search...")
-        prods = search_products("")
-        if not prods:
-            from scripts.seed_db import seed_database
-            seed_database()
-            clear_inventory_cache()
-            prods = search_products("")
-        assert len(prods) > 0, "No available products found in stock!"
-        prod = prods[0]
-        print(f"   ✓ Selected Item: {prod[1]} (Batch #{prod[3]}, Price: Rs.{prod[2]}, Stock: {prod[4]})")
+    print("[1/7] Authentication")
+    user = login_user(DEMO_ADMIN_USER, DEMO_ADMIN_PASSWORD)
+    assert user is not None, "Demo administrator login failed"
+    admin_id = int(user[0])
 
-        # 5. POS Checkout Transaction (Credit Khatoo)
-        print("\n[5/6] Testing POS Checkout & Credit Ledger...")
-        cart = [{
-            "prod_id": prod[0],
-            "name": prod[1],
-            "price": float(prod[2]),
-            "batch_id": prod[3],
-            "qty": 2,
-            "subtotal": float(prod[2]) * 2
-        }]
-        ok, msg = confirm_sale(test_cnic, user[0], cart, total=float(prod[2]) * 2, discount=0.0, payment_method="Credit (Khatoo)")
-        assert ok, f"Checkout failed: {msg}"
-        print(f"   ✓ Checkout Status: {msg}")
+    print("[2/7] Sellable inventory / indexed search")
+    panadol = search_products("Panadol")
+    assert panadol, "Panadol demo stock is not searchable"
 
-        # 6. Khatoo Payment Recording
-        print("\n[6/6] Testing Khatoo Debt Settlement...")
-        khatoo_data = load_khatoo(test_cnic)
-        assert len(khatoo_data) > 0, "Khatoo credit record not generated after credit sale!"
-        unpaid = [k for k in khatoo_data if float(k[3]) > 0]
-        if unpaid:
-            k_id = unpaid[0][0]
-            due  = float(unpaid[0][3])
-            pay_amt = round(min(10.0, due), 2)
-            ok, pmsg = record_payment(k_id, pay_amt)
-            assert ok, f"Payment recording failed: {pmsg}"
-            print(f"   ✓ Payment (Rs.{pay_amt:.2f}) Recorded for Khatoo Record #{k_id}: {pmsg}")
+    print("[3/7] Open cash shift and physical-drawer accounting")
+    session = get_active_session(admin_id)
+    assert session and session.get("status") == "OPEN", "Demo shift is not open"
+    cash = get_session_cash_summary(session["id"])
+    assert cash is not None and cash["expected_cash"] >= 5000.0, "Cash summary is invalid"
+    assert cash["cash_sales"] > 0, "Cash sale is missing from drawer summary"
+    assert cash["cash_credit_collections"] > 0, "Cash credit collection is missing"
 
-            updated_khatoo = load_khatoo(test_cnic)
-            new_due = float([k for k in updated_khatoo if k[0] == k_id][0][3])
-            print(f"   ✓ New Outstanding Due Balance for #{k_id}: Rs.{new_due:.2f}")
-        else:
-            print("   ✓ All Khatoo records are fully settled (Rs.0.00 due).")
+    print("[4/7] Customer Credit history")
+    credit = credit_snapshot("", limit=100)
+    rows = credit.get("rows", []) if isinstance(credit, dict) else []
+    assert rows, "Demo customer-credit ledger is empty"
 
-        print("\n" + "=" * 60)
-        print(" 🎉 ALL 6 INTEGRATION CHECKS PASSED PERFECTLY!")
-        print("=" * 60)
+    print("[5/7] Tender-aware reports")
+    report = get_daily_sales_report()
+    assert report and report.get("total_transactions", 0) >= 5, "Demo sales did not reach reports"
 
-    except Exception as e:
-        print(f"\n❌ TEST SUITE FAILED: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    print("[6/7] Return lookup")
+    return_sale_id = summary["sale_ids"]["cash"]
+    sale = get_sale_for_return(return_sale_id)
+    assert sale and sale.get("lines"), "A seeded sale cannot be loaded for Returns"
+
+    print("[7/7] Launch self-check")
+    readiness = run_readiness_checks()
+    assert readiness.get("ok"), "Readiness self-check failed"
+
+    print("\nPASS — isolated demo business flow is ready.")
+    print(f"Demo database: {summary['data_dir']}")
+    return 0
+
 
 if __name__ == "__main__":
-    test_flow()
+    try:
+        raise SystemExit(test_flow())
+    except Exception as exc:
+        print(f"\nFAIL — {exc}", file=sys.stderr)
+        raise
