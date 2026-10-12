@@ -49,4 +49,7 @@ class InventoryController:
     def near_expiry(self, days): return self.model.near_expiry(days)
     def expired_stock(self): return self.model.expired_stock()
     def low_stock(self): return self.model.low_stock()
-    def active_batches(self): return self.model.active_batches()
+
+    def active_batches(self, limit=300):
+        from core.inventory_query_service import active_batches
+        return active_batches(limit)
