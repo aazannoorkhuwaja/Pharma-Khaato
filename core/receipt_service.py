@@ -16,6 +16,16 @@ RECEIPT_TEMPLATES = (
     ("compact_58", "Compact 58mm", "Short receipt for narrow 58mm thermal printers."),
 )
 _TEMPLATE_KEYS = {item[0] for item in RECEIPT_TEMPLATES}
+_RECEIPT_SETTING_KEYS = (
+    "receipt_template",
+    "pharmacy_name",
+    "slogan",
+    "address",
+    "phone",
+    "license_number",
+    "ntn_number",
+    "receipt_footer",
+)
 
 
 def get_receipt_template_options():
@@ -33,8 +43,25 @@ def _money(value) -> Decimal:
     return Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def _template_key(explicit=None):
-    key = str(explicit or SettingsService.get_setting("receipt_template", "standard_80")).strip()
+def _receipt_settings():
+    return SettingsService.get_many(
+        _RECEIPT_SETTING_KEYS,
+        {
+            "receipt_template": "standard_80",
+            "pharmacy_name": "Pharma-Khaato POS",
+            "slogan": "NOT_CONFIGURED",
+            "address": "NOT_CONFIGURED",
+            "phone": "NOT_CONFIGURED",
+            "license_number": "NOT_CONFIGURED",
+            "ntn_number": "NOT_CONFIGURED",
+            "receipt_footer": "NOT_CONFIGURED",
+        },
+    )
+
+
+def _template_key(explicit=None, settings=None):
+    settings = settings or {}
+    key = str(explicit or settings.get("receipt_template", "standard_80")).strip()
     return key if key in _TEMPLATE_KEYS else "standard_80"
 
 
@@ -53,13 +80,13 @@ def _pair(left: str, right: str, width: int) -> str:
     return (left + (" " * gap) + right)[:width]
 
 
-def _pharmacy_header(width: int, *, tax_focused: bool = False):
-    p_name = SettingsService.get_setting("pharmacy_name", "Pharma-Khaato POS")
-    p_slogan = SettingsService.get_setting("slogan", "NOT_CONFIGURED")
-    p_address = SettingsService.get_setting("address", "NOT_CONFIGURED")
-    p_phone = SettingsService.get_setting("phone", "NOT_CONFIGURED")
-    p_lic = SettingsService.get_setting("license_number", "NOT_CONFIGURED")
-    p_ntn = SettingsService.get_setting("ntn_number", "NOT_CONFIGURED")
+def _pharmacy_header(width: int, settings: dict, *, tax_focused: bool = False):
+    p_name = settings.get("pharmacy_name", "Pharma-Khaato POS")
+    p_slogan = settings.get("slogan", "NOT_CONFIGURED")
+    p_address = settings.get("address", "NOT_CONFIGURED")
+    p_phone = settings.get("phone", "NOT_CONFIGURED")
+    p_lic = settings.get("license_number", "NOT_CONFIGURED")
+    p_ntn = settings.get("ntn_number", "NOT_CONFIGURED")
 
     lines = [_center(p_name, width)]
     if _is_valid_setting(p_slogan) and not tax_focused:
@@ -89,12 +116,13 @@ def generate_invoice_text(
     template=None,
 ):
     """Render the selected fast thermal-receipt template."""
-    key = _template_key(template)
+    settings = _receipt_settings()
+    key = _template_key(template, settings)
     width = _template_width(key)
     sep = "-" * width
     strong = "=" * width
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    footer = SettingsService.get_setting("receipt_footer", "NOT_CONFIGURED")
+    footer = settings.get("receipt_footer", "NOT_CONFIGURED")
 
     dec_discount = _money(discount)
     dec_tax = _money(tax)
@@ -103,7 +131,7 @@ def generate_invoice_text(
     lines = []
 
     if key == "compact_58":
-        lines.extend(_pharmacy_header(width))
+        lines.extend(_pharmacy_header(width, settings))
         lines.append(sep)
         lines.append(f"Sale #{purchase_id}  {now[:10]}")
         lines.append(f"Pay: {payment_method}")
@@ -123,7 +151,7 @@ def generate_invoice_text(
 
     elif key == "professional_80":
         lines.append(strong)
-        lines.extend(_pharmacy_header(width))
+        lines.extend(_pharmacy_header(width, settings))
         lines.append(strong)
         lines.append(_center("SALES RECEIPT", width))
         lines.append(sep)
@@ -155,7 +183,7 @@ def generate_invoice_text(
 
     elif key == "detailed_80":
         lines.append(strong)
-        lines.extend(_pharmacy_header(width))
+        lines.extend(_pharmacy_header(width, settings))
         lines.append(strong)
         lines.append(f"Invoice: #{purchase_id}")
         lines.append(f"Date: {now}")
@@ -183,7 +211,7 @@ def generate_invoice_text(
 
     elif key == "tax_invoice_80":
         lines.append(strong)
-        lines.extend(_pharmacy_header(width, tax_focused=True))
+        lines.extend(_pharmacy_header(width, settings, tax_focused=True))
         lines.append(strong)
         lines.append(_center("TAX INVOICE", width))
         lines.append(sep)
@@ -210,7 +238,7 @@ def generate_invoice_text(
 
     else:
         lines.append(strong)
-        lines.extend(_pharmacy_header(width))
+        lines.extend(_pharmacy_header(width, settings))
         lines.append(strong)
         lines.append(f"Invoice ID:  #{purchase_id}")
         lines.append(f"Date/Time:   {now}")
