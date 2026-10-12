@@ -22,7 +22,6 @@ _CASH_CONTROLLER = CashSessionController()
 
 
 def _qt_button_text(text: str) -> str:
-    """Escape ampersands so Qt shows '&' instead of treating it as a mnemonic."""
     return str(text).replace("&", "&&")
 
 
@@ -31,11 +30,9 @@ class MainWindow(QMainWindow):
 
     def __init__(self, parent=None, enforce_session: bool = True):
         super().__init__(parent)
-
         if enforce_session and not SessionState.get_instance().current_user:
             raise PermissionError(
-                "Access Denied: Unauthenticated attempt to instantiate MainWindow "
-                "without an active login session."
+                "Access Denied: Unauthenticated attempt to instantiate MainWindow without an active login session."
             )
 
         self.setWindowTitle("Pharma-Khaato — Pharmacy Management")
@@ -72,16 +69,11 @@ class MainWindow(QMainWindow):
         self.clock_timer = QTimer(self)
         self.clock_timer.timeout.connect(self.update_clock)
         self.clock_timer.start(1000)
-
         sidebar_layout.addSpacing(8)
 
         self.nav_buttons = {}
         self.shortcuts = {}
-        self._nav_items = [
-            (item.key, item.label, item.compact_label, item.shortcut)
-            for item in NAV_ITEMS
-        ]
-
+        self._nav_items = [(item.key, item.label, item.compact_label, item.shortcut) for item in NAV_ITEMS]
         for key, text, short_text, shortcut_key in self._nav_items:
             btn = QPushButton()
             btn.setObjectName("navButton")
@@ -93,12 +85,11 @@ class MainWindow(QMainWindow):
             sidebar_layout.addWidget(btn)
             self.nav_buttons[key] = btn
 
-            sc = QShortcut(QKeySequence(shortcut_key), self)
-            sc.activated.connect(lambda k=key: self.on_nav_clicked(k))
-            self.shortcuts[key] = sc
+            shortcut = QShortcut(QKeySequence(shortcut_key), self)
+            shortcut.activated.connect(lambda k=key: self.on_nav_clicked(k))
+            self.shortcuts[key] = shortcut
 
         sidebar_layout.addStretch()
-
         self.user_badge = QLabel("User: Signed Out")
         self.user_badge.setObjectName("caption")
         self.user_badge.setWordWrap(True)
@@ -123,13 +114,9 @@ class MainWindow(QMainWindow):
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
-
         self.lbl_shift_status = QLabel("Shift: Offline")
         self.lbl_shift_status.setStyleSheet(f"color: {ThemeTokens.WARNING}; font-weight: 700; padding: 0 8px;")
         self.status_bar.addPermanentWidget(self.lbl_shift_status)
-
-        # Keyboard shortcuts remain fully supported, but no longer occupy
-        # permanent visual space. They are available in each nav tooltip.
         self.hint_label = QLabel()
         self.hint_label.setObjectName("caption")
         self.hint_label.setVisible(False)
@@ -139,7 +126,6 @@ class MainWindow(QMainWindow):
             self.set_active_user(self.current_user)
         else:
             self.status_bar.showMessage("Ready")
-
         self._apply_sidebar_density(self.width(), force=True)
         self.update_clock()
 
@@ -149,42 +135,26 @@ class MainWindow(QMainWindow):
 
     def _apply_sidebar_density(self, width: int, force: bool = False):
         if width >= LayoutMetrics.SIDEBAR_FULL_AT:
-            mode = "full"
-            sidebar_width = LayoutMetrics.SIDEBAR_FULL
+            mode, sidebar_width = "full", LayoutMetrics.SIDEBAR_FULL
         elif width >= LayoutMetrics.SIDEBAR_COMPACT_AT:
-            mode = "compact"
-            sidebar_width = LayoutMetrics.SIDEBAR_COMPACT
+            mode, sidebar_width = "compact", LayoutMetrics.SIDEBAR_COMPACT
         else:
-            mode = "mini"
-            sidebar_width = LayoutMetrics.SIDEBAR_MINI
-
+            mode, sidebar_width = "mini", LayoutMetrics.SIDEBAR_MINI
         if not force and mode == self._sidebar_mode:
             return
         self._sidebar_mode = mode
         self.sidebar.setFixedWidth(sidebar_width)
-
         for key, text, short_text, shortcut_key in self._nav_items:
-            btn = self.nav_buttons[key]
-            if mode == "full":
-                # Keep the navigation task-first. Shortcuts remain in tooltips
-                # and continue to work through QShortcut.
-                btn.setText(_qt_button_text(text))
-            elif mode == "compact":
-                btn.setText(_qt_button_text(text))
-            else:
-                btn.setText(_qt_button_text(short_text))
-
+            self.nav_buttons[key].setText(_qt_button_text(text if mode != "mini" else short_text))
         self.brand_label.setText("PHARMA-KHAATO" if mode != "mini" else "P-K")
         self.sub_brand.setVisible(mode == "full")
         self.user_badge.setVisible(mode != "mini")
-
         if mode == "mini":
             self.btn_theme_toggle.setText("Theme")
             self.btn_logout.setText("Sign Out")
         else:
             self.refresh_theme_toggle_label(update_density=False)
             self.btn_logout.setText("Sign Out")
-
         self.update_clock()
 
     def update_clock(self):
@@ -196,30 +166,30 @@ class MainWindow(QMainWindow):
             self.lbl_clock.setText(now.strftime("%a %d %b  %H:%M"))
             self.lbl_clock.setAlignment(Qt.AlignmentFlag.AlignLeft)
         else:
-            # Seconds add movement/noise without helping counter work.
             self.lbl_clock.setText(now.strftime("%a, %b %d • %I:%M %p"))
             self.lbl_clock.setAlignment(Qt.AlignmentFlag.AlignLeft)
 
     def on_nav_clicked(self, screen_key: str):
         allowed = self.get_allowed_screens()
         if screen_key not in allowed:
-            self.status_bar.showMessage(
-                f"You do not have permission to open {NAV_BY_KEY.get(screen_key).label if NAV_BY_KEY.get(screen_key) else screen_key}. Ask an administrator if you need access."
-            )
+            item = NAV_BY_KEY.get(screen_key)
+            label = item.label if item else screen_key
+            self.status_bar.showMessage(f"You do not have permission to open {label}. Ask an administrator if you need access.")
             return
-        for k, btn in self.nav_buttons.items():
-            btn.setChecked(k == screen_key)
+        for key, btn in self.nav_buttons.items():
+            btn.setChecked(key == screen_key)
         self.router.navigate_to(screen_key)
 
     def get_allowed_screens(self):
+        base = ["pos", "customers", "khatoo", "cash_session"]
         if not self.current_user or not isinstance(self.current_user, dict):
-            return ["pos", "customers", "khatoo", "inventory", "cash_session", "reports", "settings"]
+            return base + ["inventory", "reports", "returns", "settings"]
         role = str(self.current_user.get("occupation", "Admin")).lower()
-        if "admin" in role:
-            return ["pos", "customers", "khatoo", "inventory", "cash_session", "reports", "settings"]
+        if "admin" in role or "manager" in role:
+            return base + ["inventory", "reports", "returns", "settings"]
         if "pharm" in role:
-            return ["pos", "customers", "khatoo", "inventory", "cash_session", "reports"]
-        return ["pos", "customers", "khatoo", "cash_session"]
+            return base + ["inventory", "reports", "returns"]
+        return base
 
     def on_toggle_theme(self):
         ThemeManager.toggle_theme(save=True)
@@ -240,46 +210,32 @@ class MainWindow(QMainWindow):
         role = role_label(user_dict.get("occupation", "Staff")) if isinstance(user_dict, dict) else "Staff"
         emp_id = user_dict.get("id", 1) if isinstance(user_dict, dict) else 1
         self.user_badge.setText(f"{uname}\n{role}")
-
         try:
             active_sess = _CASH_CONTROLLER.active_session(emp_id)
             if active_sess:
                 self.lbl_shift_status.setText("Shift Open")
-                self.lbl_shift_status.setStyleSheet(
-                    f"color: {ThemeTokens.SUCCESS}; font-weight: 700; padding: 0 8px;"
-                )
+                self.lbl_shift_status.setStyleSheet(f"color: {ThemeTokens.SUCCESS}; font-weight: 700; padding: 0 8px;")
             else:
                 self.lbl_shift_status.setText("Shift Closed")
-                self.lbl_shift_status.setStyleSheet(
-                    f"color: {ThemeTokens.WARNING}; font-weight: 700; padding: 0 8px;"
-                )
+                self.lbl_shift_status.setStyleSheet(f"color: {ThemeTokens.WARNING}; font-weight: 700; padding: 0 8px;")
         except Exception:
             self.lbl_shift_status.setText("Ready")
-            self.lbl_shift_status.setStyleSheet(
-                f"color: {ThemeTokens.SUCCESS}; font-weight: 700; padding: 0 8px;"
-            )
-
+            self.lbl_shift_status.setStyleSheet(f"color: {ThemeTokens.SUCCESS}; font-weight: 700; padding: 0 8px;")
         allowed = self.get_allowed_screens()
-        for k, btn in self.nav_buttons.items():
-            btn.setVisible(k in allowed)
-
+        for key, btn in self.nav_buttons.items():
+            btn.setVisible(key in allowed)
         if "pos" in allowed:
             self.on_nav_clicked("pos")
         self.status_bar.showMessage(f"Signed in: {uname} • Ready")
 
     def on_logout(self, confirm_fn=None):
-        uname = ""
-        if self.current_user and isinstance(self.current_user, dict):
-            uname = self.current_user.get("username", "")
-
+        uname = self.current_user.get("username", "") if isinstance(self.current_user, dict) else ""
         cart = SessionState.get_instance().active_cart
         cart_warning = (
-            f"\n\nWarning: there are {len(cart)} unsaved item(s) in the active cart. "
-            "They will be lost unless you hold the sale first."
+            f"\n\nWarning: there are {len(cart)} unsaved item(s) in the active cart. They will be lost unless you hold the sale first."
             if cart else ""
         )
         name_part = f" for {uname}" if uname else ""
-
         if confirm_fn is not None:
             reply = confirm_fn(
                 self, "Sign Out", f"Sign out{name_part}?{cart_warning}",
@@ -296,12 +252,10 @@ class MainWindow(QMainWindow):
             )
         if reply != QMessageBox.StandardButton.Yes:
             return
-
         SessionState.get_instance().clear_user()
         self.current_user = None
         self.user_badge.setText("User: Signed Out")
         self.status_bar.showMessage("Signed Out")
-
         self.hide()
         if os.environ.get("QT_QPA_PLATFORM") != "offscreen":
             from ui.screens.login_screen import LoginDialog
