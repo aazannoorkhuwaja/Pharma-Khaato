@@ -1,3 +1,5 @@
+import uuid
+
 from models import CustomerModel, InventoryModel, POSModel
 from core.data_revision import current, touch
 
@@ -34,13 +36,7 @@ class POSController:
         return self.customer.total_debt(cnic)
 
     def tax_rate(self):
-        """Return tax without re-reading Settings on every cart repaint.
-
-        Quantity, discount and cash-received edits can repaint the POS summary
-        many times per second. The tax rate only changes when Settings does, so
-        key the small in-memory cache to that revision instead of issuing SQL on
-        every repaint.
-        """
+        """Return tax without re-reading Settings on every cart repaint."""
         revision = current("settings")
         if self._tax_rate_cache is None or self._tax_settings_revision != revision:
             self._tax_rate_cache = self.pos.tax_rate()
@@ -63,11 +59,24 @@ class POSController:
         return self.pos.active_session(employee_id)
 
     def checkout_request(self, **kwargs):
-        return self.pos.checkout_request(**kwargs)
+        """Build a request with a stable token reused across checkout retries."""
+        from ui.app.state.session_state import SessionState
+
+        session = SessionState.get_instance()
+        if not session.checkout_token:
+            session.checkout_token = uuid.uuid4().hex
+        request = self.pos.checkout_request(**kwargs)
+        request.checkout_token = session.checkout_token
+        return request
 
     def process_checkout(self, request):
-        result = self.pos.process_checkout(request)
+        from core.checkout_idempotency_service import process_checkout_idempotently
+
+        result = process_checkout_idempotently(request, self.pos.process_checkout)
         if getattr(result, "success", False):
+            from ui.app.state.session_state import SessionState
+            SessionState.get_instance().checkout_token = None
+
             # Stock totals changed inside the checkout transaction. Clear the
             # inventory read cache before any other screen can render stale data.
             from core.inventory_service import clear_inventory_cache
