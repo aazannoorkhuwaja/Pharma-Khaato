@@ -6,7 +6,7 @@ Features credit ledger inspection, debt filtering, and payment settlement record
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog, QFormLayout, QDoubleSpinBox,
-    QMessageBox, QFrame
+    QMessageBox
 )
 from PySide6.QtCore import Qt
 
@@ -14,7 +14,7 @@ from ui.theme.tokens import ThemeTokens
 from ui.widgets.card import Card
 from ui.widgets.badge_pill import BadgePill
 from ui.widgets.screen_header import ScreenHeader
-from ui.widgets.toast import Toast, ToastType, show_toast
+from ui.widgets.toast import ToastType, show_toast
 from ui.widgets.table_polish import polish_table
 from ui.widgets.responsive import configure_dialog
 
@@ -22,15 +22,17 @@ from controllers.khatoo_controller import KhatooController
 
 _KHATOO_CONTROLLER = KhatooController()
 
+
 class RecordPaymentDialog(QDialog):
-    """Modal dialog for recording a credit debt settlement payment."""
+    """Modal dialog for recording a customer-credit payment."""
+
     def __init__(self, khatoo_id: int, cust_name: str, current_due: float, parent=None):
         super().__init__(parent)
         self.khatoo_id = khatoo_id
         self.current_due = current_due
 
-        self.setWindowTitle(f"Record Payment — Credit #{khatoo_id}")
-        configure_dialog(self, 480, 350, minimum_width=390, minimum_height=280)
+        self.setWindowTitle(f"Record Payment — {cust_name}")
+        configure_dialog(self, 480, 330, minimum_width=390, minimum_height=270)
         self.setStyleSheet(f"""
             QDialog {{
                 background-color: {ThemeTokens.SURFACE_ELEVATED};
@@ -52,10 +54,10 @@ class RecordPaymentDialog(QDialog):
 
         title = QLabel("Record Payment")
         title.setObjectName("h2")
-        title.setStyleSheet(f" font-weight: 800; color: {ThemeTokens.ACCENT};")
+        title.setStyleSheet(f"font-weight: 800; color: {ThemeTokens.ACCENT};")
         layout.addWidget(title)
 
-        lbl_info = QLabel(f"Customer: {cust_name}\nCredit Ref: #{khatoo_id}\nBalance Due: Rs. {current_due:.2f}")
+        lbl_info = QLabel(f"Customer: {cust_name}\nBalance: Rs. {current_due:.2f}")
         lbl_info.setStyleSheet(f"color: {ThemeTokens.TEXT_SECONDARY};")
         layout.addWidget(lbl_info)
 
@@ -65,7 +67,10 @@ class RecordPaymentDialog(QDialog):
         self.spn_amount = QDoubleSpinBox()
         self.spn_amount.setRange(0.01, float(current_due))
         self.spn_amount.setValue(float(current_due))
-        form.addRow("Amount Paid:", self.spn_amount)
+        self.spn_amount.setPrefix("Rs. ")
+        self.spn_amount.setDecimals(2)
+        self.spn_amount.setAccessibleName("Payment amount")
+        form.addRow("Payment amount:", self.spn_amount)
 
         layout.addLayout(form)
         layout.addSpacing(10)
@@ -73,7 +78,10 @@ class RecordPaymentDialog(QDialog):
         btn_box = QHBoxLayout()
         self.btn_confirm = QPushButton("Save Payment")
         self.btn_confirm.setObjectName("primaryButton")
-        self.btn_confirm.setStyleSheet(f"background-color: {ThemeTokens.ACCENT}; color: #FFFFFF; padding: 8px 16px; border-radius: 4px; font-weight: 700;")
+        self.btn_confirm.setStyleSheet(
+            f"background-color: {ThemeTokens.ACCENT}; color: #FFFFFF; "
+            "padding: 8px 16px; border-radius: 4px; font-weight: 700;"
+        )
         self.btn_confirm.clicked.connect(self.on_confirm)
 
         self.btn_cancel = QPushButton("Cancel")
@@ -82,7 +90,6 @@ class RecordPaymentDialog(QDialog):
         btn_box.addStretch()
         btn_box.addWidget(self.btn_cancel)
         btn_box.addWidget(self.btn_confirm)
-
         layout.addLayout(btn_box)
 
     def on_confirm(self):
@@ -105,21 +112,17 @@ class KhatooScreen(QWidget):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(14)
 
-        # Header Title Card using shared ScreenHeader
         header_card = ScreenHeader(
             title="Customer Credit",
             subtitle="See what customers owe and record full or partial payments."
         )
 
-        self.pill_total_ledger = BadgePill("Credit Records: 0", BadgePill.TYPE_INFO)
+        self.pill_total_ledger = BadgePill("Open Credits: 0", BadgePill.TYPE_INFO)
         self.pill_total_due = BadgePill("Total Due: Rs. 0.00", BadgePill.TYPE_WARNING)
-
         header_card.add_pill(self.pill_total_ledger)
         header_card.add_pill(self.pill_total_due)
-
         layout.addWidget(header_card)
 
-        # Ledger Table Card
         table_card = Card()
         table_layout = table_card.layout()
         table_layout.setSpacing(12)
@@ -127,20 +130,24 @@ class KhatooScreen(QWidget):
         bar_layout = QHBoxLayout()
         self.txt_search = QLineEdit()
         self.txt_search.setPlaceholderText("Search by customer name or CNIC")
+        self.txt_search.setAccessibleName("Search customer credit")
         self.txt_search.textChanged.connect(self.on_search)
-
         bar_layout.addWidget(self.txt_search)
         table_layout.addLayout(bar_layout)
 
+        # Keep the internal credit reference in column 0 for callbacks, but the
+        # shared table-polish helper hides exact database-key columns from users.
         self.tbl_ledger = QTableWidget(0, 7)
-        self.tbl_ledger.setHorizontalHeaderLabels(["Ref #", "Customer", "Sale #", "Paid", "Due", "CNIC", "Action"])
+        self.tbl_ledger.setHorizontalHeaderLabels(
+            ["Ref #", "Customer", "Sale", "Paid", "Balance", "CNIC", "Payment"]
+        )
         self.tbl_ledger.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tbl_ledger.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.tbl_ledger.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.tbl_ledger.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.tbl_ledger.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.tbl_ledger.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        self.tbl_ledger.horizontalHeader().setSectionResizeMode(6, QHeaderView.Stretch)
+        self.tbl_ledger.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
         self.tbl_ledger.verticalHeader().setVisible(False)
         polish_table(self.tbl_ledger, min_row_height=40)
         self.tbl_ledger.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -156,7 +163,7 @@ class KhatooScreen(QWidget):
         self.populate_ledger_table(records)
 
         total_due = _KHATOO_CONTROLLER.summary()
-        self.pill_total_ledger.setText(f"Credit Records: {len(records)}")
+        self.pill_total_ledger.setText(f"Open Credits: {len(records)}")
         self.pill_total_due.setText(f"Total Due: Rs. {total_due:.2f}")
 
     def populate_ledger_table(self, records):
@@ -164,11 +171,11 @@ class KhatooScreen(QWidget):
         for row, item in enumerate(records):
             k_id, cust_name, purchase_id, amount_due, amount_paid, cnic = item
 
-            self.tbl_ledger.setItem(row, 0, QTableWidgetItem(f"#{k_id}"))
+            self.tbl_ledger.setItem(row, 0, QTableWidgetItem(str(k_id)))
             self.tbl_ledger.setItem(row, 1, QTableWidgetItem(str(cust_name)))
             self.tbl_ledger.setItem(row, 2, QTableWidgetItem(f"Sale #{purchase_id}"))
-            self.tbl_ledger.setItem(row, 3, QTableWidgetItem(f"{float(amount_paid):.2f}"))
-            self.tbl_ledger.setItem(row, 4, QTableWidgetItem(f"{float(amount_due):.2f}"))
+            self.tbl_ledger.setItem(row, 3, QTableWidgetItem(f"Rs. {float(amount_paid):.2f}"))
+            self.tbl_ledger.setItem(row, 4, QTableWidgetItem(f"Rs. {float(amount_due):.2f}"))
             self.tbl_ledger.setItem(row, 5, QTableWidgetItem(str(cnic)))
 
             if float(amount_due) > 0:
@@ -176,15 +183,18 @@ class KhatooScreen(QWidget):
                 btn_pay.setProperty("compact", True)
                 btn_pay.setProperty("accent", True)
                 btn_pay.setMinimumWidth(72)
-                btn_pay.clicked.connect(lambda checked=False, kid=k_id, cname=cust_name, due=float(amount_due): self.open_record_payment_dialog(kid, cname, due))
+                btn_pay.setMaximumWidth(96)
+                btn_pay.setAccessibleName(f"Record payment for {cust_name}")
+                btn_pay.clicked.connect(
+                    lambda checked=False, kid=k_id, cname=cust_name, due=float(amount_due):
+                    self.open_record_payment_dialog(kid, cname, due)
+                )
                 self.tbl_ledger.setCellWidget(row, 6, btn_pay)
-
             else:
                 lbl_settled = QLabel("Cleared")
                 lbl_settled.setAlignment(Qt.AlignCenter)
                 lbl_settled.setStyleSheet(f"color: {ThemeTokens.SUCCESS}; font-weight: 700;")
                 self.tbl_ledger.setCellWidget(row, 6, lbl_settled)
-
 
     def on_search(self, text):
         records = _KHATOO_CONTROLLER.load(text.strip())
@@ -196,5 +206,5 @@ class KhatooScreen(QWidget):
             self.refresh_all_data()
 
     def on_screen_show(self):
-        """Auto-refreshes Khatoo credit ledger whenever screen is navigated to."""
+        """Auto-refresh customer credit whenever the screen is opened."""
         self.refresh_all_data()
