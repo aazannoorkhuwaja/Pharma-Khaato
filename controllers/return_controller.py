@@ -16,5 +16,7 @@ class ReturnController:
     def process(self, purchase_id, items, employee_id, reason, condition):
         result = self.model.process(purchase_id, items, employee_id, reason, condition)
         if isinstance(result, tuple) and result and result[0]:
+            from core.inventory_service import clear_inventory_cache
+            clear_inventory_cache()
             touch("returns", "sales", "inventory", "cash", "credit", "customers", "reports")
         return result
