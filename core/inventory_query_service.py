@@ -21,7 +21,11 @@ def _safe_limit(value, default: int, minimum: int = 10, maximum: int = 1000) -> 
 
 
 def catalog_snapshot(product_limit: int = 400, alert_limit: int = 100) -> dict:
-    """Return the default Stock & Products working set in one DB session."""
+    """Return the default Stock & Products working set in one DB session.
+
+    Product rows include each product's reorder level so the catalog can derive
+    status correctly even when the separate alert table itself is bounded.
+    """
     product_limit = _safe_limit(product_limit, 400, 50, 1000)
     alert_limit = _safe_limit(alert_limit, 100, 25, 300)
     today = date.today().isoformat()
@@ -43,7 +47,7 @@ def catalog_snapshot(product_limit: int = 400, alert_limit: int = 100) -> dict:
             total_products = int(row[0] or 0) if row else 0
 
             cur.execute(
-                "SELECT id, product_name, price, stock_quantity "
+                "SELECT id, product_name, price, stock_quantity, min_stock "
                 "FROM Products ORDER BY product_name ASC " + f"LIMIT {product_limit}"
             )
             products = cur.fetchall()
@@ -102,7 +106,8 @@ def search_catalog_products(term: str, limit: int = 150):
     """Search the product master, including zero-stock products.
 
     Exact barcode/SKU matches are placed first. This differs from POS search,
-    which intentionally returns only sellable batches.
+    which intentionally returns only sellable batches. Reorder level travels
+    with every result so status remains authoritative outside the first page.
     """
     value = str(term or "").strip()
     if not value:
@@ -113,7 +118,7 @@ def search_catalog_products(term: str, limit: int = 150):
     try:
         with get_db() as (_conn, cur):
             cur.execute(
-                "SELECT id, product_name, price, stock_quantity "
+                "SELECT id, product_name, price, stock_quantity, min_stock "
                 "FROM Products "
                 "WHERE barcode = %s OR sku = %s OR alternate_barcode = %s "
                 "   OR product_name LIKE %s OR formula LIKE %s OR generic_name LIKE %s "
