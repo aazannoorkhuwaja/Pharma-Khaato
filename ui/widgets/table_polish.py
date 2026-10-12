@@ -16,6 +16,7 @@ _INTERNAL_COLUMN_LABELS = {
     "employee id",
     "movement id",
     "shift #",
+    "batch",
 }
 
 _ACTION_COLUMN_LABELS = {
