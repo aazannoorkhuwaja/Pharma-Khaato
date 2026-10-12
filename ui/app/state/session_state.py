@@ -1,9 +1,11 @@
 """
 Pharma-Khaato Native State Manager
-Maintains in-memory session state, current user context, cash register session, and active cart.
+Maintains in-memory session state, current user context, cash register session,
+and the active POS cart/request identity.
 """
 
 from typing import Optional, Dict, Any, List
+
 
 class SessionState:
     _instance = None
@@ -15,6 +17,8 @@ class SessionState:
         self.selected_customer: Optional[Dict[str, Any]] = None
         self.discount_amount: float = 0.0
         self.payment_method: str = "Cash"
+        # Created when checkout is first attempted and reused across safe retries.
+        self.checkout_token: Optional[str] = None
 
     @classmethod
     def get_instance(cls) -> "SessionState":
@@ -36,12 +40,14 @@ class SessionState:
     def add_to_cart(self, product_item: Dict[str, Any], qty: int = 1):
         p_id = product_item.get("id") or product_item.get("prod_id")
         for item in self.active_cart:
-            if (item.get("id") == p_id or item.get("prod_id") == p_id) and item.get("batch_id") == product_item.get("batch_id"):
+            if (
+                (item.get("id") == p_id or item.get("prod_id") == p_id)
+                and item.get("batch_id") == product_item.get("batch_id")
+            ):
                 item["qty"] += qty
                 item["subtotal"] = item["qty"] * item["price"]
                 return
-        
-        # New item entry
+
         cart_entry = {
             "id": p_id,
             "prod_id": p_id,
@@ -51,7 +57,7 @@ class SessionState:
             "stock": product_item.get("stock", 0),
             "qty": qty,
             "subtotal": qty * float(product_item.get("price", 0.0)),
-            "barcode": product_item.get("barcode", "")
+            "barcode": product_item.get("barcode", ""),
         }
         self.active_cart.append(cart_entry)
 
@@ -72,6 +78,7 @@ class SessionState:
         self.selected_customer = None
         self.discount_amount = 0.0
         self.payment_method = "Cash"
+        self.checkout_token = None
 
     def get_cart_subtotal(self) -> float:
         return sum(item["subtotal"] for item in self.active_cart)
