@@ -1,4 +1,5 @@
 from models import CustomerModel, InventoryModel, POSModel
+from core.data_revision import touch
 
 
 class POSController:
@@ -25,13 +26,23 @@ class POSController:
     def tax_rate(self): return self.pos.tax_rate()
     def hold_sale(self, customer_id, employee_id, cart): return self.pos.hold_sale(customer_id, employee_id, cart)
     def held_sales(self): return self.pos.held_sales(self._current_employee_id())
+
     def recall_sale(self, hold_id):
         employee_id = self._current_employee_id()
         if employee_id is None:
             return False, "Sign in again before resuming a held sale."
         return self.pos.recall_sale(hold_id, employee_id)
+
     def active_session(self, employee_id): return self.pos.active_session(employee_id)
     def checkout_request(self, **kwargs): return self.pos.checkout_request(**kwargs)
-    def process_checkout(self, request): return self.pos.process_checkout(request)
+
+    def process_checkout(self, request):
+        result = self.pos.process_checkout(request)
+        if getattr(result, "success", False):
+            # One committed sale affects several cached read models. Bumping
+            # revisions is O(1) and lets navigation refresh only those screens.
+            touch("sales", "inventory", "cash", "reports", "credit", "customers")
+        return result
+
     @property
     def discount_threshold_pct(self): return self.pos.discount_threshold_pct
