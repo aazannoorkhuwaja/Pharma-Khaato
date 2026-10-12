@@ -15,6 +15,7 @@ _INTERNAL_COLUMN_LABELS = {
     "record id",
     "employee id",
     "movement id",
+    "shift #",
 }
 
 _ACTION_COLUMN_LABELS = {
@@ -31,7 +32,7 @@ def polish_table(table, min_row_height: int = 0, hide_internal_keys: bool = True
     and expose horizontal scrolling only when the dataset needs it.
 
     Routine screens hide exact database-key columns while preserving those
-    values in the table model for workflow callbacks.  Action columns stay
+    values in the table model for workflow callbacks. Action columns stay
     compact instead of stretching into full-width button bars.
     """
     if table is None:
@@ -40,7 +41,7 @@ def polish_table(table, min_row_height: int = 0, hide_internal_keys: bool = True
     scale = ThemeManager.get_font_scale()
     header = table.horizontalHeader()
     if header is not None:
-        # Do not stretch the final column globally.  Screens already choose
+        # Do not stretch the final column globally. Screens already choose
         # which descriptive column should stretch; the last column is commonly
         # a compact action such as Pay/Add Stock.
         header.setStretchLastSection(False)
