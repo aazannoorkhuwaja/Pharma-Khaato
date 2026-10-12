@@ -1,138 +1,302 @@
 import os
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
+
 from core.path_manager import PathManager
 from core.settings_service import SettingsService
 from core.logger import get_logger
 
 logger = get_logger("PharmaKhaatoReceipt")
 
+RECEIPT_TEMPLATES = (
+    ("standard_80", "Standard 80mm", "Balanced everyday receipt with clear totals."),
+    ("professional_80", "Professional 80mm", "Structured pharmacy receipt with stronger visual sections."),
+    ("detailed_80", "Detailed 80mm", "Extra customer, payment and pharmacy information."),
+    ("tax_invoice_80", "Tax Invoice 80mm", "Tax/regulatory focused format with licence and NTN details."),
+    ("compact_58", "Compact 58mm", "Short receipt for narrow 58mm thermal printers."),
+)
+_TEMPLATE_KEYS = {item[0] for item in RECEIPT_TEMPLATES}
+
+
+def get_receipt_template_options():
+    return RECEIPT_TEMPLATES
+
+
 def _is_valid_setting(val):
     if not val:
         return False
     clean = str(val).strip()
-    return clean and clean.upper() not in ("NOT_CONFIGURED", "N/A", "NONE", "NULL")
+    return bool(clean and clean.upper() not in ("NOT_CONFIGURED", "N/A", "NONE", "NULL"))
 
-def generate_invoice_text(purchase_id, customer_id, items, total, tax, discount, payment_method="Cash", cashier_name="Cashier", amount_received=None, change=None):
-    """
-    Generates formatted 80mm ESC/POS thermal text receipt content using dynamic SettingsService values.
-    Omits unconfigured regulatory fields and consumes authoritative transaction financial values.
-    """
+
+def _money(value) -> Decimal:
+    return Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+
+def _template_key(explicit=None):
+    key = str(explicit or SettingsService.get_setting("receipt_template", "standard_80")).strip()
+    return key if key in _TEMPLATE_KEYS else "standard_80"
+
+
+def _template_width(key: str) -> int:
+    return 32 if key == "compact_58" else 42
+
+
+def _center(text: str, width: int) -> str:
+    return str(text or "")[:width].center(width)
+
+
+def _pair(left: str, right: str, width: int) -> str:
+    left = str(left)
+    right = str(right)
+    gap = max(1, width - len(left) - len(right))
+    return (left + (" " * gap) + right)[:width]
+
+
+def _pharmacy_header(width: int, *, tax_focused: bool = False):
     p_name = SettingsService.get_setting("pharmacy_name", "Pharma-Khaato POS")
     p_slogan = SettingsService.get_setting("slogan", "NOT_CONFIGURED")
     p_address = SettingsService.get_setting("address", "NOT_CONFIGURED")
     p_phone = SettingsService.get_setting("phone", "NOT_CONFIGURED")
     p_lic = SettingsService.get_setting("license_number", "NOT_CONFIGURED")
     p_ntn = SettingsService.get_setting("ntn_number", "NOT_CONFIGURED")
-    p_footer = SettingsService.get_setting("receipt_footer", "NOT_CONFIGURED")
 
-    dec_discount = Decimal(str(discount or 0.0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    dec_tax_amount = Decimal(str(tax or 0.0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-    lines = []
-    lines.append("==========================================")
-    lines.append(f"{p_name[:42].center(42)}")
-    if _is_valid_setting(p_slogan):
-        lines.append(f"{p_slogan[:42].center(42)}")
+    lines = [_center(p_name, width)]
+    if _is_valid_setting(p_slogan) and not tax_focused:
+        lines.append(_center(p_slogan, width))
     if _is_valid_setting(p_address):
-        lines.append(f"{p_address[:42].center(42)}")
+        lines.append(_center(p_address, width))
     if _is_valid_setting(p_phone):
-        lines.append(f"Phone: {p_phone}".center(42))
-    
-    lic_parts = []
+        lines.append(_center(f"Phone: {p_phone}", width))
     if _is_valid_setting(p_lic):
-        lic_parts.append(f"Lic: {p_lic}")
+        lines.append(_center(f"Licence: {p_lic}", width))
     if _is_valid_setting(p_ntn):
-        lic_parts.append(f"NTN: {p_ntn}")
-    if lic_parts:
-        lic_line = " | ".join(lic_parts)
-        lines.append(f"{lic_line[:42].center(42)}")
+        lines.append(_center(f"NTN: {p_ntn}", width))
+    return lines
 
-    lines.append("==========================================")
-    lines.append(f"Invoice ID:  #{purchase_id}")
-    lines.append(f"Date/Time:   {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    lines.append(f"Cashier:     {cashier_name}")
-    lines.append(f"Customer:    {customer_id}")
-    lines.append(f"Payment:     {payment_method}")
-    lines.append("------------------------------------------")
-    lines.append(f"{'Product':<18} {'Qty':<4} {'Price':>8} {'Sub':>8}")
-    lines.append("------------------------------------------")
 
-    subtotal_dec = Decimal("0.00")
-    for item in items:
-        name = str(item.get("name", "Item"))[:17]
-        qty = int(item.get("qty", 1))
-        prc = Decimal(str(item.get("price", 0.0))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        sub = (prc * qty).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        subtotal_dec += sub
-        lines.append(f"{name:<18} {qty:<4} {prc:>8.2f} {sub:>8.2f}")
+def generate_invoice_text(
+    purchase_id,
+    customer_id,
+    items,
+    total,
+    tax,
+    discount,
+    payment_method="Cash",
+    cashier_name="Cashier",
+    amount_received=None,
+    change=None,
+    template=None,
+):
+    """Render the selected fast thermal-receipt template."""
+    key = _template_key(template)
+    width = _template_width(key)
+    sep = "-" * width
+    strong = "=" * width
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    footer = SettingsService.get_setting("receipt_footer", "NOT_CONFIGURED")
 
-    grand_total_dec = Decimal(str(total)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    dec_discount = _money(discount)
+    dec_tax = _money(tax)
+    grand_total = _money(total)
+    subtotal = sum((_money(item.get("price", 0)) * int(item.get("qty", 1)) for item in items), Decimal("0.00"))
+    lines = []
 
-    lines.append("------------------------------------------")
-    lines.append(f"{'Subtotal:':<28} Rs.{subtotal_dec:>9.2f}")
-    if dec_discount > Decimal("0.00"):
-        lines.append(f"{'Discount:':<28} Rs.{dec_discount:>9.2f}")
-    if dec_tax_amount > Decimal("0.00"):
-        lines.append(f"{'Tax:':<28} Rs.{dec_tax_amount:>9.2f}")
-    lines.append("------------------------------------------")
-    lines.append(f"{'GRAND TOTAL:':<28} Rs.{grand_total_dec:>9.2f}")
+    if key == "compact_58":
+        lines.extend(_pharmacy_header(width))
+        lines.append(sep)
+        lines.append(f"Sale #{purchase_id}  {now[:10]}")
+        lines.append(f"Pay: {payment_method}")
+        lines.append(sep)
+        for item in items:
+            name = str(item.get("name", "Item"))[:20]
+            qty = int(item.get("qty", 1))
+            price = _money(item.get("price", 0))
+            lines.append(name)
+            lines.append(_pair(f" {qty} x {price:.2f}", f"{price * qty:.2f}", width))
+        lines.append(sep)
+        lines.append(_pair("TOTAL", f"Rs.{grand_total:.2f}", width))
+        if amount_received is not None:
+            lines.append(_pair("Received", f"Rs.{_money(amount_received):.2f}", width))
+        if change is not None:
+            lines.append(_pair("Change", f"Rs.{_money(change):.2f}", width))
 
-    if amount_received is not None:
-        rec_dec = Decimal(str(amount_received)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        lines.append(f"{'Amount Received:':<28} Rs.{rec_dec:>9.2f}")
-    if change is not None:
-        chg_dec = Decimal(str(change)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        lines.append(f"{'Change Given:':<28} Rs.{chg_dec:>9.2f}")
+    elif key == "professional_80":
+        lines.append(strong)
+        lines.extend(_pharmacy_header(width))
+        lines.append(strong)
+        lines.append(_center("SALES RECEIPT", width))
+        lines.append(sep)
+        lines.append(_pair(f"Receipt: #{purchase_id}", now[:10], width))
+        lines.append(_pair(f"Cashier: {cashier_name}", now[11:16], width))
+        lines.append(f"Customer: {customer_id}")
+        lines.append(f"Payment:  {payment_method}")
+        lines.append(sep)
+        lines.append(f"{'ITEM':<20}{'QTY':>4}{'PRICE':>8}{'AMT':>10}"[:width])
+        lines.append(sep)
+        for item in items:
+            name = str(item.get("name", "Item"))[:19]
+            qty = int(item.get("qty", 1))
+            price = _money(item.get("price", 0))
+            lines.append(f"{name:<20}{qty:>4}{price:>8.2f}{(price * qty):>10.2f}"[:width])
+        lines.append(sep)
+        lines.append(_pair("Subtotal", f"Rs. {subtotal:.2f}", width))
+        if dec_discount:
+            lines.append(_pair("Discount", f"- Rs. {dec_discount:.2f}", width))
+        if dec_tax:
+            lines.append(_pair("Tax", f"Rs. {dec_tax:.2f}", width))
+        lines.append(strong)
+        lines.append(_pair("TOTAL", f"Rs. {grand_total:.2f}", width))
+        if amount_received is not None:
+            lines.append(_pair("Amount received", f"Rs. {_money(amount_received):.2f}", width))
+        if change is not None:
+            lines.append(_pair("Change", f"Rs. {_money(change):.2f}", width))
+        lines.append(strong)
 
-    lines.append("==========================================")
-    if _is_valid_setting(p_footer):
-        lines.append(f"{p_footer[:42].center(42)}")
-    lines.append("    Thank You for Your Visit!    ".center(42))
-    lines.append("==========================================")
+    elif key == "detailed_80":
+        lines.append(strong)
+        lines.extend(_pharmacy_header(width))
+        lines.append(strong)
+        lines.append(f"Invoice: #{purchase_id}")
+        lines.append(f"Date: {now}")
+        lines.append(f"Cashier: {cashier_name}")
+        lines.append(f"Customer: {customer_id}")
+        lines.append(f"Payment method: {payment_method}")
+        lines.append(sep)
+        lines.append(f"{'Product':<18} {'Qty':<4} {'Price':>8} {'Sub':>8}")
+        lines.append(sep)
+        for item in items:
+            name = str(item.get("name", "Item"))[:17]
+            qty = int(item.get("qty", 1))
+            price = _money(item.get("price", 0))
+            lines.append(f"{name:<18} {qty:<4} {price:>8.2f} {(price * qty):>8.2f}")
+        lines.append(sep)
+        lines.append(_pair("Subtotal", f"Rs.{subtotal:.2f}", width))
+        lines.append(_pair("Discount", f"Rs.{dec_discount:.2f}", width))
+        lines.append(_pair("Tax", f"Rs.{dec_tax:.2f}", width))
+        lines.append(strong)
+        lines.append(_pair("GRAND TOTAL", f"Rs.{grand_total:.2f}", width))
+        if amount_received is not None:
+            lines.append(_pair("Amount received", f"Rs.{_money(amount_received):.2f}", width))
+        if change is not None:
+            lines.append(_pair("Change given", f"Rs.{_money(change):.2f}", width))
 
+    elif key == "tax_invoice_80":
+        lines.append(strong)
+        lines.extend(_pharmacy_header(width, tax_focused=True))
+        lines.append(strong)
+        lines.append(_center("TAX INVOICE", width))
+        lines.append(sep)
+        lines.append(f"Invoice No: {purchase_id}")
+        lines.append(f"Date/Time: {now}")
+        lines.append(f"Customer: {customer_id}")
+        lines.append(f"Cashier: {cashier_name}")
+        lines.append(sep)
+        lines.append(f"{'Description':<19}{'Qty':>4}{'Rate':>8}{'Amount':>11}"[:width])
+        lines.append(sep)
+        for item in items:
+            name = str(item.get("name", "Item"))[:18]
+            qty = int(item.get("qty", 1))
+            price = _money(item.get("price", 0))
+            lines.append(f"{name:<19}{qty:>4}{price:>8.2f}{(price * qty):>11.2f}"[:width])
+        lines.append(sep)
+        lines.append(_pair("Gross amount", f"Rs.{subtotal:.2f}", width))
+        if dec_discount:
+            lines.append(_pair("Discount", f"Rs.{dec_discount:.2f}", width))
+        lines.append(_pair("Tax", f"Rs.{dec_tax:.2f}", width))
+        lines.append(strong)
+        lines.append(_pair("NET PAYABLE", f"Rs.{grand_total:.2f}", width))
+        lines.append(f"Tender: {payment_method}")
+
+    else:
+        lines.append(strong)
+        lines.extend(_pharmacy_header(width))
+        lines.append(strong)
+        lines.append(f"Invoice ID:  #{purchase_id}")
+        lines.append(f"Date/Time:   {now}")
+        lines.append(f"Cashier:     {cashier_name}")
+        lines.append(f"Customer:    {customer_id}")
+        lines.append(f"Payment:     {payment_method}")
+        lines.append(sep)
+        lines.append(f"{'Product':<18} {'Qty':<4} {'Price':>8} {'Sub':>8}")
+        lines.append(sep)
+        for item in items:
+            name = str(item.get("name", "Item"))[:17]
+            qty = int(item.get("qty", 1))
+            price = _money(item.get("price", 0))
+            lines.append(f"{name:<18} {qty:<4} {price:>8.2f} {(price * qty):>8.2f}")
+        lines.append(sep)
+        lines.append(_pair("Subtotal:", f"Rs.{subtotal:.2f}", width))
+        if dec_discount:
+            lines.append(_pair("Discount:", f"Rs.{dec_discount:.2f}", width))
+        if dec_tax:
+            lines.append(_pair("Tax:", f"Rs.{dec_tax:.2f}", width))
+        lines.append(sep)
+        lines.append(_pair("GRAND TOTAL:", f"Rs.{grand_total:.2f}", width))
+        if amount_received is not None:
+            lines.append(_pair("Amount Received:", f"Rs.{_money(amount_received):.2f}", width))
+        if change is not None:
+            lines.append(_pair("Change Given:", f"Rs.{_money(change):.2f}", width))
+        lines.append(strong)
+
+    if _is_valid_setting(footer):
+        lines.append(_center(footer, width))
+    lines.append(_center("Thank You for Your Visit!", width))
+    lines.append(strong)
     return "\n".join(lines)
 
-def generate_invoice_file(purchase_id, customer_id, items, total, tax, discount, payment_method="Cash", cashier_name="Cashier", amount_received=None, change=None):
-    """
-    Generates thermal text receipt and writes to local receipts/ directory.
-    Returns file path.
-    """
+
+def generate_invoice_file(
+    purchase_id,
+    customer_id,
+    items,
+    total,
+    tax,
+    discount,
+    payment_method="Cash",
+    cashier_name="Cashier",
+    amount_received=None,
+    change=None,
+    template=None,
+):
     try:
         receipts_dir = PathManager.get_receipts_dir()
         os.makedirs(receipts_dir, exist_ok=True)
-
         now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"invoice_{now_str}_{purchase_id}.txt"
-        filepath = os.path.join(receipts_dir, filename)
-
+        filepath = os.path.join(receipts_dir, f"invoice_{now_str}_{purchase_id}.txt")
         content = generate_invoice_text(
-            purchase_id, customer_id, items, total, tax, discount, payment_method, cashier_name, amount_received, change
+            purchase_id,
+            customer_id,
+            items,
+            total,
+            tax,
+            discount,
+            payment_method,
+            cashier_name,
+            amount_received,
+            change,
+            template,
         )
-
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(content)
-
+        with open(filepath, "w", encoding="utf-8") as file_handle:
+            file_handle.write(content)
         return filepath
-    except Exception as e:
-        logger.error(f"Receipt generation error: {e}")
+    except Exception as exc:
+        logger.error("Receipt generation error: %s", exc)
         return None
 
 
 def print_receipt_spooler(receipt_text: str) -> bool:
-    """
-    Sends thermal receipt text to the OS print spooler using Qt QPrinter when printer hardware is present.
-    Returns True if print job was successfully queued.
-    """
     try:
-        from PySide6.QtGui import QTextDocument
+        from PySide6.QtGui import QTextDocument, QFont
         from PySide6.QtPrintSupport import QPrinter
+
         printer = QPrinter(QPrinter.HighResolution)
-        doc = QTextDocument()
-        doc.setPlainText(receipt_text)
-        doc.print_(printer)
+        document = QTextDocument()
+        document.setDefaultFont(QFont("Courier New", 9))
+        document.setPlainText(receipt_text)
+        document.print_(printer)
         logger.info("Receipt sent to OS print spooler successfully.")
         return True
-    except Exception as e:
-        logger.warning(f"Print spooler unavailable or hardware printer not configured: {e}")
+    except Exception as exc:
+        logger.warning("Print spooler unavailable or printer not configured: %s", exc)
         return False
