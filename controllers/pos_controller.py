@@ -39,6 +39,10 @@ class POSController:
     def process_checkout(self, request):
         result = self.pos.process_checkout(request)
         if getattr(result, "success", False):
+            # Stock totals changed inside the checkout transaction. Clear the
+            # inventory read cache before any other screen can render stale data.
+            from core.inventory_service import clear_inventory_cache
+            clear_inventory_cache()
             # One committed sale affects several cached read models. Bumping
             # revisions is O(1) and lets navigation refresh only those screens.
             touch("sales", "inventory", "cash", "reports", "credit", "customers")
