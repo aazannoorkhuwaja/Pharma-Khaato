@@ -1,4 +1,5 @@
 from models import InventoryModel
+from core.data_revision import touch
 
 
 class InventoryController:
@@ -16,6 +17,12 @@ class InventoryController:
         except (TypeError, ValueError):
             return False, "Sign in again before changing stock or products."
 
+    @staticmethod
+    def _after_inventory_mutation(result):
+        if isinstance(result, tuple) and result and result[0]:
+            touch("inventory", "reports")
+        return result
+
     def search_products(self, term): return self.model.search_products(term.strip())
     def product_by_barcode(self, barcode): return self.model.product_by_barcode(barcode.strip())
     def products(self): return self.model.products()
@@ -23,15 +30,21 @@ class InventoryController:
 
     def register_product(self, *args, **kwargs):
         allowed, reason = self._mutation_allowed()
-        return self.model.register_product(*args, **kwargs) if allowed else (False, reason)
+        if not allowed:
+            return False, reason
+        return self._after_inventory_mutation(self.model.register_product(*args, **kwargs))
 
     def register_supplier(self, *args, **kwargs):
         allowed, reason = self._mutation_allowed()
-        return self.model.register_supplier(*args, **kwargs) if allowed else (False, reason)
+        if not allowed:
+            return False, reason
+        return self._after_inventory_mutation(self.model.register_supplier(*args, **kwargs))
 
     def add_batch(self, *args, **kwargs):
         allowed, reason = self._mutation_allowed()
-        return self.model.add_batch(*args, **kwargs) if allowed else (False, reason)
+        if not allowed:
+            return False, reason
+        return self._after_inventory_mutation(self.model.add_batch(*args, **kwargs))
 
     def near_expiry(self, days): return self.model.near_expiry(days)
     def expired_stock(self): return self.model.expired_stock()
