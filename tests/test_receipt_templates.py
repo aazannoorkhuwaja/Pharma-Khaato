@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from core import receipt_service
 
 
@@ -92,3 +94,46 @@ def test_receipt_renderer_uses_one_batched_settings_read(monkeypatch):
         discount=0,
     )
     assert len(calls) == 1
+
+
+def test_saved_receipt_uses_committed_tender_and_cashier(monkeypatch, tmp_path):
+    _mock_settings(monkeypatch, "professional_80")
+    monkeypatch.setattr(
+        receipt_service.PathManager,
+        "get_receipts_dir",
+        staticmethod(lambda: str(tmp_path)),
+    )
+    monkeypatch.setattr(
+        receipt_service,
+        "_purchase_receipt_context",
+        lambda purchase_id, payment, cashier: ("Easypaisa", "Sara Khan"),
+    )
+
+    path = receipt_service.generate_invoice_file(
+        88,
+        "Walk-in Customer",
+        [{"name": "Panadol 500mg", "qty": 1, "price": 50.0}],
+        total=50.0,
+        tax=0.0,
+        discount=0.0,
+        # Historical caller may still pass Cash-vs-Credit class here. The file
+        # must use the immutable Purchase context instead.
+        payment_method="Cash",
+        cashier_name="Cashier",
+        template="professional_80",
+    )
+
+    assert path is not None
+    text = Path(path).read_text(encoding="utf-8")
+    assert "Payment:  Easypaisa" in text
+    assert "Cashier: Sara Khan" in text
+
+
+def test_unavailable_configured_printer_fails_safely(monkeypatch):
+    monkeypatch.setattr(receipt_service, "available_printers", lambda: [])
+    monkeypatch.setattr(
+        receipt_service.SettingsService,
+        "get_setting",
+        staticmethod(lambda key, default=None: "Missing Thermal Printer" if key == "preferred_printer" else default),
+    )
+    assert receipt_service.print_receipt_spooler("TEST RECEIPT") is False
