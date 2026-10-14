@@ -2,7 +2,6 @@
 
 import os
 import sys
-from pathlib import Path
 
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 from PySide6.QtGui import QGuiApplication
@@ -11,7 +10,6 @@ from PySide6.QtCore import Qt, QLockFile
 from config import ApplicationSettings
 from controllers.application_controller import ApplicationController
 from core.logger import get_logger
-from core.path_manager import PathManager
 from ui.theme.theme_manager import ThemeManager
 from ui.app.main_window import MainWindow
 from ui.app.async_tasks import AsyncTaskRunner
@@ -58,19 +56,20 @@ def _settings_screen():
     return SettingsScreen()
 
 
-def _acquire_single_instance(app: QApplication):
+def _acquire_single_instance(app: QApplication, app_controller: ApplicationController):
     """Prevent two interactive processes from opening the same local store.
 
     QLockFile handles stale locks after crashes. Headless CI/tests and explicitly
     isolated development runs may opt out because they use separate data dirs.
+    The UI obtains the lock location through its application controller so the
+    storage boundary remains outside the view layer.
     """
     if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
         return None
     if os.environ.get("PHARMA_KHAATO_ALLOW_MULTI_INSTANCE") == "1":
         return None
 
-    lock_path = Path(PathManager.get_config_dir()) / "application.lock"
-    lock = QLockFile(str(lock_path))
+    lock = QLockFile(app_controller.single_instance_lock_path())
     lock.setStaleLockTime(30_000)
     if lock.tryLock(100):
         app.aboutToQuit.connect(lock.unlock)
@@ -107,7 +106,7 @@ def run_app():
     app.setStyle("Fusion")
     ThemeManager.apply_theme()
 
-    instance_lock = _acquire_single_instance(app)
+    instance_lock = _acquire_single_instance(app, app_controller)
     if instance_lock is False:
         app_controller.shutdown()
         return 0
@@ -122,7 +121,7 @@ def run_app():
             None,
             "Pharma Khaato could not start",
             "The local pharmacy database could not be opened. No sale was started.\n\n"
-            "Open System & Backup after the issue is resolved, or use the launch self-check for diagnostics.",
+            "Run the launch self-check or contact support before continuing.",
         )
         return 1
     if needs_setup:
