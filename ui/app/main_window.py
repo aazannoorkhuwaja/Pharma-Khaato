@@ -103,6 +103,13 @@ class MainWindow(QMainWindow):
         self.lbl_version.setToolTip("Installed Pharma Khaato version")
         sidebar_layout.addWidget(self.lbl_version)
 
+        self.btn_printer_setup = QPushButton("Printer Setup")
+        self.btn_printer_setup.setObjectName("sidebarUtilityButton")
+        self.btn_printer_setup.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_printer_setup.setToolTip("Choose and test the thermal receipt printer")
+        self.btn_printer_setup.clicked.connect(self.show_printer_setup)
+        sidebar_layout.addWidget(self.btn_printer_setup)
+
         self.btn_about = QPushButton("About Pharma Khaato")
         self.btn_about.setObjectName("sidebarUtilityButton")
         self.btn_about.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -166,6 +173,7 @@ class MainWindow(QMainWindow):
         self.sub_brand.setVisible(mode == "full")
         self.user_badge.setVisible(mode != "mini")
         self.lbl_version.setVisible(mode != "mini")
+        self.btn_printer_setup.setText("Printer" if mode == "mini" else "Printer Setup")
         self.btn_about.setText("About" if mode == "mini" else "About Pharma Khaato")
         if mode == "mini":
             self.btn_theme_toggle.setText("Theme")
@@ -208,6 +216,14 @@ class MainWindow(QMainWindow):
         if "pharm" in role:
             return base + ["inventory", "reports", "returns"]
         return base
+
+    def show_printer_setup(self):
+        if "settings" not in self.get_allowed_screens():
+            self.status_bar.showMessage("Printer setup is available to administrators and managers.")
+            return
+        from ui.widgets.printer_setup_dialog import PrinterSetupDialog
+
+        PrinterSetupDialog(self).exec()
 
     def show_about(self):
         support_line = (
@@ -259,6 +275,7 @@ class MainWindow(QMainWindow):
         allowed = self.get_allowed_screens()
         for key, btn in self.nav_buttons.items():
             btn.setVisible(key in allowed)
+        self.btn_printer_setup.setVisible("settings" in allowed)
         if "pos" in allowed:
             self.on_nav_clicked("pos")
         self.status_bar.showMessage(f"Signed in: {uname} • Ready")
