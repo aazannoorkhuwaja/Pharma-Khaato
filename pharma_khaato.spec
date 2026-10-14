@@ -85,6 +85,7 @@ hiddenimports = [
     'ui.widgets.glass_card',
     'ui.widgets.pos_models',
     'ui.widgets.pos_widgets',
+    'ui.widgets.printer_setup_dialog',
     'ui.widgets.toast',
     'ui.screens.first_run_wizard',
     'ui.screens.login_screen',
