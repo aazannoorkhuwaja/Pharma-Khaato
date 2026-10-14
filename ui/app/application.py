@@ -174,17 +174,13 @@ def run_app():
         ),
     )
 
-    def create_daily_backup():
-        from core.backup_service import ensure_daily_backup
-        return ensure_daily_backup(retention=14)
-
     def backup_finished(result):
         ok, detail = result
         if not ok:
             logger.warning("Automatic daily backup was not created: %s", detail)
 
     startup_tasks.run(
-        create_daily_backup,
+        lambda: app_controller.ensure_daily_backup(retention=14),
         backup_finished,
         lambda details: logger.warning("Automatic daily backup task failed: %s", details),
     )
