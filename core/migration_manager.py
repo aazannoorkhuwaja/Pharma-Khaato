@@ -61,27 +61,27 @@ class MigrationManager:
 
     @staticmethod
     def _split_statements(exec_sql: str) -> list[str]:
-        """Split existing migration format while preserving trigger BEGIN/END blocks."""
-        statements = []
-        current_stmt = []
-        in_begin = False
-        for line in exec_sql.splitlines():
-            clean_line = line.strip()
-            if not clean_line or clean_line.startswith("--"):
-                continue
-            current_stmt.append(line)
-            upper = clean_line.upper()
-            if "BEGIN" in upper:
-                in_begin = True
-            if "END" in upper:
-                in_begin = False
-            if clean_line.endswith(";") and not in_begin:
-                statements.append("\n".join(current_stmt))
-                current_stmt = []
-        if current_stmt:
-            stmt_str = "\n".join(current_stmt).strip()
-            if stmt_str:
-                statements.append(stmt_str)
+        """Split SQL using SQLite's parser-aware completeness check.
+
+        A line-oriented BEGIN/END detector is unsafe because ordinary values such as
+        'PENDING' contain the substring 'END', which can accidentally split a trigger
+        body at its first internal semicolon. ``sqlite3.complete_statement`` tracks
+        quoted strings and CREATE TRIGGER BEGIN/END blocks correctly.
+        """
+        statements: list[str] = []
+        buffer: list[str] = []
+
+        for line in exec_sql.splitlines(keepends=True):
+            buffer.append(line)
+            candidate = "".join(buffer).strip()
+            if candidate and sqlite3.complete_statement(candidate):
+                statements.append(candidate)
+                buffer = []
+
+        remainder = "".join(buffer).strip()
+        if remainder:
+            raise RuntimeError("Migration SQL ended with an incomplete statement.")
+
         return statements
 
     @classmethod
