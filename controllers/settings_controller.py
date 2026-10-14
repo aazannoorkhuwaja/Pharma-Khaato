@@ -34,6 +34,11 @@ class SettingsController:
             touch("backups")
         return result
 
+    @staticmethod
+    def create_support_bundle():
+        from core.support_service import create_support_bundle
+        return create_support_bundle()
+
     def employees(self):
         return self.auth.employees()
 
