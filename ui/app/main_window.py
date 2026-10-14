@@ -105,7 +105,10 @@ class MainWindow(QMainWindow):
         self.btn_logout = QPushButton("Sign Out")
         self.btn_logout.setObjectName("sidebarLogoutButton")
         self.btn_logout.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_logout.clicked.connect(self.on_logout)
+        # QPushButton.clicked emits a checked(bool) argument. Do not wire it
+        # directly to on_logout(confirm_fn=None), otherwise that bool is bound
+        # to confirm_fn and later called as a function.
+        self.btn_logout.clicked.connect(lambda _checked=False: self.on_logout())
         sidebar_layout.addWidget(self.btn_logout)
 
         self.router = AppRouter()
