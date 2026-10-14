@@ -35,6 +35,20 @@ class SettingsController:
         return result
 
     @staticmethod
+    def restore_backup(filepath: str, employee_id: int):
+        from core.backup_service import restore_database
+        from core.permission_service import require_permission
+
+        allowed, message = require_permission(employee_id, "settings.restore")
+        if not allowed:
+            return False, message
+        result = restore_database(filepath)
+        if isinstance(result, tuple) and result and result[0]:
+            for domain in ("settings", "staff", "inventory", "customers", "credit", "cash", "sales", "returns", "reports", "backups"):
+                touch(domain)
+        return result
+
+    @staticmethod
     def create_support_bundle():
         from core.support_service import create_support_bundle
         return create_support_bundle()
