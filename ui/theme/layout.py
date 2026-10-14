@@ -24,7 +24,11 @@ class LayoutMetrics:
     CONTROL_HEIGHT = 38
     PRIMARY_ACTION_HEIGHT = 44
     TABLE_ROW_HEIGHT = 38
-    TABLE_ACTION_ROW_HEIGHT = 42
+    # Rows containing an embedded action control need extra vertical breathing
+    # room because a styled QPushButton's content + padding + border is taller
+    # than an ordinary text row. Keeping this explicit prevents clipped/stacked
+    # buttons at 100%, 125%, and 150% accessibility scales.
+    TABLE_ACTION_ROW_HEIGHT = 52
 
     # Flexible side panels. Never hard-lock a business panel to one pixel width.
     SIDE_PANEL_MIN = 288
