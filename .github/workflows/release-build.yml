@@ -69,6 +69,16 @@ jobs:
       - name: Smoke-test packaged executable
         run: python scripts/smoke_packaged.py
 
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build Windows customer installer
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./packaging/windows/build-installer.ps1
+
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
