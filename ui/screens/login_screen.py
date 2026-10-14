@@ -1,24 +1,23 @@
-"""
-Pharma-Khaato Native Login & Registration Portal (PySide6)
-Modal authentication gate providing options to Sign In or Register a new account at startup.
-"""
+"""Pharma Khaato sign-in dialog."""
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QTabWidget, QWidget, QComboBox
+    QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QWidget
 )
 from PySide6.QtCore import Qt
 
+from config import ApplicationSettings
 from controllers.auth_controller import AuthController
-
-_AUTH_CONTROLLER = AuthController()
 from ui.theme.tokens import ThemeTokens
 from ui.app.state.session_state import SessionState
 from ui.widgets.responsive import configure_dialog
 
+_AUTH_CONTROLLER = AuthController()
+
+
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Pharma-Khaato — Sign In")
+        self.setWindowTitle(f"{ApplicationSettings.DISPLAY_NAME} — Sign In")
         configure_dialog(self, 520, 620, minimum_width=400, minimum_height=500)
         self.setModal(True)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
@@ -36,48 +35,15 @@ class LoginDialog(QDialog):
                 border: 1px solid {ThemeTokens.BORDER_SUBTLE};
                 border-radius: {ThemeTokens.RADIUS_MD}px;
             }}
-            QTabWidget::pane {{
-                border: 1px solid {ThemeTokens.BORDER_SUBTLE};
-                border-radius: {ThemeTokens.RADIUS_SM}px;
-                background-color: {ThemeTokens.SURFACE_ELEVATED};
-                top: -1px;
-            }}
-            QTabBar::tab {{
-                background-color: {ThemeTokens.SURFACE_BASE};
-                color: {ThemeTokens.TEXT_SECONDARY};
-                border: 1px solid {ThemeTokens.BORDER_SUBTLE};
-                padding: 8px 20px;
-                font-weight: 600;
-                border-top-left-radius: {ThemeTokens.RADIUS_SM}px;
-                border-top-right-radius: {ThemeTokens.RADIUS_SM}px;
-                margin-right: 2px;
-            }}
-            QTabBar::tab:selected {{
-                background-color: {ThemeTokens.SURFACE_ELEVATED};
-                color: {ThemeTokens.ACCENT};
-                border-bottom: 2px solid {ThemeTokens.ACCENT};
-                font-weight: 700;
-            }}
-            QLineEdit, QComboBox {{
+            QLineEdit {{
                 background-color: {ThemeTokens.SURFACE_BASE};
                 color: {ThemeTokens.TEXT_PRIMARY};
                 border: 1px solid {ThemeTokens.BORDER_SUBTLE};
                 border-radius: {ThemeTokens.RADIUS_SM}px;
                 padding: 4px 12px;
             }}
-            QLineEdit:focus, QComboBox:focus {{
+            QLineEdit:focus {{
                 border: 1px solid {ThemeTokens.BORDER_FOCUS};
-            }}
-            QPushButton.primaryBtn {{
-                background-color: {ThemeTokens.ACCENT};
-                color: #FFFFFF;
-                border: none;
-                border-radius: {ThemeTokens.RADIUS_SM}px;
-                padding: 8px 16px;
-                font-weight: 700;
-            }}
-            QPushButton.primaryBtn:hover {{
-                background-color: {ThemeTokens.ACCENT_HOVER};
             }}
         """)
 
@@ -87,26 +53,30 @@ class LoginDialog(QDialog):
         card = QFrame()
         card.setObjectName("card")
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(20, 20, 20, 20)
+        card_layout.setContentsMargins(24, 24, 24, 24)
         card_layout.setSpacing(12)
 
-        # Header
-        title = QLabel("PHARMA-KHAATO")
+        title = QLabel("PHARMA KHAATO")
         title.setObjectName("h1")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(f"color: {ThemeTokens.ACCENT}; font-weight: 800; letter-spacing: 1px;")
 
-        subtitle = QLabel("Sign in to continue")
-        subtitle.setObjectName("subtitle")
+        product_line = QLabel(ApplicationSettings.PRODUCT_TAGLINE)
+        product_line.setObjectName("subtitle")
+        product_line.setAlignment(Qt.AlignCenter)
+        product_line.setWordWrap(True)
+
+        subtitle = QLabel("Sign in to start your counter session")
+        subtitle.setObjectName("caption")
         subtitle.setWordWrap(True)
         subtitle.setAlignment(Qt.AlignCenter)
         subtitle.setStyleSheet(f"color: {ThemeTokens.TEXT_SECONDARY}; font-weight: 500;")
 
         card_layout.addWidget(title)
+        card_layout.addWidget(product_line)
         card_layout.addWidget(subtitle)
         card_layout.addSpacing(10)
 
-        # Single Clean Sign In Form
         login_container = QWidget()
         login_layout = QVBoxLayout(login_container)
         login_layout.setContentsMargins(16, 16, 16, 16)
@@ -147,6 +117,17 @@ class LoginDialog(QDialog):
         login_layout.addStretch()
 
         card_layout.addWidget(login_container)
+
+        footer = QLabel(
+            f"Version {ApplicationSettings.APP_VERSION}  •  Local-first desktop software\n"
+            "Your pharmacy records remain on this workstation unless they are exported or backed up."
+        )
+        footer.setObjectName("caption")
+        footer.setAlignment(Qt.AlignCenter)
+        footer.setWordWrap(True)
+        footer.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
+        card_layout.addWidget(footer)
+
         layout.addWidget(card)
 
     def handle_login(self):
@@ -176,6 +157,5 @@ class LoginDialog(QDialog):
                 self.txt_password.clear()
                 self.txt_password.setFocus()
         except PermissionError as pe:
-            # Surface brute-force lockout message without swallowing
             self.lbl_error.setText(str(pe))
             self.txt_password.clear()
