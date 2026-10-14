@@ -1,71 +1,47 @@
-# Pharma-Khaato — Desktop Pharmacy Management
+# Pharma Khaato
 
-Pharma-Khaato is an offline-first PySide6 desktop pharmacy system for fast counter sales, batch-aware stock, customers, customer credit, cash shifts, returns, reports, receipt printing, staff access, and backups.
+**Pharmacy POS & Inventory Management for independent pharmacies and surgical stores.**
 
-> **Database:** local SQLite in WAL mode. Keep the live database on the pharmacy computer; do not place the active SQLite database on a shared/network drive.
+Pharma Khaato is a local-first desktop product built around the work that happens at a pharmacy counter: billing quickly, tracking batch/expiry stock, managing customer credit, balancing cash, handling returns, printing receipts, and protecting business data.
 
-## Product status
+## What it does
 
-The current production-candidate work lives on **`develop-ui`** while `main` remains protected from unreviewed migration work.
+- **Fast counter billing** — product/barcode lookup, keyboard-first cart editing, discounts, hold/resume, cash/card/Easypaisa/JazzCash/customer-credit payments, and safe checkout retry handling.
+- **Batch-aware inventory** — supplier stock intake, expiry visibility, low-stock warnings and earliest-expiry-first allocation.
+- **Customer credit (Khaato)** — customer balances, credit sales, partial/full repayments and payment history.
+- **Shift & cash control** — opening cash, cash-in/cash-out, expected drawer balance and closing reconciliation. Digital tenders do not inflate physical cash.
+- **Returns & refunds** — controlled return quantities, stock restoration, refund tracking and customer-credit adjustment.
+- **Operational reports** — sales, payment mix, low stock, expiring stock, credit collections, returns and activity history.
+- **Thermal receipts** — five selectable formats for common 80 mm and 58 mm workflows, with an in-app preview.
+- **Staff access** — separate staff accounts and role-based permissions with auditable activity.
+- **Recovery & support** — automatic daily backups, manual backup/restore, system checks and a privacy-conscious diagnostics bundle.
 
-The branch includes launch/readiness automation for:
+## Designed for an offline pharmacy counter
 
-- fresh database creation and versioned migrations
-- deterministic isolated demo data
-- compile + UI source audit + regression tests
-- end-to-end business-flow smoke checks
-- offscreen GUI navigation smoke checks
-- automatic daily integrity-checked backups
-- packaged executable smoke testing and release checksums
+The live business database is SQLite in WAL mode and is stored in the signed-in user's application-data directory. The normal product does not require an internet connection to bill customers.
 
-## Key features
+**Important:** keep the live SQLite database on the pharmacy workstation. Do not place the active database on a network share. Multi-branch/shared-database operation requires a different central-server architecture.
 
-- **New Sale:** fast product/barcode search, cart editing, discounts, hold/resume, multiple payment methods, keyboard shortcuts, shift enforcement, and checkout retry protection.
-- **Stock & Products:** products, suppliers, stock intake, low-stock alerts, expiry alerts, bounded catalog loading, and earliest-expiry-first allocation.
-- **Customers & Customer Credit:** customer lookup, balances, credit sales, payment history, and partial/full collections.
-- **Shift & Cash:** opening cash, drawer movements, cash-only reconciliation, credit collections, and closing balance checks.
-- **Returns & Refunds:** sale lookup, controlled quantities, stock restoration, credit adjustment, and audit history.
-- **Reports:** sales totals, payment mix, low stock, expiring stock, credit collections, returns, and activity history.
-- **Receipts:** five selectable thermal receipt formats including Professional 80mm and Compact 58mm.
-- **Staff & Access:** separate Cashier, Pharmacist, Manager/Administrator permissions with password reset and auditability.
-- **Data safety:** SQLite WAL, transactional checkout, durable checkout tokens, verified backups, pre-migration backups, and system health checks.
-- **Security:** PBKDF2-HMAC-SHA256 password hashing, persistent login lockout, backend permission checks, and audit logging.
-- **Responsive UI:** adaptive sidebar modes, DPI-aware sizing, scalable tables, lazy screens, bounded queries, and background workers for slow I/O.
+## Customer installation
 
-## Quick start
+A released Windows build is intended to be installed through the versioned **Pharma Khaato Setup** executable. The installer creates Start Menu integration, keeps the business database outside the installation directory, and preserves user data across ordinary application upgrades.
 
-```bash
-git clone -b develop-ui https://github.com/aazannoorkhuwaja/Pharma-Khaato.git
-cd Pharma-Khaato
-python3 scripts/dev_run.py
-```
+Release artifacts are versioned and accompanied by SHA-256 checksums. Windows release automation also smoke-tests the packaged executable before an installer is published.
 
-`dev_run.py` creates/reuses `.venv`, installs the correct dependency set only when needed, and launches without modifying system Python.
+Before first production use on a new workstation, complete the hardware acceptance checklist for the exact thermal printer, barcode scanner and any cash-drawer workflow.
 
-Normal update/run loop:
+## First-run experience
 
-```bash
-cd Pharma-Khaato
-git switch develop-ui
-git pull --ff-only
-python3 scripts/dev_run.py
-```
+On a fresh installation Pharma Khaato creates its local data folders/database, applies schema migrations, then guides the owner through the initial administrator setup. After sign-in, the administrator can configure the pharmacy profile, receipt format, staff accounts, business rules and backups from **Settings**.
 
-Do not use `--break-system-packages`.
+The application protects a local data directory from being opened by two interactive Pharma Khaato instances at the same time.
 
-## One-command demo
+## Demo / evaluation
 
-The demo is completely isolated under `.demo-data` and does **not** modify the normal pharmacy database.
-
-First verify the complete demo dataset:
+The repository includes a deterministic demo environment that is isolated from the normal pharmacy database.
 
 ```bash
 python3 scripts/dev_run.py --demo-check
-```
-
-Then launch a freshly reset demonstration:
-
-```bash
 python3 scripts/dev_run.py --demo
 ```
 
@@ -76,67 +52,61 @@ Administrator: admin / demo1234
 Cashier:       cashier / demo1234
 ```
 
-Recommended presentation path:
+Suggested evaluation flow:
 
 ```text
 New Sale → Customers → Customer Credit → Stock & Products →
-Shift & Cash → Reports → Returns → Settings → Receipts
+Shift & Cash → Reports → Returns & Refunds → Settings → Receipts
 ```
 
-For a rehearsal without resetting existing demo data:
+See [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md) for the scripted presentation flow.
 
-```bash
-python3 scripts/dev_run.py --demo-keep
-```
+## Data protection and recovery
 
-See [Demo Guide](docs/DEMO_GUIDE.md) for the full presentation flow.
+Pharma Khaato includes:
 
-## Architecture
+- transactional checkout and checkout-request idempotency
+- SQLite foreign keys and WAL mode
+- ordered database migrations with safety backups for risky upgrades
+- automatic daily integrity-checked backups with retention
+- manual backup and guarded restore (a safety backup is created before restore)
+- login lockout and backend permission enforcement
+- rotating application logs
+- a support bundle that excludes the live database, receipts, exports and backups by default
 
-The application uses an explicit Model-View-Controller boundary:
+Read [`SECURITY.md`](SECURITY.md) and [`SUPPORT.md`](SUPPORT.md) before production deployment.
 
-- `ui/` — PySide6 views, reusable widgets, theme, accessibility, and user-facing copy
-- `controllers/` — workflow orchestration and view/backend boundary
-- `models/` — Qt-free backend facades
-- `core/` — transactions, SQLite, security, reports, receipts, backups, and business rules
-- `migrations/` — ordered schema upgrades
-- `tests/` — backend, architecture, UI, launch-readiness, and regression coverage
+## Current product status
 
-## Project structure
+The active product is being finalized on `develop-ui`. A history-connected `launch-candidate` branch is used for the full review/CI bridge into `main`; `main` is not updated until the launch candidate is explicitly approved.
+
+A launch candidate is considered shippable only when the exact candidate commit passes the regression suite, fresh-install self-check, isolated demo/business-flow smoke, major-screen GUI smoke and supported Windows/Linux compatibility gates. Physical hardware acceptance remains a real-device check.
+
+## For developers
+
+The desktop application uses PySide6 with an explicit MVC boundary:
 
 ```text
-Pharma-Khaato/
-├── main.py
-├── controllers/
-├── models/
-├── core/
-├── ui/
-│   ├── app/
-│   ├── screens/
-│   ├── theme/
-│   └── widgets/
-├── migrations/
-├── tests/
-├── scripts/
-├── packaging/
-├── docs/
-├── requirements.txt
-├── requirements-dev.txt
-└── pharma_khaato.spec
+ui/           views, widgets, theme and operator-facing interaction
+controllers/  workflow orchestration / UI-to-domain boundary
+models/       Qt-free backend facades
+core/         transactions, SQLite, security, reports, receipts and recovery
+migrations/   ordered schema upgrades
+tests/        regression, architecture, UI and launch-readiness coverage
+packaging/    native installer/desktop integration
 ```
 
-## Quality gates
-
-Install development dependencies once if you are not using the launcher:
+### Development quick start
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -U pip
-python -m pip install -r requirements.txt -r requirements-dev.txt
+git clone -b develop-ui https://github.com/aazannoorkhuwaja/Pharma-Khaato.git
+cd Pharma-Khaato
+python3 scripts/dev_run.py
 ```
 
-Local checks:
+`dev_run.py` creates/reuses a project `.venv` and installs dependencies only when required. Do not use `--break-system-packages`.
+
+### Local quality gate
 
 ```bash
 python -m compileall -q main.py controllers core models ui scripts
@@ -145,29 +115,34 @@ QT_QPA_PLATFORM=offscreen python -m pytest -q
 python3 scripts/dev_run.py --demo-check
 ```
 
-Normal pushes to `develop-ui` use the fast Linux/Python 3.14 quality gate. Pull requests and protected/release paths run the wider Windows/Linux Python compatibility matrix plus launch-readiness smoke checks.
+Normal `develop-ui` pushes use a fast quality gate. Pull requests and protected/release paths run the wider Windows/Linux compatibility matrix and launch-readiness smoke checks.
 
-## Release build
+### Build a release artifact
 
 ```bash
 python scripts/build_release.py
 ```
 
-Build native Windows artifacts on Windows and Linux artifacts on Linux, or use the included release workflow. Release automation smoke-tests the packaged executable and produces checksums for distributed artifacts.
+On Windows, with Inno Setup installed:
 
-Before deploying to a real pharmacy, also complete the hardware acceptance checklist for the exact thermal printer, barcode scanner, cash drawer workflow, and target workstation.
+```powershell
+./packaging/windows/build-installer.ps1
+```
+
+The tagged GitHub release workflow builds and smoke-tests platform artifacts automatically.
 
 ## Documentation
 
+- [Counter user guide](docs/USER_GUIDE.md)
 - [Demo guide](docs/DEMO_GUIDE.md)
 - [Deployment & packaging](docs/DEPLOYMENT.md)
-- [Architecture](docs/ARCHITECTURE.md)
 - [Database & migrations](docs/DATABASE.md)
-- [Developer workflow](docs/DEVELOPER_WORKFLOW.md)
-- [Counter user guide](docs/USER_GUIDE.md)
 - [Testing](docs/TESTING.md)
-- [UI/UX product review](docs/UI_UX_PRODUCT_REVIEW.md)
-- [HCI/SDE usability review](docs/HCI_SDE_USABILITY_REVIEW.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Developer workflow](docs/DEVELOPER_WORKFLOW.md)
+- [Support](SUPPORT.md)
+- [Security](SECURITY.md)
+- [Changelog](CHANGELOG.md)
 
 ## Licence
 
