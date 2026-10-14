@@ -1,257 +1,174 @@
-# Pharma-Khaato
+# Pharma-Khaato — Desktop Pharmacy Management
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.8%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" />
-  <img src="https://img.shields.io/badge/MySQL-8.0%2B-4479A1?style=for-the-badge&logo=mysql&logoColor=white" />
-  <img src="https://img.shields.io/badge/CustomTkinter-Modern%20GUI-blue?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" />
-  <img src="https://img.shields.io/badge/Status-Completed-brightgreen?style=for-the-badge" />
-</p>
+Pharma-Khaato is an offline-first PySide6 desktop pharmacy system for fast counter sales, batch-aware stock, customers, customer credit, cash shifts, returns, reports, receipt printing, staff access, and backups.
 
-Pharma-Khaato is a specialized Point of Sale (POS) and Relational Database Management System (RDBMS) designed for surgical pharmacies. Built with Python and CustomTkinter, it provides an intuitive desktop interface for cashiers, administrators, and inventory managers.
+> **Database:** local SQLite in WAL mode. Keep the live database on the pharmacy computer; do not place the active SQLite database on a shared/network drive.
 
-It replaces manual, paper-based record-keeping by providing batch-specific inventory management and an automated customer credit ledger (*Khaato*). The system enforces strict data integrity via a relational MySQL database, ensuring accurate running balance calculations, immutable audit trails for customer debt, and automated expiry-based stock alerts.
+## Product status
 
-> **Key Architecture Highlight:** Implements strict ACID database transactions, preventing race conditions during checkout and automating running-balance updates across customer credit ledgers.
+The current production-candidate work lives on **`develop-ui`** while `main` remains protected from unreviewed migration work.
 
----
+The branch includes launch/readiness automation for:
 
-## Authors & Contributions
+- fresh database creation and versioned migrations
+- deterministic isolated demo data
+- compile + UI source audit + regression tests
+- end-to-end business-flow smoke checks
+- offscreen GUI navigation smoke checks
+- automatic daily integrity-checked backups
+- packaged executable smoke testing and release checksums
 
-* **Course:** Database Systems — Semester Project
-* **Group Members:**
-  * **Azaan Noor Khuwaja** *(Roll # 24P-0706)* — Database Schema Design, RDBMS Integration, Application Architecture
-  * **Atif Khan** *(Roll # 24P-0540)* — GUI Design, CustomTkinter Interface, Form Validations
-  * **Uzair Shoaib** *(Roll # 24P-0507)* — ERD Flow Analysis, SQL Triggers & Procedures, Documentation
+## Key features
 
----
+- **New Sale:** fast product/barcode search, cart editing, discounts, hold/resume, multiple payment methods, keyboard shortcuts, shift enforcement, and checkout retry protection.
+- **Stock & Products:** products, suppliers, stock intake, low-stock alerts, expiry alerts, bounded catalog loading, and earliest-expiry-first allocation.
+- **Customers & Customer Credit:** customer lookup, balances, credit sales, payment history, and partial/full collections.
+- **Shift & Cash:** opening cash, drawer movements, cash-only reconciliation, credit collections, and closing balance checks.
+- **Returns & Refunds:** sale lookup, controlled quantities, stock restoration, credit adjustment, and audit history.
+- **Reports:** sales totals, payment mix, low stock, expiring stock, credit collections, returns, and activity history.
+- **Receipts:** five selectable thermal receipt formats including Professional 80mm and Compact 58mm.
+- **Staff & Access:** separate Cashier, Pharmacist, Manager/Administrator permissions with password reset and auditability.
+- **Data safety:** SQLite WAL, transactional checkout, durable checkout tokens, verified backups, pre-migration backups, and system health checks.
+- **Security:** PBKDF2-HMAC-SHA256 password hashing, persistent login lockout, backend permission checks, and audit logging.
+- **Responsive UI:** adaptive sidebar modes, DPI-aware sizing, scalable tables, lazy screens, bounded queries, and background workers for slow I/O.
 
-## Overview & System Visuals
-
-<p align="center">
-  <img src="docs/pharmad.gif" alt="Pharma-Khaato Demonstration" width="800"/>
-</p>
-
----
-
-## Quick Start (TL;DR)
-
-Get up and running in under 60 seconds:
+## Quick start
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/aazannoorkhuwaja/Pharma-Khaato.git
-cd Pharma-Khaato/project
-
-# 2. Install dependencies
-pip install mysql-connector-python pandas customtkinter
-
-# 3. Initialize MySQL Database & Launch Application
-mysql -u root -p < database/drawSQL-mysql-export-2026-04-26.sql
-python main.py
+git clone -b develop-ui https://github.com/aazannoorkhuwaja/Pharma-Khaato.git
+cd Pharma-Khaato
+python3 scripts/dev_run.py
 ```
 
----
+`dev_run.py` creates/reuses `.venv`, installs the correct dependency set only when needed, and launches without modifying system Python.
 
-## System Architecture Pipeline
+Normal update/run loop:
 
-```mermaid
-flowchart TD
-    A[Pharmacy Cashier / Store Manager] --> B[CustomTkinter Graphical User Interface]
-    B --> C[Python Application Core & Business Logic]
-    C --> D[ACID Transaction Engine & Query Handler]
-    D --> E[(MySQL Relational Database)]
-
-    E --> F[Batch-Wise Stock Inventory]
-    E --> G[Automated Customer Credit Ledger]
-    E --> H[Thermal Receipt Generator & Invoicing]
-```
-
----
-
-## Key Features
-
-* **Batch-Wise Inventory Control:** Tracks individual medication batches, stock quantities, supplier metadata, and expiration dates.
-* **Automated Customer Credit Ledger (Khaato):** Dynamically calculates outstanding balances and credit history without manual ledger entry.
-* **Real-Time Stock Deduction & ACID Integrity:** Guarantees atomic transaction execution during checkout to prevent overselling or data corruption.
-* **Expiry Date & Low-Stock Alerts:** Automatically flags expiring batches and triggers low-stock warnings for proactive inventory reordering.
-* **Thermal Receipt & Invoice Generation:** Automatically formats and outputs itemized thermal receipts detailing sub-totals, discounts, and default 10% tax calculations.
-
----
-
-## Technology Stack
-
-* **Frontend / GUI:** Python 3.8+, CustomTkinter (Modern Native Desktop UI)
-* **Backend Database:** MySQL 8.0+ (Relational Database Management System)
-* **Database Driver:** `mysql-connector-python`
-* **Data Processing:** Pandas, NumPy
-
----
-
-## Comprehensive Task & Component Breakdown
-
-<details>
-<summary><b>Point of Sale (POS) & Checkout Engine</b></summary>
-<br>
-
-* Real-time product search by barcode, name, or batch number.
-* Automated itemized billing with customizable tax and discount fields.
-* Instant deduction of batch quantities upon purchase confirmation.
-</details>
-
-<details>
-<summary><b>Customer Credit Ledger (Khaato Management)</b></summary>
-<br>
-
-* Maintains complete customer payment profiles and transaction histories.
-* Tracks partial payments and automatically recalculates remaining credit balances.
-* Restricts transaction completion if customer credit limits are exceeded.
-</details>
-
-<details>
-<summary><b>Batch Inventory & Expiry Monitor</b></summary>
-<br>
-
-* Allows batch-level stock entry with manufacture and expiration dates.
-* Implements First-Expiry-First-Out (FEFO) logic to minimize stock waste.
-* Displays visual notifications for medicines nearing expiration.
-</details>
-
----
-
-## Setup & Installation Guide
-
-### 1. Prerequisites Check
-Ensure **Python 3.8+** and **MySQL Server** (standalone or via XAMPP/WAMP) are installed:
 ```bash
-python3 --version   # Linux / macOS
-python --version    # Windows
-mysql --version     # MySQL Server
+cd Pharma-Khaato
+git switch develop-ui
+git pull --ff-only
+python3 scripts/dev_run.py
 ```
 
----
+Do not use `--break-system-packages`.
 
-### 2. Virtual Environment Setup
+## One-command demo
 
-**Linux / macOS:**
+The demo is completely isolated under `.demo-data` and does **not** modify the normal pharmacy database.
+
+First verify the complete demo dataset:
+
 ```bash
-python3 -m venv venv
-source venv/bin/activate
+python3 scripts/dev_run.py --demo-check
 ```
 
-**Windows (Command Prompt):**
-```cmd
-python -m venv venv
-venv\Scripts\activate
-```
+Then launch a freshly reset demonstration:
 
-**Windows (PowerShell):**
-```powershell
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-```
-
----
-
-### 3. Install Required Dependencies
 ```bash
-pip install mysql-connector-python pandas customtkinter
+python3 scripts/dev_run.py --demo
 ```
 
----
+Demo accounts:
 
-### 4. Database Setup & Configuration
-
-Create the MySQL database and application user:
-
-```sql
-CREATE DATABASE pharmacy_db;
-CREATE USER 'pharma'@'localhost' IDENTIFIED BY 'pharma123';
-GRANT ALL PRIVILEGES ON pharmacy_db.* TO 'pharma'@'localhost';
-FLUSH PRIVILEGES;
+```text
+Administrator: admin / demo1234
+Cashier:       cashier / demo1234
 ```
 
-Import the SQL schema dump to create tables and triggers:
+Recommended presentation path:
+
+```text
+New Sale → Customers → Customer Credit → Stock & Products →
+Shift & Cash → Reports → Returns → Settings → Receipts
+```
+
+For a rehearsal without resetting existing demo data:
+
 ```bash
-mysql -u pharma -ppharma123 pharmacy_db < project/database/drawSQL-mysql-export-2026-04-26.sql
+python3 scripts/dev_run.py --demo-keep
 ```
 
----
+See [Demo Guide](docs/DEMO_GUIDE.md) for the full presentation flow.
 
-### 5. Running the Application
+## Architecture
 
-Navigate to the project execution directory and launch `main.py`:
-```bash
-cd project
-python main.py
-```
+The application uses an explicit Model-View-Controller boundary:
 
-Alternatively, launch the salesman POS interface directly:
-```bash
-python salesman_app.py
-```
+- `ui/` — PySide6 views, reusable widgets, theme, accessibility, and user-facing copy
+- `controllers/` — workflow orchestration and view/backend boundary
+- `models/` — Qt-free backend facades
+- `core/` — transactions, SQLite, security, reports, receipts, backups, and business rules
+- `migrations/` — ordered schema upgrades
+- `tests/` — backend, architecture, UI, launch-readiness, and regression coverage
 
----
-
-## Configuration & Environment Variables
-
-The application connects using standard default parameters but supports customization via Environment Variables:
-
-| Variable Name | Default Value | Description |
-|---|---|---|
-| `DB_HOST` | `localhost` / `127.0.0.1` | MySQL server host address |
-| `DB_PORT` | `3306` | MySQL connection port |
-| `DB_USER` | `pharma` | MySQL database username |
-| `DB_PASSWORD` | `pharma123` | MySQL database password |
-| `DB_NAME` | `pharmacy_db` | Target database name |
-
----
-
-## Project Directory Structure
+## Project structure
 
 ```text
 Pharma-Khaato/
-│
-├── README.md                                # Comprehensive documentation & setup guide
-├── .gitignore                              # Git exclusion rules
-│
-├── project/                                 # Main application source directory
-│   ├── main.py                              # Application entry point & main interface launcher
-│   ├── salesman_app.py                      # Salesman & POS transaction module
-│   ├── drawSQL-mysql-export-2026-04-26.sql  # Core database schema & table creation script
-│   ├── database/                            # Backup SQL exports & deployment scripts
-│   │   └── xampp.sh                         # Optional Linux XAMPP startup script
-│   ├── receipts/                            # Generated thermal invoices & billing TXT files
-│   └── scripts/                             # Integration testing & system flow tests
-│
-├── db_project_erd/                          # Database ERD diagrams and schema specifications
-│   ├── pharma_khaato_schema.sql             # Relational SQL schema definitions
-│   └── Pharma_Khaato__DB_Project_.pdf       # Comprehensive ERD project document
-│
-└── docs/                                    # Documentation assets & media files
-    ├── pharmad.gif                          # Application demonstration GIF
-    └── DB-Project-Proposals-4B - Sheet1.pdf  # Project proposal specifications
+├── main.py
+├── controllers/
+├── models/
+├── core/
+├── ui/
+│   ├── app/
+│   ├── screens/
+│   ├── theme/
+│   └── widgets/
+├── migrations/
+├── tests/
+├── scripts/
+├── packaging/
+├── docs/
+├── requirements.txt
+├── requirements-dev.txt
+└── pharma_khaato.spec
 ```
 
----
+## Quality gates
 
-## Troubleshooting Guide
+Install development dependencies once if you are not using the launcher:
 
-| Common Issue | Likely Cause | Resolution |
-|---|---|---|
-| `mysql.connector.errors.ProgrammingError` | MySQL server down or invalid credentials | Verify MySQL service is running and check environment variables (`DB_USER`, `DB_PASSWORD`) |
-| `ModuleNotFoundError: No module named 'customtkinter'` | CustomTkinter library missing | Run `pip install customtkinter` |
-| Database connection refused on port 3306 | XAMPP / MariaDB port conflict | Ensure MySQL port matches `DB_PORT` variable (e.g. `3306` or `3307`) |
-| Table `pharmacy_db.customers` does not exist | Database schema not imported | Re-run SQL schema import command from step 4 |
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install -U pip
+python -m pip install -r requirements.txt -r requirements-dev.txt
+```
 
----
+Local checks:
 
-## Documentation & Project Assets
+```bash
+python -m compileall -q main.py controllers core models ui scripts
+python scripts/ui_audit.py
+QT_QPA_PLATFORM=offscreen python -m pytest -q
+python3 scripts/dev_run.py --demo-check
+```
 
-Detailed database design documents, entity relationship diagrams (ERD), and process flow maps are available in the `db_project_erd/` and `docs/` directories.
+Normal pushes to `develop-ui` use the fast Linux/Python 3.14 quality gate. Pull requests and protected/release paths run the wider Windows/Linux Python compatibility matrix plus launch-readiness smoke checks.
 
----
+## Release build
 
-## License & Citation
+```bash
+python scripts/build_release.py
+```
 
-Developed for educational and academic research purposes as part of the Database Systems course. Released under the [MIT License](https://opensource.org/licenses/MIT).
+Build native Windows artifacts on Windows and Linux artifacts on Linux, or use the included release workflow. Release automation smoke-tests the packaged executable and produces checksums for distributed artifacts.
+
+Before deploying to a real pharmacy, also complete the hardware acceptance checklist for the exact thermal printer, barcode scanner, cash drawer workflow, and target workstation.
+
+## Documentation
+
+- [Demo guide](docs/DEMO_GUIDE.md)
+- [Deployment & packaging](docs/DEPLOYMENT.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Database & migrations](docs/DATABASE.md)
+- [Developer workflow](docs/DEVELOPER_WORKFLOW.md)
+- [Counter user guide](docs/USER_GUIDE.md)
+- [Testing](docs/TESTING.md)
+- [UI/UX product review](docs/UI_UX_PRODUCT_REVIEW.md)
+- [HCI/SDE usability review](docs/HCI_SDE_USABILITY_REVIEW.md)
+
+## Licence
+
+See [LICENSE](LICENSE).
