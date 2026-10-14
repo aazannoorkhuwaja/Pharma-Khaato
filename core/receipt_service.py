@@ -118,6 +118,35 @@ def _pharmacy_header(width: int, settings: dict, *, tax_focused: bool = False):
     return lines
 
 
+def _purchase_receipt_context(purchase_id, fallback_payment="Cash", fallback_cashier="Cashier"):
+    """Resolve immutable sale context after commit for receipt accuracy.
+
+    Older checkout callers only distinguished Cash-vs-Credit when invoking the
+    receipt side effect. The Purchase row is the source of truth for the actual
+    tender (Card/Easypaisa/JazzCash/etc.), so receipts resolve it by sale ID.
+    """
+    try:
+        from core.db_engine import get_conn
+
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT p.payment_method, e.first_name, e.last_name "
+            "FROM Purchase p LEFT JOIN Employee e ON e.id = p.employee_id "
+            "WHERE p.id = %s LIMIT 1",
+            (purchase_id,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return str(fallback_payment or "Cash"), str(fallback_cashier or "Cashier")
+        payment = str(row[0] or fallback_payment or "Cash")
+        cashier = " ".join(part for part in (str(row[1] or "").strip(), str(row[2] or "").strip()) if part)
+        return payment, cashier or str(fallback_cashier or "Cashier")
+    except Exception as exc:
+        logger.warning("Could not resolve committed sale context for receipt #%s: %s", purchase_id, exc)
+        return str(fallback_payment or "Cash"), str(fallback_cashier or "Cashier")
+
+
 def generate_invoice_text(
     purchase_id,
     customer_id,
@@ -345,6 +374,11 @@ def generate_invoice_file(
         os.makedirs(receipts_dir, exist_ok=True)
         now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
         filepath = os.path.join(receipts_dir, f"invoice_{now_str}_{purchase_id}.txt")
+        actual_payment, actual_cashier = _purchase_receipt_context(
+            purchase_id,
+            payment_method,
+            cashier_name,
+        )
         content = generate_invoice_text(
             purchase_id,
             customer_id,
@@ -352,8 +386,8 @@ def generate_invoice_file(
             total,
             tax,
             discount,
-            payment_method,
-            cashier_name,
+            actual_payment,
+            actual_cashier,
             amount_received,
             change,
             template,
