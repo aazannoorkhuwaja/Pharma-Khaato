@@ -74,6 +74,16 @@ class SettingsController:
         return get_receipt_template_options()
 
     @staticmethod
+    def available_printers():
+        from core.receipt_service import available_printers
+        return available_printers()
+
+    @staticmethod
+    def print_test_receipt(printer_name=None, template=None):
+        from core.receipt_service import print_test_receipt
+        return print_test_receipt(printer_name, template)
+
+    @staticmethod
     def receipt_preview(template):
         from core.receipt_service import generate_invoice_text
         return generate_invoice_text(
