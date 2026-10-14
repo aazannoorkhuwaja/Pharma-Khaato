@@ -32,6 +32,22 @@ def get_receipt_template_options():
     return RECEIPT_TEMPLATES
 
 
+def available_printers() -> list[str]:
+    """Return printer names exposed by the operating system, sorted for UI use."""
+    try:
+        from PySide6.QtPrintSupport import QPrinterInfo
+
+        names = {str(name).strip() for name in QPrinterInfo.availablePrinterNames() if str(name).strip()}
+        return sorted(names, key=str.casefold)
+    except Exception as exc:
+        logger.warning("Could not enumerate printers: %s", exc)
+        return []
+
+
+def _truthy(value) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _is_valid_setting(val):
     if not val:
         return False
@@ -48,7 +64,7 @@ def _receipt_settings():
         _RECEIPT_SETTING_KEYS,
         {
             "receipt_template": "standard_80",
-            "pharmacy_name": "Pharma-Khaato POS",
+            "pharmacy_name": "Pharma Khaato Pharmacy",
             "slogan": "NOT_CONFIGURED",
             "address": "NOT_CONFIGURED",
             "phone": "NOT_CONFIGURED",
@@ -81,7 +97,7 @@ def _pair(left: str, right: str, width: int) -> str:
 
 
 def _pharmacy_header(width: int, settings: dict, *, tax_focused: bool = False):
-    p_name = settings.get("pharmacy_name", "Pharma-Khaato POS")
+    p_name = settings.get("pharmacy_name", "Pharma Khaato Pharmacy")
     p_slogan = settings.get("slogan", "NOT_CONFIGURED")
     p_address = settings.get("address", "NOT_CONFIGURED")
     p_phone = settings.get("phone", "NOT_CONFIGURED")
@@ -274,6 +290,38 @@ def generate_invoice_text(
     return "\n".join(lines)
 
 
+def print_receipt_spooler(receipt_text: str, printer_name: str | None = None) -> bool:
+    """Send receipt text to a configured OS printer without affecting sale state."""
+    try:
+        from PySide6.QtGui import QTextDocument, QFont
+        from PySide6.QtPrintSupport import QPrinter
+
+        chosen = str(printer_name or "").strip()
+        if not chosen:
+            chosen = str(SettingsService.get_setting("preferred_printer", "") or "").strip()
+
+        if chosen and chosen not in available_printers():
+            logger.warning("Configured receipt printer is not currently available: %s", chosen)
+            return False
+
+        printer = QPrinter(QPrinter.HighResolution)
+        if chosen:
+            printer.setPrinterName(chosen)
+        if not printer.isValid():
+            logger.warning("No valid OS printer is configured for receipt printing.")
+            return False
+
+        document = QTextDocument()
+        document.setDefaultFont(QFont("Courier New", 9))
+        document.setPlainText(receipt_text)
+        document.print_(printer)
+        logger.info("Receipt sent to OS print spooler%s.", f" ({chosen})" if chosen else "")
+        return True
+    except Exception as exc:
+        logger.warning("Print spooler unavailable or printer not configured: %s", exc)
+        return False
+
+
 def generate_invoice_file(
     purchase_id,
     customer_id,
@@ -287,6 +335,11 @@ def generate_invoice_file(
     change=None,
     template=None,
 ):
+    """Persist a receipt snapshot and optionally queue it for printing.
+
+    File creation/printing happen after checkout commit in the transaction
+    service. A printer failure therefore never reverses or duplicates a sale.
+    """
     try:
         receipts_dir = PathManager.get_receipts_dir()
         os.makedirs(receipts_dir, exist_ok=True)
@@ -307,24 +360,39 @@ def generate_invoice_file(
         )
         with open(filepath, "w", encoding="utf-8") as file_handle:
             file_handle.write(content)
+
+        print_settings = SettingsService.get_many(
+            ("receipt_auto_print", "preferred_printer"),
+            {"receipt_auto_print": "0", "preferred_printer": ""},
+        )
+        if _truthy(print_settings.get("receipt_auto_print")):
+            printed = print_receipt_spooler(content, print_settings.get("preferred_printer"))
+            if not printed:
+                logger.warning(
+                    "Sale #%s receipt was saved but automatic printing did not complete.",
+                    purchase_id,
+                )
         return filepath
     except Exception as exc:
         logger.error("Receipt generation error: %s", exc)
         return None
 
 
-def print_receipt_spooler(receipt_text: str) -> bool:
-    try:
-        from PySide6.QtGui import QTextDocument, QFont
-        from PySide6.QtPrintSupport import QPrinter
-
-        printer = QPrinter(QPrinter.HighResolution)
-        document = QTextDocument()
-        document.setDefaultFont(QFont("Courier New", 9))
-        document.setPlainText(receipt_text)
-        document.print_(printer)
-        logger.info("Receipt sent to OS print spooler successfully.")
-        return True
-    except Exception as exc:
-        logger.warning("Print spooler unavailable or printer not configured: %s", exc)
-        return False
+def print_test_receipt(printer_name: str | None = None, template: str | None = None) -> bool:
+    sample = generate_invoice_text(
+        "TEST",
+        "Walk-in Customer",
+        [
+            {"name": "Sample Medicine", "qty": 1, "price": 125.00},
+            {"name": "Sample Item", "qty": 2, "price": 50.00},
+        ],
+        total=225.00,
+        tax=0.00,
+        discount=0.00,
+        payment_method="Cash",
+        cashier_name="Printer Test",
+        amount_received=500.00,
+        change=275.00,
+        template=template,
+    )
+    return print_receipt_spooler(sample, printer_name)
