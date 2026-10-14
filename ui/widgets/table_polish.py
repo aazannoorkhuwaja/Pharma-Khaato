@@ -34,13 +34,16 @@ def polish_table(table, min_row_height: int = 0, hide_internal_keys: bool = True
 
     Routine screens hide exact database-key columns while preserving those
     values in the table model for workflow callbacks. Action columns stay
-    compact instead of stretching into full-width button bars.
+    compact instead of stretching into full-width button bars. Tables that do
+    embed an action control get enough row height to avoid clipped/overlapping
+    buttons at every supported font scale.
     """
     if table is None:
         return
 
     scale = ThemeManager.get_font_scale()
     header = table.horizontalHeader()
+    has_action_column = False
     if header is not None:
         # Do not stretch the final column globally. Screens already choose
         # which descriptive column should stretch; the last column is commonly
@@ -58,6 +61,7 @@ def polish_table(table, min_row_height: int = 0, hide_internal_keys: bool = True
                 continue
 
             if label in _ACTION_COLUMN_LABELS:
+                has_action_column = True
                 header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
 
     table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -67,6 +71,9 @@ def polish_table(table, min_row_height: int = 0, hide_internal_keys: bool = True
     table.setAlternatingRowColors(True)
 
     base_height = min_row_height or LayoutMetrics.TABLE_ROW_HEIGHT
+    if has_action_column:
+        base_height = max(base_height, LayoutMetrics.TABLE_ACTION_ROW_HEIGHT)
+
     vh = table.verticalHeader()
     if vh is not None:
         row_height = LayoutMetrics.scaled(base_height, scale)
