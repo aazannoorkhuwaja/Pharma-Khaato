@@ -221,9 +221,9 @@ class CashSessionModel:
         from core.cash_session_service import open_session
         return open_session(employee_id, opening_cash)
 
-    def close_session(self, session_id: int, actual_cash: float, notes: str):
+    def close_session(self, session_id: int, actual_cash: float, notes: str, employee_id: int):
         from core.cash_session_service import close_session
-        return close_session(session_id, actual_cash, notes)
+        return close_session(session_id, actual_cash, notes, employee_id=employee_id)
 
     def record_movement(self, session_id: int, employee_id: int, movement_type: str, amount: float, reason: str):
         from core.cash_session_service import record_cash_movement
