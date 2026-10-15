@@ -19,7 +19,13 @@ _ALLOWED_METHODS = {
 
 
 def record_credit_payment(ledger_id, amount, employee_id, payment_method="Cash", note=""):
-    """Record a repayment atomically and preserve tender/shift history."""
+    """Record a repayment atomically and preserve tender/shift history.
+
+    The remaining-balance read, cash-shift lookup, ledger update and payment
+    history insert are serialized under one SQLite write transaction. This
+    prevents two simultaneous collection attempts from both approving against
+    the same stale balance and over-collecting the customer.
+    """
     try:
         ledger_id = int(ledger_id)
         employee_id = int(employee_id)
@@ -41,6 +47,9 @@ def record_credit_payment(ledger_id, amount, employee_id, payment_method="Cash",
         session_id = None
         customer_ref = None
         with get_db() as (_conn, cur):
+            # Acquire the write lock before reading amount_due so another
+            # repayment cannot validate against the same pre-update balance.
+            cur.execute("BEGIN IMMEDIATE")
             cur.execute(
                 "SELECT amount_due, amount_paid, customer_id FROM Customer_Khatoo WHERE id = %s",
                 (ledger_id,),
@@ -70,9 +79,20 @@ def record_credit_payment(ledger_id, amount, employee_id, payment_method="Cash",
 
             paid_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cur.execute(
-                "UPDATE Customer_Khatoo SET amount_paid = %s, amount_due = %s WHERE id = %s",
-                (float(paid_dec + amount_dec), float(due_dec - amount_dec), ledger_id),
+                "UPDATE Customer_Khatoo SET amount_paid = %s, amount_due = %s "
+                "WHERE id = %s AND amount_due = %s AND amount_paid = %s",
+                (
+                    float(paid_dec + amount_dec),
+                    float(due_dec - amount_dec),
+                    ledger_id,
+                    float(due_dec),
+                    float(paid_dec),
+                ),
             )
+            if cur.rowcount != 1:
+                raise ValueError(
+                    "This customer balance changed while the payment was being recorded. Refresh and try again."
+                )
             cur.execute(
                 "INSERT INTO Credit_Payment "
                 "(khatoo_id, customer_id, employee_id, session_id, amount, payment_method, paid_at, note) "
