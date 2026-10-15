@@ -259,7 +259,11 @@ def register_initial_admin(
     first_name: str,
     last_name: str,
 ):
-    """Register the first Administrator during initial setup."""
+    """Register the first Administrator during initial setup only.
+
+    The existence check and insert share an immediate write transaction so two
+    concurrent bootstrap attempts cannot create multiple unrestricted admins.
+    """
     username = str(username).strip()
     first_name = str(first_name).strip()
     last_name = str(last_name).strip()
@@ -272,6 +276,11 @@ def register_initial_admin(
 
     try:
         with get_db() as (conn, cur):
+            cur.execute("BEGIN IMMEDIATE")
+            cur.execute("SELECT COUNT(*) FROM Employee")
+            row = cur.fetchone()
+            if row and int(row[0] or 0) > 0:
+                return False, "Initial setup has already been completed. Sign in to manage staff accounts."
             cur.execute(
                 "SELECT Employee_id FROM Employee WHERE username = %s",
                 (username,),
