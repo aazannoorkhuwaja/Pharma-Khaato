@@ -7,6 +7,7 @@ from core.db_engine import get_conn, get_db
 from core.receipt_service import generate_invoice_file
 from core.inventory_service import clear_inventory_cache
 from core.logger import get_logger
+from core.permission_service import require_permission
 
 logger = get_logger("PharmaKhaatoPOS")
 _CHECKOUT_LOCK = threading.Lock()
@@ -99,7 +100,7 @@ def allocate_sellable_batches(product_id, qty_needed, conn=None):
         batches = cur.fetchall()
         if not batches:
             return []
-        
+
         allocations = []
         remaining = qty_needed
         for b_id, b_qty, b_exp in batches:
@@ -401,6 +402,15 @@ def confirm_sale(customer_id, employee_id, cart, *, total=0.0, discount=0.0, pay
     Side-effects (audit log, receipt file) run after commit and do not
     trigger a rollback on failure.
     """
+    try:
+        employee_id = int(employee_id)
+    except (TypeError, ValueError):
+        return False, "Your staff account could not be verified. Sign in again."
+
+    allowed, permission_reason = require_permission(employee_id, "pos.sell")
+    if not allowed:
+        return False, permission_reason
+
     if not _CHECKOUT_LOCK.acquire(blocking=False):
         return False, "Checkout request already in progress. Duplicate submission prevented."
 
@@ -437,7 +447,6 @@ def _confirm_sale_locked(customer_id, employee_id, cart, *, total=0.0, discount=
 
         cur = conn.cursor()
         payment_method, pay_label = _normalize_payment_method(payment_method)
-
         # Validate discount sign before passing to pure function
         disc_dec = Decimal(str(discount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         if disc_dec < Decimal("0.00"):
@@ -563,6 +572,14 @@ def process_sale_return(purchase_id: int, return_items: list, reason: str = "Cus
     Returns:
         (success: bool, message: str)
     """
+    try:
+        employee_id = int(employee_id)
+    except (TypeError, ValueError):
+        return False, "Your staff account could not be verified. Sign in again."
+    allowed, permission_reason = require_permission(employee_id, "returns.process")
+    if not allowed:
+        return False, permission_reason
+
     if not return_items:
         return False, "No return items specified."
 
