@@ -15,6 +15,7 @@ from ui.widgets.card import Card
 from ui.widgets.screen_header import ScreenHeader
 from ui.widgets.toast import ToastType, show_toast
 from ui.widgets.table_polish import polish_table
+from ui.widgets.inline_state import InlineState
 from ui.app.async_tasks import AsyncTaskRunner
 from controllers.reports_controller import ReportsController
 
@@ -68,12 +69,16 @@ class ReportsScreen(QWidget):
         self._kpi_columns = 0
         self._reflow_kpis(3)
         layout.addLayout(self.kpi_grid)
+        self.financial_state = InlineState()
+        layout.addWidget(self.financial_state)
 
         self.tabs = QTabWidget()
         self.tabs.setUsesScrollButtons(True)
 
         low_stock_tab = QWidget()
         low_layout = QVBoxLayout(low_stock_tab)
+        self.state_reorder = InlineState()
+        low_layout.addWidget(self.state_reorder)
         self.tbl_reorder = QTableWidget(0, 5)
         self.tbl_reorder.setHorizontalHeaderLabels(
             ["Product", "Category", "In Stock", "Alert Level", "Price"]
@@ -89,6 +94,8 @@ class ReportsScreen(QWidget):
 
         expiry_tab = QWidget()
         expiry_layout = QVBoxLayout(expiry_tab)
+        self.state_expiry = InlineState()
+        expiry_layout.addWidget(self.state_expiry)
         self.tbl_expiry = QTableWidget(0, 5)
         self.tbl_expiry.setHorizontalHeaderLabels(
             ["Product", "Qty", "Expiry", "Days Left", "Category"]
@@ -104,6 +111,8 @@ class ReportsScreen(QWidget):
 
         audit_tab = QWidget()
         audit_layout = QVBoxLayout(audit_tab)
+        self.state_audit = InlineState()
+        audit_layout.addWidget(self.state_audit)
         self.tbl_audit = QTableWidget(0, 3)
         self.tbl_audit.setHorizontalHeaderLabels(["Time", "User", "Activity"])
         self.tbl_audit.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -159,6 +168,7 @@ class ReportsScreen(QWidget):
     def _set_financials_loading(self):
         for card in self._kpi_cards:
             card.val_label.setText("…")
+        self.financial_state.show_loading("Loading sales and collection totals…")
 
     def _refresh_financials(self, *_):
         selected_date = self._selected_date()
@@ -174,17 +184,41 @@ class ReportsScreen(QWidget):
             "reports-financials",
             load,
             self._apply_financials,
-            lambda message: self._task_failed("financial summary", message),
+            self._financials_failed,
         )
 
     def _apply_financials(self, payload):
         sales, collections = payload
+        transactions = int(sales.get("total_transactions", 0))
+        collected = float(collections.get("total", 0))
         self.card_total.val_label.setText(f"Rs. {float(sales.get('total_sales', 0)):.2f}")
-        self.card_tx.val_label.setText(str(int(sales.get("total_transactions", 0))))
+        self.card_tx.val_label.setText(str(transactions))
         self.card_cash.val_label.setText(f"Rs. {float(sales.get('cash_sales', 0)):.2f}")
         self.card_digital.val_label.setText(f"Rs. {float(sales.get('digital_sales', 0)):.2f}")
         self.card_credit.val_label.setText(f"Rs. {float(sales.get('credit_sales', 0)):.2f}")
-        self.card_collections.val_label.setText(f"Rs. {float(collections.get('total', 0)):.2f}")
+        self.card_collections.val_label.setText(f"Rs. {collected:.2f}")
+        if transactions == 0 and collected == 0:
+            self.financial_state.show_empty(
+                f"No sales or customer-credit collections recorded for {self._selected_date()}."
+            )
+        else:
+            self.financial_state.clear()
+
+    def _financials_failed(self, _details):
+        for card in self._kpi_cards:
+            card.val_label.setText("—")
+        self.financial_state.show_error(
+            "Could not load the financial summary.", self._refresh_financials
+        )
+        self._task_failed("financial summary", _details)
+
+    def _state_for_tab(self, index: int) -> InlineState:
+        return (self.state_reorder, self.state_expiry, self.state_audit)[int(index)]
+
+    def _retry_tab(self, index: int):
+        self._loaded_tabs.discard(int(index))
+        self._loading_tabs.discard(int(index))
+        self._load_current_tab(int(index))
 
     def _load_current_tab(self, index):
         index = int(index)
@@ -196,25 +230,43 @@ class ReportsScreen(QWidget):
             key = "reports-low-stock"
             fn = _REPORTS_CONTROLLER.reorder_stock
             apply = self._populate_low_stock
+            loading_text = "Checking products that need reordering…"
+            empty_text = "Stock levels are healthy — no products currently need reordering."
         elif index == 1:
             key = "reports-expiry"
             fn = lambda: _REPORTS_CONTROLLER.expiry_alert(60)
             apply = self._populate_expiry
+            loading_text = "Checking stock that expires within 60 days…"
+            empty_text = "No stocked batches expire within the next 60 days."
         elif index == 2:
             key = "reports-audit"
             fn = lambda: _REPORTS_CONTROLLER.audit_log(75)
             apply = self._populate_audit
+            loading_text = "Loading recent staff activity…"
+            empty_text = "No recent activity has been recorded yet."
         else:
             self._loading_tabs.discard(index)
             return
 
+        state = self._state_for_tab(index)
+        state.show_loading(loading_text)
+
         def completed(rows):
             self._loading_tabs.discard(index)
             self._loaded_tabs.add(index)
-            apply(rows or [])
+            rows = list(rows or [])
+            apply(rows)
+            if rows:
+                state.clear()
+            else:
+                state.show_empty(empty_text)
 
         def failed(message):
             self._loading_tabs.discard(index)
+            state.show_error(
+                "Could not load this report. Check the database status and try again.",
+                lambda: self._retry_tab(index),
+            )
             self._task_failed("report table", message)
 
         self._tasks.run_latest(key, fn, completed, failed)
