@@ -129,6 +129,23 @@ def test_saved_receipt_uses_committed_tender_and_cashier(monkeypatch, tmp_path):
     assert "Cashier: Sara Khan" in text
 
 
+def test_committed_receipt_context_uses_real_employee_primary_key(seeded_shop, admin_emp_id):
+    from core import pos_service
+
+    ok, msg = pos_service.confirm_sale(
+        "WALKIN",
+        admin_emp_id,
+        [{"prod_id": 1, "name": "TestMed", "price": 15.0, "qty": 1}],
+        payment_method="Easypaisa",
+    )
+    assert ok, msg
+    purchase_id = int(msg.split("Sale #")[1].split(" ")[0])
+
+    payment, cashier = receipt_service._purchase_receipt_context(purchase_id)
+    assert payment == "Easypaisa"
+    assert cashier == "Test Admin"
+
+
 def test_unavailable_configured_printer_fails_safely(monkeypatch):
     monkeypatch.setattr(receipt_service, "available_printers", lambda: [])
     monkeypatch.setattr(
