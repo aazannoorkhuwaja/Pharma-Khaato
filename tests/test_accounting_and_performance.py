@@ -1,6 +1,7 @@
 """Regression coverage for tender accounting and fast search paths."""
 
 from datetime import date
+import threading
 
 
 def _sell(pos_service, admin_emp_id, payment_method, qty=1):
@@ -106,6 +107,64 @@ def test_cash_credit_collection_requires_open_shift(seeded_shop, admin_emp_id):
     )
     assert not ok
     assert "cash shift" in msg.lower()
+
+
+def test_concurrent_credit_collection_cannot_overcollect(seeded_shop, admin_emp_id):
+    from core import credit_payment_service, customer_service, pos_service
+
+    ok, _ = customer_service.register_customer(
+        "3520212345673", "Concurrent", "Credit", "N/A", "Test City"
+    )
+    assert ok
+    ok, msg = pos_service.confirm_sale(
+        "3520212345673",
+        admin_emp_id,
+        [{"prod_id": 1, "name": "TestMed", "price": 15.0, "qty": 1}],
+        payment_method="Khatoo Credit",
+    )
+    assert ok, msg
+
+    cur = seeded_shop.get_conn().cursor()
+    cur.execute(
+        "SELECT id, amount_due FROM Customer_Khatoo ORDER BY id DESC LIMIT 1"
+    )
+    ledger_id, due = cur.fetchone()
+    due = float(due)
+
+    barrier = threading.Barrier(2)
+    results = []
+    errors = []
+
+    def collect_once():
+        try:
+            barrier.wait(timeout=3)
+            results.append(
+                credit_payment_service.record_credit_payment(
+                    ledger_id, due, admin_emp_id, "Credit Card", "Concurrent attempt"
+                )
+            )
+        except Exception as exc:  # pragma: no cover - surfaced below
+            errors.append(exc)
+
+    workers = [threading.Thread(target=collect_once) for _ in range(2)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=6)
+
+    assert not errors
+    assert len(results) == 2
+    assert sum(1 for success, _msg in results if success) == 1
+
+    cur.execute(
+        "SELECT amount_due, amount_paid FROM Customer_Khatoo WHERE id = %s",
+        (ledger_id,),
+    )
+    amount_due, amount_paid = cur.fetchone()
+    assert float(amount_due) == 0.0
+    assert float(amount_paid) == due
+    cur.execute("SELECT COUNT(*) FROM Credit_Payment WHERE khatoo_id = %s", (ledger_id,))
+    assert int(cur.fetchone()[0]) == 1
 
 
 def test_fast_product_search_returns_total_sellable_stock(seeded_shop):
