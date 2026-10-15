@@ -191,10 +191,11 @@ class RecordMovementDialog(QDialog):
 
 
 class CloseSessionDialog(QDialog):
-    def __init__(self, session_id: int, expected_cash: float, parent=None):
+    def __init__(self, session_id: int, expected_cash: float, employee_id: int, parent=None):
         super().__init__(parent)
         self.session_id = session_id
         self.expected_cash = expected_cash
+        self.employee_id = employee_id
         self._tasks = AsyncTaskRunner(self)
         self._saving = False
         self.setWindowTitle("Close Cash Shift")
@@ -260,7 +261,9 @@ class CloseSessionDialog(QDialog):
         self.btn_cancel.setEnabled(False)
         self.btn_close.setText("Closing…")
         self._tasks.run(
-            lambda: _CASH_CONTROLLER.close_session(self.session_id, actual, notes),
+            lambda: _CASH_CONTROLLER.close_session(
+                self.session_id, actual, notes, self.employee_id
+            ),
             self._close_complete,
             lambda _details: self._close_failed(),
         )
@@ -448,6 +451,11 @@ class CashSessionScreen(QWidget):
         if not self.active_session:
             return
         expected_cash = float(self._current_summary.get("expected_cash", 0.0))
-        dialog = CloseSessionDialog(self.active_session["id"], expected_cash, self)
+        dialog = CloseSessionDialog(
+            self.active_session["id"],
+            expected_cash,
+            self.get_current_employee_id(),
+            self,
+        )
         if dialog.exec() == QDialog.Accepted:
             self.refresh_all_data()
