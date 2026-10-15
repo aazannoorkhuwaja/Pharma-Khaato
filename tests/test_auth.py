@@ -23,7 +23,10 @@ class TestAuth:
 
     def test_lockout_persists_in_db(self, seeded_shop):
         from core import auth_service, db_engine
-        auth_service.register_initial_admin("cashier", "goodpass1", "C", "A")
+        ok, msg = auth_service.create_employee(
+            "cashier", "goodpass1", "C", "A", occupation="Salesman"
+        )
+        assert ok, msg
         for _ in range(5):
             auth_service.login_user("cashier", "badpw")
         with __import__("pytest").raises(PermissionError):
@@ -55,6 +58,18 @@ class TestAuth:
         from core import auth_service
         ok, msg = auth_service.register_initial_admin("admin", "pw123456", "X", "Y")
         assert ok is False
+
+    def test_initial_admin_bootstrap_cannot_create_second_admin(self, seeded_shop):
+        from core import auth_service
+
+        ok, msg = auth_service.register_initial_admin(
+            "backdooradmin", "another123", "Second", "Admin"
+        )
+        assert not ok
+        assert "setup" in str(msg).lower()
+        cur = seeded_shop.get_conn().cursor()
+        cur.execute("SELECT COUNT(*) FROM Employee WHERE username='backdooradmin'")
+        assert int(cur.fetchone()[0]) == 0
 
 
 def test_lower_cost_pbkdf2_is_upgraded_after_login(seeded_shop):
