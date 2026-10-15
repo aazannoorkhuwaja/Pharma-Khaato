@@ -3,9 +3,57 @@ from core.data_revision import touch
 
 
 class SettingsController:
+    """MVC boundary for pharmacy settings and administrative operations.
+
+    Read-only presentation preferences remain broadly readable. Business-rule,
+    staff-account, backup, support and restore mutations validate the acting
+    employee here so hiding a Settings tab is never the authorization boundary.
+    Initial setup is the only unauthenticated exception and is allowed only
+    while no employee account exists yet.
+    """
+
+    _SENSITIVE_SETTING_KEYS = {
+        "default_tax_rate",
+        "max_customer_credit_limit",
+        "near_expiry_days",
+        "expiry_warning_threshold_days",
+        "pharmacy_name",
+        "slogan",
+        "address",
+        "phone",
+        "license_number",
+        "ntn_number",
+        "receipt_header_text",
+        "receipt_footer",
+        "receipt_footer_text",
+        "receipt_template",
+        "preferred_printer",
+        "receipt_auto_print",
+    }
+
     def __init__(self, settings_model=None, auth_model=None):
         self.settings = settings_model or SettingsModel()
         self.auth = auth_model or AuthModel()
+
+    @staticmethod
+    def _has_registered_employees() -> bool:
+        try:
+            from core.auth_service import has_registered_employees
+            return bool(has_registered_employees())
+        except Exception:
+            # Fail closed once account state cannot be established.
+            return True
+
+    @classmethod
+    def _authorize(cls, employee_id, action, *, allow_before_setup=False):
+        if allow_before_setup and not cls._has_registered_employees():
+            return True, ""
+        try:
+            employee_id = int(employee_id)
+        except (TypeError, ValueError):
+            return False, "Sign in again before changing administrative settings."
+        from core.permission_service import require_permission
+        return require_permission(employee_id, action)
 
     def get(self, key, default=None):
         return self.settings.get(key, default)
@@ -13,13 +61,26 @@ class SettingsController:
     def get_many(self, keys, defaults=None):
         return self.settings.get_many(keys, defaults)
 
-    def set(self, key, value):
+    def set(self, key, value, employee_id=None):
+        if str(key) in self._SENSITIVE_SETTING_KEYS:
+            allowed, _reason = self._authorize(
+                employee_id, "settings.manage", allow_before_setup=True
+            )
+            if not allowed:
+                return False
         result = self.settings.set(key, value)
         if result:
             touch("settings")
         return result
 
-    def update(self, values):
+    def update(self, values, employee_id=None):
+        keys = {str(key) for key in dict(values or {})}
+        if keys & self._SENSITIVE_SETTING_KEYS:
+            allowed, _reason = self._authorize(
+                employee_id, "settings.manage", allow_before_setup=True
+            )
+            if not allowed:
+                return False
         result = self.settings.update(values)
         if result:
             touch("settings")
@@ -28,7 +89,10 @@ class SettingsController:
     def backups(self):
         return self.settings.backups()
 
-    def create_backup(self):
+    def create_backup(self, employee_id=None):
+        allowed, reason = self._authorize(employee_id, "settings.manage")
+        if not allowed:
+            return False, reason
         result = self.settings.create_backup()
         if isinstance(result, tuple) and result and result[0]:
             touch("backups")
@@ -48,22 +112,31 @@ class SettingsController:
                 touch(domain)
         return result
 
-    @staticmethod
-    def create_support_bundle():
+    @classmethod
+    def create_support_bundle(cls, employee_id=None):
+        allowed, reason = cls._authorize(employee_id, "settings.manage")
+        if not allowed:
+            return False, reason
         from core.support_service import create_support_bundle
         return create_support_bundle()
 
     def employees(self):
         return self.auth.employees()
 
-    def create_employee(self, username, password, first_name, last_name, occupation):
+    def create_employee(self, username, password, first_name, last_name, occupation, employee_id=None):
+        allowed, reason = self._authorize(employee_id, "staff.manage")
+        if not allowed:
+            return False, reason
         result = self.auth.create_employee(username, password, first_name, last_name, occupation)
         if isinstance(result, tuple) and result and result[0]:
             touch("staff")
         return result
 
-    def reset_password(self, employee_id, new_password):
-        result = self.auth.reset_password(employee_id, new_password)
+    def reset_password(self, target_employee_id, new_password, employee_id=None):
+        allowed, reason = self._authorize(employee_id, "staff.manage")
+        if not allowed:
+            return False, reason
+        result = self.auth.reset_password(target_employee_id, new_password)
         if isinstance(result, tuple) and result and result[0]:
             touch("staff")
         return result
