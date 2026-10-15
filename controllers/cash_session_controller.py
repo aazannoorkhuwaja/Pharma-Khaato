@@ -15,8 +15,8 @@ class CashSessionController:
             touch("cash", "reports")
         return result
 
-    def close_session(self, session_id, actual_cash, notes):
-        result = self.model.close_session(session_id, actual_cash, notes)
+    def close_session(self, session_id, actual_cash, notes, employee_id):
+        result = self.model.close_session(session_id, actual_cash, notes, employee_id)
         if isinstance(result, tuple) and result and result[0]:
             touch("cash", "reports")
         return result
