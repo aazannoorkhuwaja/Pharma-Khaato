@@ -259,115 +259,174 @@ def generate_invoice_text(
         lines.extend(_pharmacy_header(width, settings, tax_focused=True))
         lines.append(strong)
         lines.append(_center("TAX INVOICE", width))
-        lines.append(f"Invoice No: {purchase_id}")
-        lines.append(f"Date/Time : {now}")
-        lines.append(f"Customer  : {customer_id}")
-        lines.append(f"Cashier   : {cashier_name}")
-        lines.append(f"Payment   : {payment_method}")
         lines.append(sep)
-        lines.append(f"{'Description':<20}{'Qty':>4}{'Rate':>8}{'Amount':>10}"[:width])
+        lines.append(f"Invoice No: {purchase_id}")
+        lines.append(f"Date/Time: {now}")
+        lines.append(f"Customer: {customer_id}")
+        lines.append(f"Cashier: {cashier_name}")
+        lines.append(sep)
+        lines.append(f"{'Description':<19}{'Qty':>4}{'Rate':>8}{'Amount':>11}"[:width])
         lines.append(sep)
         for item in items:
-            name = str(item.get("name", "Item"))[:19]
+            name = str(item.get("name", "Item"))[:18]
             qty = int(item.get("qty", 1))
             price = _money(item.get("price", 0))
-            lines.append(f"{name:<20}{qty:>4}{price:>8.2f}{(price * qty):>10.2f}"[:width])
+            lines.append(f"{name:<19}{qty:>4}{price:>8.2f}{(price * qty):>11.2f}"[:width])
         lines.append(sep)
-        lines.append(_pair("Taxable subtotal", f"Rs.{subtotal - dec_discount:.2f}", width))
+        lines.append(_pair("Gross amount", f"Rs.{subtotal:.2f}", width))
+        if dec_discount:
+            lines.append(_pair("Discount", f"Rs.{dec_discount:.2f}", width))
         lines.append(_pair("Tax", f"Rs.{dec_tax:.2f}", width))
         lines.append(strong)
-        lines.append(_pair("INVOICE TOTAL", f"Rs.{grand_total:.2f}", width))
-        lines.append(strong)
+        lines.append(_pair("NET PAYABLE", f"Rs.{grand_total:.2f}", width))
+        lines.append(f"Tender: {payment_method}")
 
-    else:  # standard_80
+    else:
+        lines.append(strong)
         lines.extend(_pharmacy_header(width, settings))
+        lines.append(strong)
+        lines.append(f"Invoice ID:  #{purchase_id}")
+        lines.append(f"Date/Time:   {now}")
+        lines.append(f"Cashier:     {cashier_name}")
+        lines.append(f"Customer:    {customer_id}")
+        lines.append(f"Payment:     {payment_method}")
         lines.append(sep)
-        lines.append(_pair(f"Sale #{purchase_id}", now, width))
-        lines.append(f"Cashier: {cashier_name}")
-        lines.append(f"Customer: {customer_id}")
-        lines.append(f"Payment: {payment_method}")
+        lines.append(f"{'Product':<18} {'Qty':<4} {'Price':>8} {'Sub':>8}")
         lines.append(sep)
         for item in items:
-            name = str(item.get("name", "Item"))[:22]
+            name = str(item.get("name", "Item"))[:17]
             qty = int(item.get("qty", 1))
             price = _money(item.get("price", 0))
-            lines.append(name)
-            lines.append(_pair(f"  {qty} x Rs.{price:.2f}", f"Rs.{price * qty:.2f}", width))
+            lines.append(f"{name:<18} {qty:<4} {price:>8.2f} {(price * qty):>8.2f}")
         lines.append(sep)
-        lines.append(_pair("Subtotal", f"Rs.{subtotal:.2f}", width))
+        lines.append(_pair("Subtotal:", f"Rs.{subtotal:.2f}", width))
         if dec_discount:
-            lines.append(_pair("Discount", f"-Rs.{dec_discount:.2f}", width))
+            lines.append(_pair("Discount:", f"Rs.{dec_discount:.2f}", width))
         if dec_tax:
-            lines.append(_pair("Tax", f"Rs.{dec_tax:.2f}", width))
-        lines.append(strong)
-        lines.append(_pair("TOTAL", f"Rs.{grand_total:.2f}", width))
+            lines.append(_pair("Tax:", f"Rs.{dec_tax:.2f}", width))
+        lines.append(sep)
+        lines.append(_pair("GRAND TOTAL:", f"Rs.{grand_total:.2f}", width))
         if amount_received is not None:
-            lines.append(_pair("Amount received", f"Rs.{_money(amount_received):.2f}", width))
+            lines.append(_pair("Amount Received:", f"Rs.{_money(amount_received):.2f}", width))
         if change is not None:
-            lines.append(_pair("Change", f"Rs.{_money(change):.2f}", width))
+            lines.append(_pair("Change Given:", f"Rs.{_money(change):.2f}", width))
+        lines.append(strong)
 
     if _is_valid_setting(footer):
-        lines.extend([sep, _center(footer, width)])
-    return "\n".join(lines) + "\n"
+        lines.append(_center(footer, width))
+    lines.append(_center("Thank You for Your Visit!", width))
+    lines.append(strong)
+    return "\n".join(lines)
 
 
-def generate_invoice_file(purchase_id, customer_id, items, total, tax, discount, payment_method="Cash"):
-    """Write receipt text to the durable app receipts directory."""
-    payment_method, cashier_name = _purchase_receipt_context(
-        purchase_id,
-        fallback_payment=payment_method,
-        fallback_cashier="Cashier",
-    )
-    content = generate_invoice_text(
-        purchase_id,
-        customer_id,
-        items,
-        total,
-        tax,
-        discount,
-        payment_method,
-        cashier_name=cashier_name,
-    )
-    receipt_dir = PathManager.get_receipts_dir()
-    os.makedirs(receipt_dir, exist_ok=True)
-    path = os.path.join(receipt_dir, f"receipt_{purchase_id}.txt")
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write(content)
-    return path
-
-
-def print_test_receipt(printer_name=None, template=None):
-    """Render a customer-safe preview and, when available, send it to a printer."""
-    content = generate_invoice_text(
-        1024,
-        "Walk-in Customer",
-        [
-            {"name": "Augmentin 625mg", "qty": 1, "price": 450.0},
-            {"name": "Panadol 500mg", "qty": 2, "price": 50.0},
-            {"name": "Brufen 400mg", "qty": 1, "price": 80.0},
-        ],
-        total=630.0,
-        tax=0.0,
-        discount=0.0,
-        payment_method="Cash",
-        cashier_name="Admin",
-        amount_received=1000.0,
-        change=370.0,
-        template=template,
-    )
-    if _truthy(os.getenv("PHARMA_KHAATO_TESTING")):
-        return True, "Receipt preview generated in test mode."
+def print_receipt_spooler(receipt_text: str, printer_name: str | None = None) -> bool:
+    """Send receipt text to a configured OS printer without affecting sale state."""
     try:
-        from PySide6.QtGui import QTextDocument
+        from PySide6.QtGui import QTextDocument, QFont
         from PySide6.QtPrintSupport import QPrinter
 
-        printer = QPrinter()
-        if printer_name:
-            printer.setPrinterName(str(printer_name))
-        doc = QTextDocument()
-        doc.setPlainText(content)
-        doc.print_(printer)
-        return True, "Test receipt sent to printer."
+        chosen = str(printer_name or "").strip()
+        if not chosen:
+            chosen = str(SettingsService.get_setting("preferred_printer", "") or "").strip()
+
+        if chosen and chosen not in available_printers():
+            logger.warning("Configured receipt printer is not currently available: %s", chosen)
+            return False
+
+        printer = QPrinter(QPrinter.HighResolution)
+        if chosen:
+            printer.setPrinterName(chosen)
+        if not printer.isValid():
+            logger.warning("No valid OS printer is configured for receipt printing.")
+            return False
+
+        document = QTextDocument()
+        document.setDefaultFont(QFont("Courier New", 9))
+        document.setPlainText(receipt_text)
+        document.print_(printer)
+        logger.info("Receipt sent to OS print spooler%s.", f" ({chosen})" if chosen else "")
+        return True
     except Exception as exc:
-        logger.error("Test receipt printing failed: %s", exc)
-        return False, "Could not print the test receipt. Check the selected printer and try again."
+        logger.warning("Print spooler unavailable or printer not configured: %s", exc)
+        return False
+
+
+def generate_invoice_file(
+    purchase_id,
+    customer_id,
+    items,
+    total,
+    tax,
+    discount,
+    payment_method="Cash",
+    cashier_name="Cashier",
+    amount_received=None,
+    change=None,
+    template=None,
+):
+    """Persist a receipt snapshot and optionally queue it for printing.
+
+    File creation/printing happen after checkout commit in the transaction
+    service. A printer failure therefore never reverses or duplicates a sale.
+    """
+    try:
+        receipts_dir = PathManager.get_receipts_dir()
+        os.makedirs(receipts_dir, exist_ok=True)
+        now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filepath = os.path.join(receipts_dir, f"invoice_{now_str}_{purchase_id}.txt")
+        actual_payment, actual_cashier = _purchase_receipt_context(
+            purchase_id,
+            payment_method,
+            cashier_name,
+        )
+        content = generate_invoice_text(
+            purchase_id,
+            customer_id,
+            items,
+            total,
+            tax,
+            discount,
+            actual_payment,
+            actual_cashier,
+            amount_received,
+            change,
+            template,
+        )
+        with open(filepath, "w", encoding="utf-8") as file_handle:
+            file_handle.write(content)
+
+        print_settings = SettingsService.get_many(
+            ("receipt_auto_print", "preferred_printer"),
+            {"receipt_auto_print": "0", "preferred_printer": ""},
+        )
+        if _truthy(print_settings.get("receipt_auto_print")):
+            printed = print_receipt_spooler(content, print_settings.get("preferred_printer"))
+            if not printed:
+                logger.warning(
+                    "Sale #%s receipt was saved but automatic printing did not complete.",
+                    purchase_id,
+                )
+        return filepath
+    except Exception as exc:
+        logger.error("Receipt generation error: %s", exc)
+        return None
+
+
+def print_test_receipt(printer_name: str | None = None, template: str | None = None) -> bool:
+    sample = generate_invoice_text(
+        "TEST",
+        "Walk-in Customer",
+        [
+            {"name": "Sample Medicine", "qty": 1, "price": 125.00},
+            {"name": "Sample Item", "qty": 2, "price": 50.00},
+        ],
+        total=225.00,
+        tax=0.00,
+        discount=0.00,
+        payment_method="Cash",
+        cashier_name="Printer Test",
+        amount_received=500.00,
+        change=275.00,
+        template=template,
+    )
+    return print_receipt_spooler(sample, printer_name)
