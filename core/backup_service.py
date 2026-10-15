@@ -9,6 +9,9 @@ from core.logger import get_logger
 
 logger = get_logger("PharmaKhaatoBackup")
 AUTO_BACKUP_PREFIX = "auto_pharmacy_db_backup"
+DEFAULT_AUTO_BACKUP_RETENTION = 14
+MIN_AUTO_BACKUP_RETENTION = 3
+MAX_AUTO_BACKUP_RETENTION = 90
 
 
 def _validate_sqlite_database(path: str) -> tuple[bool, str]:
@@ -59,21 +62,16 @@ def backup_database(prefix="pharmacy_db_backup"):
         return False, "Backup could not be created. Check the system details for more information."
 
 
-def ensure_daily_backup(retention=14):
-    """Create at most one automatic backup per local day and prune old autos.
-
-    Manual backups and pre-migration safety backups are never removed here.
-    """
+def _normalize_retention(retention) -> int:
     try:
-        retention = max(3, min(int(retention), 90))
+        value = int(retention)
     except (TypeError, ValueError):
-        retention = 14
+        value = DEFAULT_AUTO_BACKUP_RETENTION
+    return max(MIN_AUTO_BACKUP_RETENTION, min(value, MAX_AUTO_BACKUP_RETENTION))
 
-    backup_dir = PathManager.get_backups_dir()
-    os.makedirs(backup_dir, exist_ok=True)
-    today = date.today()
 
-    autos = []
+def _automatic_backups(backup_dir: str) -> list[tuple[float, str]]:
+    autos: list[tuple[float, str]] = []
     for name in os.listdir(backup_dir):
         if not (name.startswith(AUTO_BACKUP_PREFIX + "_") and name.endswith(".sqlite")):
             continue
@@ -83,10 +81,40 @@ def ensure_daily_backup(retention=14):
         except OSError:
             continue
         autos.append((stat.st_mtime, path))
-        if datetime.fromtimestamp(stat.st_mtime).date() == today:
-            valid, _reason = _validate_sqlite_database(path)
-            if valid:
-                return True, path
+    autos.sort(reverse=True)
+    return autos
+
+
+def _prune_automatic_backups(autos: list[tuple[float, str]], retention: int) -> None:
+    """Prune only automatic snapshots; manual and migration backups are never touched."""
+    for _mtime, old_path in autos[retention:]:
+        try:
+            os.remove(old_path)
+            logger.info("Pruned expired automatic backup: %s", old_path)
+        except OSError as exc:
+            logger.warning("Could not prune automatic backup %s: %s", old_path, exc)
+
+
+def ensure_daily_backup(retention=DEFAULT_AUTO_BACKUP_RETENTION):
+    """Create at most one valid automatic backup per local day and enforce retention.
+
+    The newest ``retention`` automatic snapshots are kept (default 14, clamped to
+    3..90). Cleanup runs even when today's backup already exists. Manual backups
+    and pre-migration safety backups are never removed by this policy.
+    """
+    retention = _normalize_retention(retention)
+    backup_dir = PathManager.get_backups_dir()
+    os.makedirs(backup_dir, exist_ok=True)
+    today = date.today()
+
+    autos = _automatic_backups(backup_dir)
+    for mtime, path in autos:
+        if datetime.fromtimestamp(mtime).date() != today:
+            continue
+        valid, _reason = _validate_sqlite_database(path)
+        if valid:
+            _prune_automatic_backups(autos, retention)
+            return True, path
 
     ok, result = backup_database(AUTO_BACKUP_PREFIX)
     if not ok:
@@ -94,11 +122,7 @@ def ensure_daily_backup(retention=14):
 
     autos.append((os.path.getmtime(result), result))
     autos.sort(reverse=True)
-    for _mtime, old_path in autos[retention:]:
-        try:
-            os.remove(old_path)
-        except OSError as exc:
-            logger.warning("Could not prune automatic backup %s: %s", old_path, exc)
+    _prune_automatic_backups(autos, retention)
     return True, result
 
 
@@ -140,6 +164,7 @@ def restore_database(backup_filepath):
         logger.warning("Rejected invalid backup '%s': %s", backup_filepath, reason)
         return False, "This backup file is damaged or is not a valid Pharma-Khaato database."
 
+    safety_path = None
     try:
         from core.db_engine import reset_thread_connections
         reset_thread_connections()
@@ -156,11 +181,19 @@ def restore_database(backup_filepath):
         restored_ok, restored_reason = _validate_sqlite_database(db_path)
         if not restored_ok:
             logger.error("Restored DB failed integrity check: %s", restored_reason)
-            return False, f"Restore failed its integrity check. Safety backup: {safety_path}"
+            return False, (
+                "Restore failed its integrity check. No further restore attempts were made. "
+                f"Your pre-restore safety backup is: {safety_path}. See docs/RECOVERY.md."
+            )
 
         reset_thread_connections()
         logger.info("Database successfully restored from: %s", backup_filepath)
         return True, "Backup restored successfully."
     except Exception as exc:
         logger.error("Database restore failed: %s", exc)
-        return False, "Restore could not be completed. Your safety backup was kept."
+        if safety_path:
+            return False, (
+                "Restore could not be completed. Keep the application closed until the database "
+                f"is checked. Your pre-restore safety backup is: {safety_path}. See docs/RECOVERY.md."
+            )
+        return False, "Restore could not be completed. See docs/RECOVERY.md before retrying."
