@@ -44,10 +44,21 @@ class SettingsController:
             # Fail closed once account state cannot be established.
             return True
 
+    @staticmethod
+    def _current_employee_id():
+        try:
+            from ui.app.state.session_state import SessionState
+            user = SessionState.get_instance().current_user or {}
+            return int(user.get("id") or user.get("emp_id") or 0) or None
+        except (TypeError, ValueError, AttributeError):
+            return None
+
     @classmethod
     def _authorize(cls, employee_id, action, *, allow_before_setup=False):
         if allow_before_setup and not cls._has_registered_employees():
             return True, ""
+        if employee_id is None:
+            employee_id = cls._current_employee_id()
         try:
             employee_id = int(employee_id)
         except (TypeError, ValueError):
