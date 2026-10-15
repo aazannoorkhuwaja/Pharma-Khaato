@@ -61,7 +61,8 @@ def test_restore_integrity_failure_reports_safety_backup(fresh_db, tmp_path, mon
 
     # Ensure the live database exists before the restore attempt.
     conn = db_engine.get_conn()
-    conn.execute("CREATE TABLE IF NOT EXISTS restore_marker (value TEXT)")
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE IF NOT EXISTS restore_marker (value TEXT)")
     conn.commit()
     db_engine.reset_thread_connections()
 
