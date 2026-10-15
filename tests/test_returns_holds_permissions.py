@@ -13,6 +13,18 @@ def _cash_sale(admin_emp_id, qty=2, payment_method="Cash", customer_id=None):
     return int(msg.split("Sale #")[1].split(" ")[0])
 
 
+def _create_viewer(seeded_shop, username="viewer"):
+    from core import auth_service
+
+    ok, msg = auth_service.create_employee(
+        username, "viewer2345", "Read", "Only", occupation="Viewer"
+    )
+    assert ok, msg
+    cur = seeded_shop.get_conn().cursor()
+    cur.execute("SELECT Employee_id FROM Employee WHERE username = %s", (username,))
+    return int(cur.fetchone()[0])
+
+
 def test_held_sale_resume_is_non_destructive(seeded_shop, admin_emp_id):
     from core import hold_sale_service
 
@@ -174,6 +186,41 @@ def test_cashier_cannot_process_returns_even_if_service_called_directly(seeded_s
 
     ok, msg = return_service.process_return(
         purchase_id, [{"batch_id": 1, "qty": 1}], cashier_id
+    )
+    assert not ok
+    assert "permission" in str(msg).lower()
+
+
+def test_unprivileged_staff_cannot_checkout_via_core_service(seeded_shop, admin_emp_id):
+    from core import pos_service
+
+    viewer_id = _create_viewer(seeded_shop, "checkout_viewer")
+    cur = seeded_shop.get_conn().cursor()
+    cur.execute("SELECT quantity FROM Batch WHERE id = 1")
+    before = int(cur.fetchone()[0])
+
+    ok, msg = pos_service.confirm_sale(
+        "WALKIN",
+        viewer_id,
+        [{"prod_id": 1, "name": "TestMed", "price": 15.0, "qty": 1}],
+        payment_method="Cash",
+    )
+
+    assert not ok
+    assert "permission" in str(msg).lower()
+    cur.execute("SELECT quantity FROM Batch WHERE id = 1")
+    assert int(cur.fetchone()[0]) == before
+
+
+def test_unprivileged_staff_cannot_use_legacy_return_service(seeded_shop, admin_emp_id):
+    from core import pos_service
+
+    purchase_id = _cash_sale(admin_emp_id, qty=1)
+    viewer_id = _create_viewer(seeded_shop, "return_viewer")
+    ok, msg = pos_service.process_sale_return(
+        purchase_id,
+        [{"batch_id": 1, "qty": 1, "prod_id": 1, "price": 15.0}],
+        employee_id=viewer_id,
     )
     assert not ok
     assert "permission" in str(msg).lower()
