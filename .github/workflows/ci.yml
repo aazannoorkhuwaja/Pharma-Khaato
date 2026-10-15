@@ -65,6 +65,9 @@ jobs:
       - name: Smoke-test every major GUI screen
         run: python scripts/test_gui_auto.py
 
+      - name: Run keyboard-only counter acceptance
+        run: python scripts/test_pos_keyboard.py
+
   # Full portability gate for pull requests and protected/release branches.
   full-matrix:
     if: github.event_name != 'push' || github.ref != 'refs/heads/develop-ui'
@@ -120,3 +123,7 @@ jobs:
       - name: Smoke-test major GUI screens on Linux current runtime
         if: runner.os == 'Linux' && matrix.python-version == '3.14'
         run: python scripts/test_gui_auto.py
+
+      - name: Run keyboard-only counter acceptance on Linux current runtime
+        if: runner.os == 'Linux' && matrix.python-version == '3.14'
+        run: python scripts/test_pos_keyboard.py
