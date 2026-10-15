@@ -114,10 +114,13 @@ class MigrationManager:
         if not pending:
             return
 
+        recovery_path = None
         # Fresh databases are already initialized by schema_sqlite.sql. Existing
         # installations get a recovery point before the first pending upgrade.
         if applied:
-            cls._create_pre_migration_backup(raw_conn, os.path.basename(pending[0]))
+            recovery_path = cls._create_pre_migration_backup(
+                raw_conn, os.path.basename(pending[0])
+            )
 
         for filepath in pending:
             filename = os.path.basename(filepath)
@@ -153,4 +156,11 @@ class MigrationManager:
             except Exception as exc:
                 raw_conn.rollback()
                 logger.error("Failed applying migration %s: %s", filename, exc)
-                raise RuntimeError(f"Database migration failure on {filename}: {exc}") from exc
+                if recovery_path:
+                    recovery = f"Recovery backup: {recovery_path}."
+                else:
+                    recovery = "The failed migration was rolled back before commit."
+                raise RuntimeError(
+                    f"Database migration failure on {filename}: {exc}. {recovery} "
+                    "See docs/RECOVERY.md before retrying."
+                ) from exc
