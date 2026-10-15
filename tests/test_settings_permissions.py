@@ -57,6 +57,33 @@ def test_viewer_cannot_change_business_settings_or_manage_staff(seeded_shop, adm
         state.clear_user()
 
 
+def test_direct_auth_controller_rejects_unprivileged_staff_management(seeded_shop, admin_emp_id):
+    from controllers.auth_controller import AuthController
+    from core import auth_service
+
+    ok, msg = auth_service.create_employee(
+        "authviewer", "viewer2345", "Read", "Only", occupation="Viewer"
+    )
+    assert ok, msg
+    cur = seeded_shop.get_conn().cursor()
+    cur.execute("SELECT Employee_id FROM Employee WHERE username = 'authviewer'")
+    viewer_id = int(cur.fetchone()[0])
+
+    state = _set_session_user(viewer_id)
+    try:
+        controller = AuthController()
+        assert controller.employees() == []
+        ok, message = controller.create_employee(
+            "authblocked", "blocked234", "Blocked", "Staff", "Cashier"
+        )
+        assert not ok
+        assert "permission" in str(message).lower()
+        cur.execute("SELECT COUNT(*) FROM Employee WHERE username = 'authblocked'")
+        assert int(cur.fetchone()[0]) == 0
+    finally:
+        state.clear_user()
+
+
 def test_admin_can_change_business_settings_and_manage_staff(seeded_shop, admin_emp_id):
     from controllers.settings_controller import SettingsController
 
