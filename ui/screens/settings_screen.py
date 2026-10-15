@@ -1,4 +1,4 @@
-"""Pharmacy settings, receipt design, staff access, backups, and system status."""
+"""Pharmacy settings, receipt design, staff access, backups, recovery, and system status."""
 
 from pathlib import Path
 
@@ -6,9 +6,10 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QFormLayout,
     QDoubleSpinBox, QSpinBox, QMessageBox, QTabWidget, QTextEdit,
-    QComboBox, QInputDialog, QDialog,
+    QComboBox, QInputDialog, QDialog, QApplication, QAbstractItemView,
 )
 
+from config import ApplicationSettings
 from ui.theme.tokens import ThemeTokens
 from ui.theme.theme_manager import ThemeManager
 from ui.widgets.card import Card
@@ -19,6 +20,7 @@ from ui.widgets.table_polish import polish_table
 from ui.widgets.responsive import flexible_side_panel, configure_dialog
 from ui.ux_copy import ROLE_OPTIONS, role_label
 from ui.app.state.health_checker import SystemHealthChecker
+from ui.app.state.session_state import SessionState
 from ui.app.async_tasks import AsyncTaskRunner
 from controllers.settings_controller import SettingsController
 
@@ -32,6 +34,8 @@ class SettingsScreen(QWidget):
         self._tasks = AsyncTaskRunner(self)
         self._staff_loaded = False
         self._system_loaded = False
+        self._staff_rows = []
+        self._backup_rows = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -39,7 +43,7 @@ class SettingsScreen(QWidget):
 
         header_card = ScreenHeader(
             "Settings",
-            "Manage pharmacy rules, receipts, display, staff access, backups, and system status."
+            "Manage pharmacy profile, business rules, receipts, staff access, backups, and recovery."
         )
         self.pill_system_status = BadgePill("Not Checked", BadgePill.TYPE_INFO)
         header_card.add_pill(self.pill_system_status)
@@ -64,11 +68,48 @@ class SettingsScreen(QWidget):
         gen_layout.setContentsMargins(16, 16, 16, 16)
         gen_layout.setSpacing(14)
 
+        profile_card = Card()
+        profile_layout = profile_card.layout()
+        profile_layout.setSpacing(12)
+        profile_title = QLabel("Pharmacy Profile")
+        profile_title.setObjectName("h2")
+        profile_layout.addWidget(profile_title)
+        profile_help = QLabel(
+            "These details identify the pharmacy on receipts and operational records. Keep licence and tax details current."
+        )
+        profile_help.setWordWrap(True)
+        profile_help.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
+        profile_layout.addWidget(profile_help)
+
+        profile_form = QFormLayout()
+        profile_form.setSpacing(10)
+        self.txt_pharmacy_name = QLineEdit()
+        self.txt_pharmacy_name.setPlaceholderText("Pharmacy trading name")
+        self.txt_pharmacy_name.setAccessibleName("Pharmacy name")
+        self.txt_slogan = QLineEdit()
+        self.txt_slogan.setPlaceholderText("Optional receipt tagline")
+        self.txt_address = QLineEdit()
+        self.txt_address.setPlaceholderText("Street / area / city")
+        self.txt_phone = QLineEdit()
+        self.txt_phone.setPlaceholderText("Customer contact number")
+        self.txt_license = QLineEdit()
+        self.txt_license.setPlaceholderText("Drug sale / pharmacy licence number")
+        self.txt_ntn = QLineEdit()
+        self.txt_ntn.setPlaceholderText("NTN / tax registration, if applicable")
+        profile_form.addRow("Pharmacy name:", self.txt_pharmacy_name)
+        profile_form.addRow("Tagline:", self.txt_slogan)
+        profile_form.addRow("Address:", self.txt_address)
+        profile_form.addRow("Phone:", self.txt_phone)
+        profile_form.addRow("Licence number:", self.txt_license)
+        profile_form.addRow("NTN / tax ID:", self.txt_ntn)
+        profile_layout.addLayout(profile_form)
+        gen_layout.addWidget(profile_card)
+
         card = Card()
         card_layout = card.layout()
         card_layout.setSpacing(12)
-        title = QLabel("General Settings")
-        title.setStyleSheet(f"font-weight: 700; color: {ThemeTokens.TEXT_PRIMARY};")
+        title = QLabel("Business & Display")
+        title.setObjectName("h2")
         card_layout.addWidget(title)
 
         form = QFormLayout()
@@ -106,12 +147,13 @@ class SettingsScreen(QWidget):
         form.addRow("Interface size:", self.cmb_font_scale)
         card_layout.addLayout(form)
 
-        self.btn_save_settings = QPushButton("Save Settings")
+        self.btn_save_settings = QPushButton("Save Pharmacy Settings")
         self.btn_save_settings.setObjectName("primaryButton")
         self.btn_save_settings.clicked.connect(self.save_settings)
         card_layout.addWidget(self.btn_save_settings)
         card_layout.addStretch()
         gen_layout.addWidget(card)
+        gen_layout.addStretch()
         self.tabs.addTab(self.tab_general, "General")
 
     def _setup_receipts_tab(self):
@@ -146,11 +188,12 @@ class SettingsScreen(QWidget):
         self.cmb_receipt_template.currentIndexChanged.connect(self._update_receipt_template_help)
 
         self.txt_receipt_header = QLineEdit()
-        self.txt_receipt_header.setPlaceholderText("Pharmacy name shown on receipts")
+        self.txt_receipt_header.setReadOnly(True)
+        self.txt_receipt_header.setToolTip("Receipt heading comes from the Pharmacy Profile on the General tab.")
         self.txt_receipt_footer = QLineEdit()
         self.txt_receipt_footer.setPlaceholderText("Short message at the bottom of receipts")
         form.addRow("Receipt format:", self.cmb_receipt_template)
-        form.addRow("Receipt title:", self.txt_receipt_header)
+        form.addRow("Receipt heading:", self.txt_receipt_header)
         form.addRow("Receipt footer:", self.txt_receipt_footer)
         settings_layout.addLayout(form)
 
@@ -225,18 +268,21 @@ class SettingsScreen(QWidget):
         status_card = Card()
         status_layout = status_card.layout()
         status_layout.setSpacing(10)
-        title = QLabel("System Status")
-        title.setStyleSheet(f"font-weight: 700; color: {ThemeTokens.TEXT_PRIMARY};")
+        title = QLabel("System & Support")
+        title.setObjectName("h2")
         status_layout.addWidget(title)
+        version = QLabel(f"{ApplicationSettings.DISPLAY_NAME} • Version {ApplicationSettings.APP_VERSION}")
+        version.setObjectName("caption")
+        status_layout.addWidget(version)
         self.lbl_health_info = QLabel("Open this tab to run the system check.")
         self.lbl_health_info.setWordWrap(True)
         self.lbl_health_info.setStyleSheet(f"color: {ThemeTokens.TEXT_SECONDARY};")
         status_layout.addWidget(self.lbl_health_info)
-        self.btn_toggle_details = QPushButton("Show Technical Details")
+        self.btn_toggle_details = QPushButton("Show Diagnostics")
         self.btn_toggle_details.setToolTip("Show diagnostic information that technical support may ask for.")
         self.btn_toggle_details.clicked.connect(self.toggle_technical_details)
         status_layout.addWidget(self.btn_toggle_details)
-        self.lbl_log_hdr = QLabel("Technical details (for support)")
+        self.lbl_log_hdr = QLabel("Diagnostics (for support)")
         self.lbl_log_hdr.setStyleSheet(f"font-weight: 600; color: {ThemeTokens.TEXT_PRIMARY}; margin-top: 8px;")
         self.lbl_log_hdr.hide()
         status_layout.addWidget(self.lbl_log_hdr)
@@ -249,25 +295,40 @@ class SettingsScreen(QWidget):
         )
         self.txt_tech_log.hide()
         status_layout.addWidget(self.txt_tech_log, 1)
+        system_buttons = QHBoxLayout()
         self.btn_refresh_system = QPushButton("Check System Again")
         self.btn_refresh_system.clicked.connect(self.refresh_db_health_and_backups)
-        status_layout.addWidget(self.btn_refresh_system)
+        self.btn_support_bundle = QPushButton("Create Support Bundle")
+        self.btn_support_bundle.setToolTip("Create a diagnostics ZIP without including the live database or receipts.")
+        self.btn_support_bundle.clicked.connect(self.create_support_bundle)
+        system_buttons.addWidget(self.btn_refresh_system)
+        system_buttons.addWidget(self.btn_support_bundle)
+        status_layout.addLayout(system_buttons)
         tech_grid.addWidget(status_card, 1)
 
         backup_card = Card()
         backup_layout = backup_card.layout()
         backup_layout.setSpacing(10)
-        title = QLabel("Backups")
-        title.setStyleSheet(f"font-weight: 700; color: {ThemeTokens.TEXT_PRIMARY};")
+        title = QLabel("Backup & Recovery")
+        title.setObjectName("h2")
         backup_layout.addWidget(title)
-        backup_help = QLabel("Create a backup before major data changes. Backups are checked for database integrity before they are kept.")
+        backup_help = QLabel(
+            "Pharma Khaato creates an automatic integrity-checked backup each day. Create a manual backup before major changes. "
+            "Restoring always creates a safety backup first and then requires an application restart."
+        )
         backup_help.setWordWrap(True)
         backup_help.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
         backup_layout.addWidget(backup_help)
+        backup_actions = QHBoxLayout()
         self.btn_trigger_backup = QPushButton("Create Backup Now")
         self.btn_trigger_backup.setObjectName("successButton")
         self.btn_trigger_backup.clicked.connect(self.trigger_backup)
-        backup_layout.addWidget(self.btn_trigger_backup)
+        self.btn_restore_backup = QPushButton("Restore Selected Backup")
+        self.btn_restore_backup.setEnabled(False)
+        self.btn_restore_backup.clicked.connect(self.restore_selected_backup)
+        backup_actions.addWidget(self.btn_trigger_backup)
+        backup_actions.addWidget(self.btn_restore_backup)
+        backup_layout.addLayout(backup_actions)
         saved_label = QLabel("Saved Backups")
         saved_label.setStyleSheet(f"font-weight: 600; color: {ThemeTokens.TEXT_PRIMARY};")
         backup_layout.addWidget(saved_label)
@@ -276,13 +337,16 @@ class SettingsScreen(QWidget):
         self.tbl_backups.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tbl_backups.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tbl_backups.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.tbl_backups.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tbl_backups.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tbl_backups.itemSelectionChanged.connect(self._update_restore_button)
         polish_table(self.tbl_backups)
         self.tbl_backups.verticalHeader().setVisible(False)
         self.tbl_backups.setEditTriggers(QTableWidget.NoEditTriggers)
         backup_layout.addWidget(self.tbl_backups, 1)
         tech_grid.addWidget(backup_card, 1)
         tech_layout.addLayout(tech_grid, 1)
-        self.tabs.addTab(self.tab_technical, "System & Backup")
+        self.tabs.addTab(self.tab_technical, "System & Recovery")
 
     def _on_tab_changed(self, index: int):
         current = self.tabs.widget(index)
@@ -295,7 +359,7 @@ class SettingsScreen(QWidget):
         visible = not self.txt_tech_log.isVisible()
         self.txt_tech_log.setVisible(visible)
         self.lbl_log_hdr.setVisible(visible)
-        self.btn_toggle_details.setText("Hide Technical Details" if visible else "Show Technical Details")
+        self.btn_toggle_details.setText("Hide Diagnostics" if visible else "Show Diagnostics")
 
     def load_settings(self):
         keys = [
@@ -304,6 +368,11 @@ class SettingsScreen(QWidget):
             "near_expiry_days",
             "expiry_warning_threshold_days",
             "pharmacy_name",
+            "slogan",
+            "address",
+            "phone",
+            "license_number",
+            "ntn_number",
             "receipt_header_text",
             "receipt_footer",
             "receipt_footer_text",
@@ -316,19 +385,31 @@ class SettingsScreen(QWidget):
                 "max_customer_credit_limit": "25000.00",
                 "near_expiry_days": "30",
                 "expiry_warning_threshold_days": "30",
-                "pharmacy_name": "Pharma-Khaato POS",
-                "receipt_header_text": "Pharma-Khaato POS",
-                "receipt_footer": "Thank you for trusting Pharma-Khaato.",
-                "receipt_footer_text": "Thank you for trusting Pharma-Khaato.",
+                "pharmacy_name": "Pharma Khaato Pharmacy",
+                "slogan": "",
+                "address": "",
+                "phone": "",
+                "license_number": "",
+                "ntn_number": "",
+                "receipt_header_text": "Pharma Khaato Pharmacy",
+                "receipt_footer": "Thank you for trusting Pharma Khaato.",
+                "receipt_footer_text": "Thank you for trusting Pharma Khaato.",
                 "receipt_template": "standard_80",
             },
         )
         tax_raw = settings.get("default_tax_rate", "0.10")
         limit_raw = settings.get("max_customer_credit_limit", "25000.00")
         expiry_raw = settings.get("near_expiry_days") or settings.get("expiry_warning_threshold_days", "30")
-        receipt_title = settings.get("pharmacy_name") or settings.get("receipt_header_text", "Pharma-Khaato POS")
-        receipt_footer = settings.get("receipt_footer") or settings.get("receipt_footer_text", "Thank you for trusting Pharma-Khaato.")
+        receipt_title = settings.get("pharmacy_name") or settings.get("receipt_header_text", "Pharma Khaato Pharmacy")
+        receipt_footer = settings.get("receipt_footer") or settings.get("receipt_footer_text", "Thank you for trusting Pharma Khaato.")
         receipt_template = settings.get("receipt_template", "standard_80")
+
+        self.txt_pharmacy_name.setText(str(settings.get("pharmacy_name") or ""))
+        self.txt_slogan.setText(str(settings.get("slogan") or ""))
+        self.txt_address.setText(str(settings.get("address") or ""))
+        self.txt_phone.setText(str(settings.get("phone") or ""))
+        self.txt_license.setText(str(settings.get("license_number") or ""))
+        self.txt_ntn.setText(str(settings.get("ntn_number") or ""))
 
         try:
             tax_value = float(tax_raw)
@@ -360,18 +441,25 @@ class SettingsScreen(QWidget):
             self.cmb_font_scale.setCurrentIndex(scale_index)
 
     def save_settings(self):
-        receipt_title = self.txt_receipt_header.text().strip()
+        pharmacy_name = self.txt_pharmacy_name.text().strip()
         receipt_footer = self.txt_receipt_footer.text().strip()
-        if not receipt_title:
-            show_toast(self, "Enter a receipt title before saving.", ToastType.WARNING)
+        if not pharmacy_name:
+            show_toast(self, "Enter the pharmacy name before saving.", ToastType.WARNING)
+            self.tabs.setCurrentWidget(self.tab_general)
+            self.txt_pharmacy_name.setFocus()
             return
         values = {
             "default_tax_rate": str(self.spn_tax.value()),
             "max_customer_credit_limit": f"{self.spn_credit_limit.value():.2f}",
             "near_expiry_days": str(self.spn_expiry_threshold.value()),
             "expiry_warning_threshold_days": str(self.spn_expiry_threshold.value()),
-            "pharmacy_name": receipt_title,
-            "receipt_header_text": receipt_title,
+            "pharmacy_name": pharmacy_name,
+            "slogan": self.txt_slogan.text().strip(),
+            "address": self.txt_address.text().strip(),
+            "phone": self.txt_phone.text().strip(),
+            "license_number": self.txt_license.text().strip(),
+            "ntn_number": self.txt_ntn.text().strip(),
+            "receipt_header_text": pharmacy_name,
             "receipt_footer": receipt_footer,
             "receipt_footer_text": receipt_footer,
             "receipt_template": str(self.cmb_receipt_template.currentData() or "standard_80"),
@@ -379,10 +467,11 @@ class SettingsScreen(QWidget):
         if not _SETTINGS_CONTROLLER.update(values):
             QMessageBox.critical(self, "Could Not Save Settings", "Some settings could not be saved. Your previous values were kept where possible.")
             return
+        self.txt_receipt_header.setText(pharmacy_name)
         ThemeManager.set_theme(self.cmb_theme_mode.currentData(), save=True)
         ThemeManager.set_font_scale(float(self.cmb_font_scale.currentData()), save=True)
         if self.show_message_box:
-            show_toast(self, "Settings saved.", ToastType.SUCCESS)
+            show_toast(self, "Pharmacy settings saved.", ToastType.SUCCESS)
 
     def refresh_db_health_and_backups(self):
         self._system_loaded = False
@@ -403,6 +492,7 @@ class SettingsScreen(QWidget):
 
     def _apply_system_snapshot(self, payload):
         health, backups = payload
+        self._backup_rows = list(backups)
         issues = list(health.get("issues") or [])
         healthy = bool(
             health.get("db_connected")
@@ -446,6 +536,8 @@ class SettingsScreen(QWidget):
                 self.tbl_backups.setItem(row, 2, QTableWidgetItem(str(item["created_at"])))
         finally:
             self.tbl_backups.setUpdatesEnabled(True)
+        self.tbl_backups.clearSelection()
+        self._update_restore_button()
 
         self._system_loaded = True
         self.btn_refresh_system.setEnabled(True)
@@ -479,6 +571,94 @@ class SettingsScreen(QWidget):
                 QMessageBox.critical(self, "Could Not Create Backup", "The backup operation failed. Try again.")
 
         self._tasks.run(_SETTINGS_CONTROLLER.create_backup, complete, failed)
+
+    def _update_restore_button(self):
+        row = self.tbl_backups.currentRow() if hasattr(self, "tbl_backups") else -1
+        self.btn_restore_backup.setEnabled(0 <= row < len(self._backup_rows))
+
+    def restore_selected_backup(self):
+        row = self.tbl_backups.currentRow()
+        if row < 0 or row >= len(self._backup_rows):
+            if self.show_message_box:
+                show_toast(self, "Select a backup to restore.", ToastType.WARNING)
+            return
+        item = self._backup_rows[row]
+        filename = str(item.get("filename", "selected backup"))
+        filepath = str(item.get("filepath", ""))
+        if not filepath:
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Restore Pharmacy Data",
+            f"Restore data from {filename}?\n\n"
+            "Pharma Khaato will first create a safety backup of the current database. "
+            "After a successful restore the application will close and must be reopened.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        user = SessionState.get_instance().current_user or {}
+        employee_id = int(user.get("id") or user.get("emp_id") or 0)
+        self.btn_restore_backup.setEnabled(False)
+        self.btn_trigger_backup.setEnabled(False)
+        self.btn_restore_backup.setText("Restoring…")
+
+        def complete(result):
+            ok, message = result
+            if not ok:
+                self.btn_restore_backup.setText("Restore Selected Backup")
+                self.btn_trigger_backup.setEnabled(True)
+                self._update_restore_button()
+                QMessageBox.critical(self, "Restore Failed", str(message))
+                return
+            QMessageBox.information(
+                self,
+                "Restore Complete",
+                "The backup was restored successfully and a safety copy of the previous database was kept. "
+                "Pharma Khaato will now close. Reopen it to continue with the restored data.",
+            )
+            QApplication.quit()
+
+        def failed(_details):
+            self.btn_restore_backup.setText("Restore Selected Backup")
+            self.btn_trigger_backup.setEnabled(True)
+            self._update_restore_button()
+            QMessageBox.critical(self, "Restore Failed", "The restore operation could not be completed. Your current data was left protected.")
+
+        self._tasks.run(
+            lambda: _SETTINGS_CONTROLLER.restore_backup(filepath, employee_id),
+            complete,
+            failed,
+        )
+
+    def create_support_bundle(self):
+        self.btn_support_bundle.setEnabled(False)
+        self.btn_support_bundle.setText("Creating Bundle…")
+
+        def complete(result):
+            self.btn_support_bundle.setEnabled(True)
+            self.btn_support_bundle.setText("Create Support Bundle")
+            ok, value = result
+            if ok:
+                QMessageBox.information(
+                    self,
+                    "Support Bundle Created",
+                    f"Diagnostics were saved as:\n{Path(str(value)).name}\n\n"
+                    "The bundle does not include the live pharmacy database, receipts, exports, or backups. "
+                    "It is stored in the application exports folder.",
+                )
+            else:
+                QMessageBox.critical(self, "Could Not Create Support Bundle", str(value))
+
+        def failed(_details):
+            self.btn_support_bundle.setEnabled(True)
+            self.btn_support_bundle.setText("Create Support Bundle")
+            QMessageBox.critical(self, "Could Not Create Support Bundle", "Diagnostics could not be packaged. Try again after running the system check.")
+
+        self._tasks.run(_SETTINGS_CONTROLLER.create_support_bundle, complete, failed)
 
     def setup_user_management_tab(self):
         self.tab_users = QWidget()
@@ -534,20 +714,33 @@ class SettingsScreen(QWidget):
         title = QLabel("Staff Accounts")
         title.setObjectName("h2")
         list_layout.addWidget(title)
-        self.tbl_users = QTableWidget(0, 4)
-        self.tbl_users.setHorizontalHeaderLabels(["Username", "Staff Member", "Role", "Action"])
+        staff_help = QLabel("Select a staff member to manage their account. Password reset is kept outside the table so rows stay readable at every interface size.")
+        staff_help.setWordWrap(True)
+        staff_help.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
+        list_layout.addWidget(staff_help)
+        self.tbl_users = QTableWidget(0, 3)
+        self.tbl_users.setHorizontalHeaderLabels(["Username", "Staff Member", "Role"])
         self.tbl_users.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tbl_users.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.tbl_users.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.tbl_users.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.tbl_users.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tbl_users.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tbl_users.itemSelectionChanged.connect(self._update_staff_actions)
         polish_table(self.tbl_users, min_row_height=40)
         self.tbl_users.verticalHeader().setVisible(False)
         self.tbl_users.setEditTriggers(QTableWidget.NoEditTriggers)
         list_layout.addWidget(self.tbl_users, 1)
+        staff_actions = QHBoxLayout()
+        staff_actions.addStretch(1)
+        self.btn_reset_selected = QPushButton("Reset Selected Password")
+        self.btn_reset_selected.setEnabled(False)
+        self.btn_reset_selected.clicked.connect(self.on_reset_selected_password)
+        staff_actions.addWidget(self.btn_reset_selected)
+        list_layout.addLayout(staff_actions)
         layout.addWidget(list_card, 7)
         layout.setStretch(0, 3)
         layout.setStretch(1, 7)
-        self.tabs.addTab(self.tab_users, "Staff & Access")
+        self.tabs.addTab(self.tab_users, "Staff Access")
 
     def refresh_employee_table(self):
         self._staff_loaded = False
@@ -559,25 +752,24 @@ class SettingsScreen(QWidget):
         )
 
     def _apply_employee_table(self, employees):
+        self._staff_rows = list(employees)
         self.tbl_users.setUpdatesEnabled(False)
         try:
             self.tbl_users.setRowCount(len(employees))
             for row, item in enumerate(employees):
-                employee_id, username, first_name, last_name, occupation = item
+                _employee_id, username, first_name, last_name, occupation = item
                 self.tbl_users.setItem(row, 0, QTableWidgetItem(str(username)))
                 self.tbl_users.setItem(row, 1, QTableWidgetItem(f"{first_name} {last_name}".strip()))
                 self.tbl_users.setItem(row, 2, QTableWidgetItem(role_label(str(occupation))))
-                button = QPushButton("Reset Password")
-                button.setProperty("compact", True)
-                button.setMinimumWidth(112)
-                button.setAccessibleName(f"Reset password for {username}")
-                button.clicked.connect(
-                    lambda checked=False, eid=employee_id, user=username: self.on_reset_user_password(eid, user)
-                )
-                self.tbl_users.setCellWidget(row, 3, button)
         finally:
             self.tbl_users.setUpdatesEnabled(True)
+        self.tbl_users.clearSelection()
+        self._update_staff_actions()
         self._staff_loaded = True
+
+    def _update_staff_actions(self):
+        row = self.tbl_users.currentRow() if hasattr(self, "tbl_users") else -1
+        self.btn_reset_selected.setEnabled(0 <= row < len(self._staff_rows))
 
     def _staff_load_failed(self, _details: str):
         self._staff_loaded = False
@@ -606,6 +798,15 @@ class SettingsScreen(QWidget):
             self.refresh_employee_table()
         elif self.show_message_box:
             QMessageBox.critical(self, "Could Not Add Staff", message)
+
+    def on_reset_selected_password(self):
+        row = self.tbl_users.currentRow()
+        if row < 0 or row >= len(self._staff_rows):
+            if self.show_message_box:
+                show_toast(self, "Select a staff account first.", ToastType.WARNING)
+            return
+        employee_id, username, _first_name, _last_name, _occupation = self._staff_rows[row]
+        self.on_reset_user_password(employee_id, username)
 
     def on_reset_user_password(self, employee_id: int, username: str):
         new_password, accepted = QInputDialog.getText(

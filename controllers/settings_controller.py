@@ -34,6 +34,25 @@ class SettingsController:
             touch("backups")
         return result
 
+    @staticmethod
+    def restore_backup(filepath: str, employee_id: int):
+        from core.backup_service import restore_database
+        from core.permission_service import require_permission
+
+        allowed, message = require_permission(employee_id, "settings.restore")
+        if not allowed:
+            return False, message
+        result = restore_database(filepath)
+        if isinstance(result, tuple) and result and result[0]:
+            for domain in ("settings", "staff", "inventory", "customers", "credit", "cash", "sales", "returns", "reports", "backups"):
+                touch(domain)
+        return result
+
+    @staticmethod
+    def create_support_bundle():
+        from core.support_service import create_support_bundle
+        return create_support_bundle()
+
     def employees(self):
         return self.auth.employees()
 
@@ -53,6 +72,16 @@ class SettingsController:
     def receipt_template_options():
         from core.receipt_service import get_receipt_template_options
         return get_receipt_template_options()
+
+    @staticmethod
+    def available_printers():
+        from core.receipt_service import available_printers
+        return available_printers()
+
+    @staticmethod
+    def print_test_receipt(printer_name=None, template=None):
+        from core.receipt_service import print_test_receipt
+        return print_test_receipt(printer_name, template)
 
     @staticmethod
     def receipt_preview(template):

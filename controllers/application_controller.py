@@ -16,6 +16,13 @@ class ApplicationController:
     def health(self):
         return self.model.health()
 
+    def single_instance_lock_path(self) -> str:
+        """Return the per-data-directory desktop lock path through the MVC boundary."""
+        from pathlib import Path
+        from core.path_manager import PathManager
+
+        return str(Path(PathManager.get_config_dir()) / "application.lock")
+
     def ensure_daily_backup(self, retention: int = 14):
         """Create the once-per-day safety backup without exposing core services to views."""
         from core.backup_service import ensure_daily_backup

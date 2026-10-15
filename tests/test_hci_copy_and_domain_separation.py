@@ -1,4 +1,4 @@
-"""Regression guards for v2.3 HCI copy and UI/domain separation."""
+"""Regression guards for product copy and UI/domain separation."""
 
 from pathlib import Path
 
@@ -22,7 +22,7 @@ def test_friendly_payment_labels_are_decoupled_from_backend_values():
     mapping = dict(PAYMENT_OPTIONS)
     assert mapping["Customer Credit"] == "Khatoo Credit"
     assert mapping["Card"] == "Credit Card"
-    assert "Khatoo Credit" not in mapping  # canonical term is not the visible label
+    assert "Khatoo Credit" not in mapping
 
 
 def test_friendly_cash_and_role_labels_keep_stable_domain_values():
@@ -54,16 +54,16 @@ def test_old_jargon_does_not_return_to_primary_ui_copy():
 
 def test_support_diagnostics_are_progressively_disclosed():
     source = (ROOT / "ui" / "screens" / "settings_screen.py").read_text(encoding="utf-8")
-    assert 'QPushButton("Show Technical Details")' in source
+    assert 'QPushButton("Show Diagnostics")' in source
     assert "self.txt_tech_log.hide()" in source
     assert "def toggle_technical_details" in source
+    assert '"Hide Diagnostics" if visible else "Show Diagnostics"' in source
 
 
 def test_pos_payment_summary_is_scroll_safe_and_checkout_stays_pinned():
     source = (ROOT / "ui" / "screens" / "pos_screen.py").read_text(encoding="utf-8")
     assert "summary_scroll = QScrollArea()" in source
     assert "right_layout.addWidget(summary_scroll, 1)" in source
-    # The main action is deliberately added after the scrollable summary.
     assert source.index("right_layout.addWidget(summary_scroll, 1)") < source.index("self.btn_checkout = QPushButton")
 
 

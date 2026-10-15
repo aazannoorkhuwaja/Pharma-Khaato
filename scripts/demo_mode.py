@@ -47,7 +47,14 @@ def reset_demo_storage() -> None:
     except Exception:
         pass
     if DEMO_DIR.exists():
-        shutil.rmtree(DEMO_DIR)
+        # Keep open diagnostic log files: Windows disallows unlinking them.
+        for child in DEMO_DIR.iterdir():
+            if child.name == "logs" and child.is_dir() and not child.is_symlink():
+                continue
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
     DEMO_DIR.mkdir(parents=True, exist_ok=True)
     from core.path_manager import PathManager
     PathManager._BASE_DATA_DIR = None

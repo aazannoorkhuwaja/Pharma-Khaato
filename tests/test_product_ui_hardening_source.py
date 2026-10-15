@@ -62,9 +62,11 @@ def test_cash_screen_does_not_expose_shift_or_movement_ids():
     assert 'setPrefix("Rs. ")' in source
 
 
-def test_staff_settings_hide_employee_ids_and_use_current_password_policy():
+def test_staff_settings_hide_employee_ids_and_use_selected_row_actions():
     source = read("ui/screens/settings_screen.py")
-    assert '["Username", "Staff Member", "Role", "Action"]' in source
+    assert '["Username", "Staff Member", "Role"]' in source
+    assert 'QPushButton("Reset Selected Password")' in source
+    assert "setCellWidget(row" not in source
     assert "At least 8 characters" in source
     assert "At least 6 characters" not in source
 

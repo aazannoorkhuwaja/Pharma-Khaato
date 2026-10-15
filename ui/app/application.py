@@ -1,9 +1,11 @@
 """Pharma-Khaato Qt application bootstrap."""
 
+import os
 import sys
-from PySide6.QtWidgets import QApplication, QDialog
+
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QLockFile
 
 from config import ApplicationSettings
 from controllers.application_controller import ApplicationController
@@ -54,6 +56,35 @@ def _settings_screen():
     return SettingsScreen()
 
 
+def _acquire_single_instance(app: QApplication, app_controller: ApplicationController):
+    """Prevent two interactive processes from opening the same local store.
+
+    QLockFile handles stale locks after crashes. Headless CI/tests and explicitly
+    isolated development runs may opt out because they use separate data dirs.
+    The UI obtains the lock location through its application controller so the
+    storage boundary remains outside the view layer.
+    """
+    if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
+        return None
+    if os.environ.get("PHARMA_KHAATO_ALLOW_MULTI_INSTANCE") == "1":
+        return None
+
+    lock = QLockFile(app_controller.single_instance_lock_path())
+    lock.setStaleLockTime(30_000)
+    if lock.tryLock(100):
+        app.aboutToQuit.connect(lock.unlock)
+        return lock
+
+    QMessageBox.warning(
+        None,
+        f"{ApplicationSettings.DISPLAY_NAME} is already open",
+        "Another copy of Pharma Khaato is already running for this workstation.\n\n"
+        "Use the existing window, or close it before starting the application again. "
+        "This protection keeps the local pharmacy database safe from competing desktop sessions.",
+    )
+    return False
+
+
 def run_app():
     app_controller = ApplicationController()
     app_controller.initialize()
@@ -66,27 +97,40 @@ def run_app():
         )
         app = QApplication(sys.argv)
 
-    app.setApplicationName(ApplicationSettings.APP_NAME)
+    app.setApplicationName(ApplicationSettings.DISPLAY_NAME)
+    app.setApplicationDisplayName(ApplicationSettings.DISPLAY_NAME)
     app.setApplicationVersion(ApplicationSettings.APP_VERSION)
-    app.setOrganizationName("Pharma-Khaato")
+    app.setOrganizationName(ApplicationSettings.ORGANIZATION)
+    app.setOrganizationDomain(ApplicationSettings.APP_ID)
     app.aboutToQuit.connect(app_controller.shutdown)
     app.setStyle("Fusion")
     ThemeManager.apply_theme()
 
+    instance_lock = _acquire_single_instance(app, app_controller)
+    if instance_lock is False:
+        app_controller.shutdown()
+        return 0
+    # Keep the lock object alive for the whole QApplication lifetime.
+    app._pharma_khaato_instance_lock = instance_lock
+
     try:
         needs_setup = app_controller.needs_first_run_setup()
     except Exception as exc:
-        print(f"ERROR: Cannot verify employee registry (database issue): {exc}")
+        logger.exception("Cannot verify employee registry during startup: %s", exc)
+        QMessageBox.critical(
+            None,
+            "Pharma Khaato could not start",
+            "The local pharmacy database could not be opened. No sale was started.\n\n"
+            "Run the launch self-check or contact support before continuing.",
+        )
         return 1
     if needs_setup:
         wizard = FirstRunWizardDialog()
         if wizard.exec() != FirstRunWizardDialog.Accepted:
-            print("First-run setup cancelled. Exiting application.")
             return 0
 
     login_dialog = LoginDialog()
     if login_dialog.exec() != QDialog.Accepted or not SessionState.get_instance().current_user:
-        print("Authentication cancelled or failed. Exiting application without accessing POS.")
         return 0
 
     current_user = SessionState.get_instance().current_user

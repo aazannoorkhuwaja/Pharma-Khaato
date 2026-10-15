@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QShortcut, QKeySequence
 
+from config import ApplicationSettings
 from ui.app.router import AppRouter
 from ui.theme.tokens import ThemeTokens
 from ui.theme.theme_manager import ThemeManager
@@ -35,7 +36,7 @@ class MainWindow(QMainWindow):
                 "Access Denied: Unauthenticated attempt to instantiate MainWindow without an active login session."
             )
 
-        self.setWindowTitle("Pharma-Khaato — Pharmacy Management")
+        self.setWindowTitle(f"{ApplicationSettings.DISPLAY_NAME} — Pharmacy POS")
         self.resize(1366, 768)
         self.setMinimumSize(LayoutMetrics.SHELL_MIN_WIDTH, LayoutMetrics.SHELL_MIN_HEIGHT)
         self.current_user = SessionState.get_instance().current_user
@@ -53,11 +54,12 @@ class MainWindow(QMainWindow):
         sidebar_layout.setContentsMargins(12, 16, 12, 16)
         sidebar_layout.setSpacing(8)
 
-        self.brand_label = QLabel("PHARMA-KHAATO")
+        self.brand_label = QLabel("PHARMA KHAATO")
         self.brand_label.setObjectName("h2")
         self.brand_label.setStyleSheet(f"color: {ThemeTokens.ACCENT}; font-weight: 800;")
-        self.sub_brand = QLabel("Pharmacy Management")
+        self.sub_brand = QLabel(ApplicationSettings.PRODUCT_TAGLINE)
         self.sub_brand.setObjectName("caption")
+        self.sub_brand.setWordWrap(True)
         sidebar_layout.addWidget(self.brand_label)
         sidebar_layout.addWidget(self.sub_brand)
 
@@ -95,6 +97,24 @@ class MainWindow(QMainWindow):
         self.user_badge.setWordWrap(True)
         self.user_badge.setStyleSheet("font-weight: 700;")
         sidebar_layout.addWidget(self.user_badge)
+
+        self.lbl_version = QLabel(f"Version {ApplicationSettings.APP_VERSION}")
+        self.lbl_version.setObjectName("caption")
+        self.lbl_version.setToolTip("Installed Pharma Khaato version")
+        sidebar_layout.addWidget(self.lbl_version)
+
+        self.btn_printer_setup = QPushButton("Printer Setup")
+        self.btn_printer_setup.setObjectName("sidebarUtilityButton")
+        self.btn_printer_setup.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_printer_setup.setToolTip("Choose and test the thermal receipt printer")
+        self.btn_printer_setup.clicked.connect(self.show_printer_setup)
+        sidebar_layout.addWidget(self.btn_printer_setup)
+
+        self.btn_about = QPushButton("About Pharma Khaato")
+        self.btn_about.setObjectName("sidebarUtilityButton")
+        self.btn_about.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_about.clicked.connect(self.show_about)
+        sidebar_layout.addWidget(self.btn_about)
 
         self.btn_theme_toggle = QPushButton()
         self.btn_theme_toggle.setObjectName("sidebarUtilityButton")
@@ -149,9 +169,12 @@ class MainWindow(QMainWindow):
         self.sidebar.setFixedWidth(sidebar_width)
         for key, text, short_text, shortcut_key in self._nav_items:
             self.nav_buttons[key].setText(_qt_button_text(text if mode != "mini" else short_text))
-        self.brand_label.setText("PHARMA-KHAATO" if mode != "mini" else "P-K")
+        self.brand_label.setText("PHARMA KHAATO" if mode != "mini" else "PK")
         self.sub_brand.setVisible(mode == "full")
         self.user_badge.setVisible(mode != "mini")
+        self.lbl_version.setVisible(mode != "mini")
+        self.btn_printer_setup.setText("Printer" if mode == "mini" else "Printer Setup")
+        self.btn_about.setText("About" if mode == "mini" else "About Pharma Khaato")
         if mode == "mini":
             self.btn_theme_toggle.setText("Theme")
             self.btn_logout.setText("Sign Out")
@@ -194,6 +217,31 @@ class MainWindow(QMainWindow):
             return base + ["inventory", "reports", "returns"]
         return base
 
+    def show_printer_setup(self):
+        if "settings" not in self.get_allowed_screens():
+            self.status_bar.showMessage("Printer setup is available to administrators and managers.")
+            return
+        from ui.widgets.printer_setup_dialog import PrinterSetupDialog
+
+        PrinterSetupDialog(self).exec()
+
+    def show_about(self):
+        support_line = (
+            f"Support: {ApplicationSettings.SUPPORT_EMAIL}"
+            if ApplicationSettings.SUPPORT_EMAIL
+            else "Support: contact your system administrator or deployment partner"
+        )
+        QMessageBox.about(
+            self,
+            f"About {ApplicationSettings.DISPLAY_NAME}",
+            f"<b>{ApplicationSettings.DISPLAY_NAME}</b><br>"
+            f"{ApplicationSettings.PRODUCT_TAGLINE}<br><br>"
+            f"Version {ApplicationSettings.APP_VERSION}<br>"
+            f"{ApplicationSettings.PRODUCT_DESCRIPTION}<br><br>"
+            f"{ApplicationSettings.DATA_NOTICE}<br><br>"
+            f"{support_line}",
+        )
+
     def on_toggle_theme(self):
         ThemeManager.toggle_theme(save=True)
         self.refresh_theme_toggle_label()
@@ -227,6 +275,7 @@ class MainWindow(QMainWindow):
         allowed = self.get_allowed_screens()
         for key, btn in self.nav_buttons.items():
             btn.setVisible(key in allowed)
+        self.btn_printer_setup.setVisible("settings" in allowed)
         if "pos" in allowed:
             self.on_nav_clicked("pos")
         self.status_bar.showMessage(f"Signed in: {uname} • Ready")
