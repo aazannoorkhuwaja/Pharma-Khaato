@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Pharma Khaato
+GenericName=Pharmacy POS & Inventory Management
+Comment=Billing, batch inventory, customer credit, cash shifts, returns and reports
+Exec=pharma-khaato
+Terminal=false
+Categories=Office;Utility;
+Keywords=pharmacy;pos;inventory;billing;stock;credit;
+StartupNotify=true
+StartupWMClass=Pharma Khaato

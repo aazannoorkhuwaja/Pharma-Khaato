@@ -1,0 +1,122 @@
+name: CI Quality Gate
+
+on:
+  push:
+    branches: [ main, master, develop-ui ]
+  pull_request:
+    branches: [ main, master, develop-ui ]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  QT_QPA_PLATFORM: offscreen
+  PYTHONUTF8: "1"
+
+jobs:
+  # Fast feedback for day-to-day development. A green develop-ui head has also
+  # completed the same isolated business/UI flow used for the live demo.
+  develop-fast:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop-ui'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Qt runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Compile source
+        run: python -m compileall -q main.py controllers core models ui scripts
+
+      - name: Run UI source audit
+        run: python scripts/ui_audit.py
+
+      - name: Run test suite
+        run: python -m pytest -q
+
+      - name: Run isolated launch self-check
+        env:
+          PHARMA_KHAATO_DATA_DIR: ${{ runner.temp }}/pharma-khaato-self-check
+        run: python main.py --self-check --headless
+
+      - name: Prepare complete isolated demo
+        run: python scripts/demo_mode.py --no-launch
+
+      - name: Verify complete demo business flow
+        run: python scripts/test_flow.py
+
+      - name: Smoke-test every major GUI screen
+        run: python scripts/test_gui_auto.py
+
+  # Full portability gate for pull requests and protected/release branches.
+  full-matrix:
+    if: github.event_name != 'push' || github.ref != 'refs/heads/develop-ui'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.12", "3.14"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux Qt runtime libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Compile source
+        run: python -m compileall -q main.py controllers core models ui scripts
+
+      - name: Run UI source audit
+        run: python scripts/ui_audit.py
+
+      - name: Run test suite
+        run: python -m pytest -q
+
+      - name: Run isolated launch self-check
+        env:
+          PHARMA_KHAATO_DATA_DIR: ${{ runner.temp }}/pharma-khaato-self-check
+        run: python main.py --self-check --headless
+
+      - name: Prepare and verify complete demo on current runtimes
+        if: matrix.python-version == '3.14'
+        run: |
+          python scripts/demo_mode.py --no-launch
+          python scripts/test_flow.py
+
+      - name: Smoke-test major GUI screens on Linux current runtime
+        if: runner.os == 'Linux' && matrix.python-version == '3.14'
+        run: python scripts/test_gui_auto.py
