@@ -109,6 +109,49 @@ def record_cash_movement(session_id, employee_id, movement_type, amount, reason=
         return False, "The cash entry could not be saved. Please try again."
 
 
+def _cash_summary_from_cursor(cur, session_id, opening_cash_raw, status):
+    """Build a physical-drawer summary using one database snapshot/transaction."""
+    cur.execute(
+        "SELECT COALESCE(SUM(price_with_tax), 0) FROM Purchase "
+        "WHERE session_id = %s AND payment_method = 'Cash'",
+        (session_id,),
+    )
+    cash_sales = _money((cur.fetchone() or [0])[0])
+
+    cur.execute(
+        "SELECT COALESCE(SUM(amount), 0) FROM Credit_Payment "
+        "WHERE session_id = %s AND payment_method = 'Cash'",
+        (session_id,),
+    )
+    cash_credit_collections = _money((cur.fetchone() or [0])[0])
+
+    cur.execute(
+        "SELECT movement_type, COALESCE(SUM(amount), 0) "
+        "FROM Cash_Movement WHERE session_id = %s GROUP BY movement_type",
+        (session_id,),
+    )
+    movements = {row[0]: _money(row[1]) for row in cur.fetchall()}
+
+    opening_cash = _money(opening_cash_raw)
+    cash_in = movements.get("CASH_IN", Decimal("0.00"))
+    cash_out = movements.get("CASH_OUT", Decimal("0.00"))
+    refunds = movements.get("REFUND", Decimal("0.00"))
+    expected = (
+        opening_cash + cash_sales + cash_credit_collections + cash_in - cash_out - refunds
+    ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return {
+        "session_id": int(session_id),
+        "status": status,
+        "opening_cash": float(opening_cash),
+        "cash_sales": float(cash_sales),
+        "cash_credit_collections": float(cash_credit_collections),
+        "cash_in": float(cash_in),
+        "cash_out": float(cash_out),
+        "refunds": float(refunds),
+        "expected_cash": float(expected),
+    }
+
+
 def get_session_cash_summary(session_id):
     """Return only money that actually changes the physical drawer.
 
@@ -126,46 +169,7 @@ def get_session_cash_summary(session_id):
             if not session:
                 return None
             _employee_id, _opened_at, opening_cash_raw, status = session
-
-            cur.execute(
-                "SELECT COALESCE(SUM(price_with_tax), 0) FROM Purchase "
-                "WHERE session_id = %s AND payment_method = 'Cash'",
-                (session_id,),
-            )
-            cash_sales = _money((cur.fetchone() or [0])[0])
-
-            cur.execute(
-                "SELECT COALESCE(SUM(amount), 0) FROM Credit_Payment "
-                "WHERE session_id = %s AND payment_method = 'Cash'",
-                (session_id,),
-            )
-            cash_credit_collections = _money((cur.fetchone() or [0])[0])
-
-            cur.execute(
-                "SELECT movement_type, COALESCE(SUM(amount), 0) "
-                "FROM Cash_Movement WHERE session_id = %s GROUP BY movement_type",
-                (session_id,),
-            )
-            movements = {row[0]: _money(row[1]) for row in cur.fetchall()}
-
-        opening_cash = _money(opening_cash_raw)
-        cash_in = movements.get("CASH_IN", Decimal("0.00"))
-        cash_out = movements.get("CASH_OUT", Decimal("0.00"))
-        refunds = movements.get("REFUND", Decimal("0.00"))
-        expected = (
-            opening_cash + cash_sales + cash_credit_collections + cash_in - cash_out - refunds
-        ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        return {
-            "session_id": int(session_id),
-            "status": status,
-            "opening_cash": float(opening_cash),
-            "cash_sales": float(cash_sales),
-            "cash_credit_collections": float(cash_credit_collections),
-            "cash_in": float(cash_in),
-            "cash_out": float(cash_out),
-            "refunds": float(refunds),
-            "expected_cash": float(expected),
-        }
+            return _cash_summary_from_cursor(cur, session_id, opening_cash_raw, status)
     except Exception as exc:
         logger.error("Calculate cash summary error for session %s: %s", session_id, exc)
         return None
@@ -178,37 +182,53 @@ def calculate_expected_cash(session_id):
     return summary["opening_cash"], summary["cash_sales"], summary["expected_cash"]
 
 
-def close_session(session_id, closing_cash_actual, notes=""):
+def close_session(session_id, closing_cash_actual, notes="", employee_id=None):
+    """Close only the acting employee's own open shift using one atomic snapshot.
+
+    Requiring the actor at the service boundary prevents a caller that merely
+    knows another session ID from closing that staff member's drawer. The
+    expected cash calculation and close update run under the same write
+    transaction so a sale/movement cannot slip between reconciliation and close.
+    """
     try:
+        session_id = int(session_id)
+        employee_id = int(employee_id)
         dec_actual = _money(closing_cash_actual)
         if dec_actual < Decimal("0.00"):
             return False, "Counted cash cannot be negative."
     except (ValueError, TypeError):
-        return False, "Invalid closing cash count."
+        return False, "Sign in again before closing this cash shift."
 
-    summary = get_session_cash_summary(session_id)
-    if not summary:
-        return False, "This cash shift could not be found."
-    dec_expected = _money(summary["expected_cash"])
-    discrepancy = (dec_actual - dec_expected).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    allowed, permission_reason = require_permission(employee_id, "cash.own_shift")
+    if not allowed:
+        return False, permission_reason
 
     try:
         with get_db() as (_conn, cur):
-            cur.execute("SELECT employee_id, status FROM Cash_Register_Session WHERE id = %s", (session_id,))
+            # Serialize the final reconciliation with sales, credit collections,
+            # refunds and manual movements that also write to this SQLite DB.
+            cur.execute("BEGIN IMMEDIATE")
+            cur.execute(
+                "SELECT employee_id, opening_cash, status FROM Cash_Register_Session WHERE id = %s",
+                (session_id,),
+            )
             row = cur.fetchone()
             if not row:
                 raise ValueError("This cash shift could not be found.")
-            if row[1] == "CLOSED":
+            owner_id, opening_cash_raw, status = row
+            if str(status).upper() != "OPEN":
                 raise ValueError("This cash shift is already closed.")
-            emp_id = int(row[0])
-            allowed, permission_reason = require_permission(emp_id, "cash.own_shift")
-            if not allowed:
-                raise ValueError(permission_reason)
+            if int(owner_id) != employee_id:
+                raise ValueError("This cash shift belongs to another staff member.")
+
+            summary = _cash_summary_from_cursor(cur, session_id, opening_cash_raw, status)
+            dec_expected = _money(summary["expected_cash"])
+            discrepancy = (dec_actual - dec_expected).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             cur.execute(
                 "UPDATE Cash_Register_Session SET closed_at = %s, closing_cash_actual = %s, "
                 "expected_cash_system = %s, cash_discrepancy = %s, status = 'CLOSED', notes = %s "
-                "WHERE id = %s",
+                "WHERE id = %s AND status = 'OPEN'",
                 (now_str, float(dec_actual), float(dec_expected), float(discrepancy), notes, session_id),
             )
 
@@ -218,8 +238,17 @@ def close_session(session_id, closing_cash_actual, notes=""):
             disc_str = f"Short: -Rs.{abs(discrepancy):.2f}"
         else:
             disc_str = "Balanced (Rs. 0.00)"
-        log_audit_event(emp_id, "CASH_SESSION_CLOSED", f"Closed cash shift. Expected Rs.{dec_expected:.2f}; actual Rs.{dec_actual:.2f}; {disc_str}.")
-        return True, {**summary, "actual_cash": float(dec_actual), "discrepancy": float(discrepancy), "closed_at": now_str}
+        log_audit_event(
+            employee_id,
+            "CASH_SESSION_CLOSED",
+            f"Closed cash shift. Expected Rs.{dec_expected:.2f}; actual Rs.{dec_actual:.2f}; {disc_str}.",
+        )
+        return True, {
+            **summary,
+            "actual_cash": float(dec_actual),
+            "discrepancy": float(discrepancy),
+            "closed_at": now_str,
+        }
     except ValueError as exc:
         return False, str(exc)
     except Exception as exc:
