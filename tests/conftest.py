@@ -49,8 +49,15 @@ def seeded_shop(fresh_db):
         "INSERT INTO Batch (product_id, number_of_product, quantity, expiry_date, manufacture_Date, supplier_id) "
         "VALUES (1, 'B1', 100, '2099-12-31', '2026-01-01', 1)"
     )
-    auth_service.register_initial_admin("admin", "secret123", "Test", "Admin")
+
+    # The seed INSERTs above open SQLite's implicit transaction. Commit that
+    # fixture-owned transaction before the bootstrap service starts its own
+    # BEGIN IMMEDIATE transaction for concurrency-safe first-admin creation.
     conn.commit()
+    ok, message = auth_service.register_initial_admin(
+        "admin", "secret123", "Test", "Admin"
+    )
+    assert ok, message
     return db_engine
 
 
