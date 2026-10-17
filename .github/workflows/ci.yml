@@ -2,7 +2,7 @@ name: CI Quality Gate
 
 on:
   push:
-    branches: [ main, master, develop-ui ]
+    branches: [ main, master, develop-ui, "pharmacy-pilot-*" ]
   pull_request:
     branches: [ main, master, develop-ui ]
 
