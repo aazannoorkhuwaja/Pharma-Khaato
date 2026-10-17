@@ -57,7 +57,7 @@ def test_readiness_passes_on_fresh_database(fresh_db):
     assert report["failed_count"] == 0
 
 
-def test_checkout_retry_returns_original_sale_once(seeded_shop, admin_emp_id):
+def test_checkout_retry_returns_original_sale_once(seeded_shop, admin_emp_id, cash_shift):
     from core.checkout_idempotency_service import process_checkout_idempotently
     from core.pos_service import CheckoutRequest, POSTransactionEngine
 
@@ -88,8 +88,14 @@ def test_checkout_retry_returns_original_sale_once(seeded_shop, admin_emp_id):
     cur.execute("SELECT stock_quantity FROM Products WHERE id = 1")
     assert cur.fetchone()[0] == 98
 
+    request.cart[0]["qty"] = 3
+    altered = process_checkout_idempotently(request, POSTransactionEngine.process_checkout)
+    assert not altered.success and altered.outcome == "rejected"
+    cur.execute("SELECT COUNT(*) FROM Purchase")
+    assert cur.fetchone()[0] == 1
 
-def test_new_checkout_token_cancels_abandoned_pending(seeded_shop, admin_emp_id):
+
+def test_new_checkout_token_preserves_other_counter_pending(seeded_shop, admin_emp_id):
     from core.checkout_idempotency_service import prepare_checkout
 
     assert prepare_checkout("old-pending-token", admin_emp_id)[0]
@@ -98,6 +104,6 @@ def test_new_checkout_token_cancels_abandoned_pending(seeded_shop, admin_emp_id)
     conn = seeded_shop.get_conn()
     cur = conn.cursor()
     cur.execute("SELECT status FROM Checkout_Request WHERE token = 'old-pending-token'")
-    assert cur.fetchone()[0] == "CANCELLED"
+    assert cur.fetchone()[0] == "PENDING"
     cur.execute("SELECT status FROM Checkout_Request WHERE token = 'new-pending-token'")
     assert cur.fetchone()[0] == "PENDING"

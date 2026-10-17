@@ -47,19 +47,47 @@ def main():
     parser = argparse.ArgumentParser(description="Pharma-Khaato POS & Pharmacy Management System")
     parser.add_argument("--headless", action="store_true", help="Run Qt application in offscreen headless mode")
     parser.add_argument("--platform", type=str, default=None, help="Specify Qt QPA platform plugin (e.g. xcb, wayland, offscreen)")
+    parser.add_argument("--configure-network", action="store_true", help="Choose this computer's shop/counter connection")
+    parser.add_argument("--shop-server", action="store_true", help="Start the shop's shared-counter service")
     parser.add_argument(
         "--self-check",
         action="store_true",
         help="Verify writable storage, SQLite integrity/schema and runtime readiness, then exit",
     )
+    parser.add_argument("--functional-smoke", action="store_true", help="Verify an isolated disposable shop and major screens, then exit")
+    parser.add_argument("--smoke-report", help="Write a machine-readable functional-check result")
     args = parser.parse_args()
+    if args.smoke_report and not args.functional_smoke:
+        parser.error("--smoke-report requires --functional-smoke")
 
     if args.headless:
         os.environ["QT_QPA_PLATFORM"] = "offscreen"
     elif args.platform:
         os.environ["QT_QPA_PLATFORM"] = args.platform
 
+    if args.shop_server:
+        from scripts.run_shop_server import main as run_server
+        sys.argv = [sys.argv[0]]
+        return run_server()
+
     check_gui()
+
+    if args.functional_smoke:
+        from core.installed_smoke import run
+        result = run()
+        if args.smoke_report:
+            import json
+            from pathlib import Path
+            from config import ApplicationSettings
+            Path(args.smoke_report).write_text(json.dumps({"ok": result == 0, "version": ApplicationSettings.APP_VERSION, "check": "functional-smoke"}), encoding="utf-8")
+        return result
+
+    if args.configure_network:
+        from PySide6.QtWidgets import QApplication
+        from ui.dialogs.counter_connection_dialog import configure_shop_connection
+        app = QApplication.instance() or QApplication([sys.argv[0]])
+        if not configure_shop_connection():
+            return 0
 
     if args.self_check:
         raise SystemExit(run_self_check())
@@ -73,4 +101,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main() or 0)

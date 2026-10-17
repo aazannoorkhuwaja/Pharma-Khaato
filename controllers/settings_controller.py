@@ -7,6 +7,12 @@ class SettingsController:
         self.settings = settings_model or SettingsModel()
         self.auth = auth_model or AuthModel()
 
+    @staticmethod
+    def _actor_id():
+        from ui.app.state.session_state import SessionState
+        user = SessionState.get_instance().current_user or {}
+        return user.get("id") or user.get("emp_id")
+
     def get(self, key, default=None):
         return self.settings.get(key, default)
 
@@ -14,13 +20,13 @@ class SettingsController:
         return self.settings.get_many(keys, defaults)
 
     def set(self, key, value):
-        result = self.settings.set(key, value)
+        result = self.settings.set(key, value, actor_id=self._actor_id())
         if result:
             touch("settings")
         return result
 
     def update(self, values):
-        result = self.settings.update(values)
+        result = self.settings.update(values, actor_id=self._actor_id())
         if result:
             touch("settings")
         return result
@@ -36,13 +42,16 @@ class SettingsController:
 
     @staticmethod
     def restore_backup(filepath: str, employee_id: int):
+        from core.lan_config import load_counter_config
+        if load_counter_config():
+            return False, "Restore backups on the main shop computer, then restart all counters."
         from core.backup_service import restore_database
         from core.permission_service import require_permission
 
         allowed, message = require_permission(employee_id, "settings.restore")
         if not allowed:
             return False, message
-        result = restore_database(filepath)
+        result = restore_database(filepath, require_restart=True)
         if isinstance(result, tuple) and result and result[0]:
             for domain in ("settings", "staff", "inventory", "customers", "credit", "cash", "sales", "returns", "reports", "backups"):
                 touch(domain)
@@ -57,16 +66,38 @@ class SettingsController:
         return self.auth.employees()
 
     def create_employee(self, username, password, first_name, last_name, occupation):
-        result = self.auth.create_employee(username, password, first_name, last_name, occupation)
+        result = self.auth.create_employee(username, password, first_name, last_name, occupation, actor_id=self._actor_id())
         if isinstance(result, tuple) and result and result[0]:
             touch("staff")
         return result
 
     def reset_password(self, employee_id, new_password):
-        result = self.auth.reset_password(employee_id, new_password)
+        result = self.auth.reset_password(employee_id, new_password, actor_id=self._actor_id())
         if isinstance(result, tuple) and result and result[0]:
             touch("staff")
         return result
+
+    @staticmethod
+    def backup_destination():
+        from core.lan_config import load_counter_config
+        if load_counter_config():
+            return "Managed on the main shop computer"
+        from core.backup_service import backup_destination
+        return backup_destination()
+
+    def configure_backup_destination(self, destination):
+        from core.permission_service import require_permission
+        from core.lan_config import load_counter_config
+        if load_counter_config():
+            return False, "Choose the backup location on the main shop computer."
+        from core.backup_service import configure_backup_destination
+        allowed, message = require_permission(self._actor_id(), "settings.manage")
+        if not allowed:
+            return False, message
+        try:
+            return configure_backup_destination(destination)
+        except OSError:
+            return False, "This backup location is unavailable or is not writable."
 
     @staticmethod
     def receipt_template_options():

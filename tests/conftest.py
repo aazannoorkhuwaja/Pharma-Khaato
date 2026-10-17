@@ -59,3 +59,12 @@ def admin_emp_id(seeded_shop):
     cur = seeded_shop.get_conn().cursor()
     cur.execute("SELECT Employee_id FROM Employee WHERE username='admin'")
     return cur.fetchone()[0]
+
+
+@pytest.fixture()
+def cash_shift(seeded_shop, admin_emp_id):
+    """An explicitly opened local counter for tests accepting physical cash."""
+    from core.cash_session_service import open_session
+    ok, session_id = open_session(admin_emp_id, 0)
+    assert ok, session_id
+    return session_id

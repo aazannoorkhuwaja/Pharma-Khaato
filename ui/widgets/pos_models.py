@@ -9,7 +9,7 @@ class ProductCatalogModel(QAbstractTableModel):
     expiry, available stock, and price.
     """
 
-    HEADERS = ["Product", "Expiry", "In Stock", "Price"]
+    HEADERS = ["Product", "Expiry", "In Stock", "Price", "Unit"]
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -47,13 +47,15 @@ class ProductCatalogModel(QAbstractTableModel):
         self._raw_data = results or []
         self._formatted_rows = []
         for item in self._raw_data:
-            _product_id, product_name, price, _batch_id, batch_qty, batch_expiry = item
+            _product_id, product_name, price, _batch_id, batch_qty, batch_expiry = item[:6]
+            metadata = item[6] if len(item) > 6 else {}
             self._formatted_rows.append(
                 (
                     str(product_name),
                     str(batch_expiry),
                     str(batch_qty),
-                    f"Rs. {float(price):.2f}",
+                    f"Rs. {float(price):,.2f}",
+                    str(metadata.get("unit_label", "unit")),
                 )
             )
         self.endResetModel()

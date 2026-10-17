@@ -10,6 +10,7 @@ class TestSaleReturn:
             "INSERT OR IGNORE INTO Customers (id_card_number, first_name, last_name, registration_date) "
             "VALUES ('1234567890123', 'Ali', 'Khan', '2026-01-01')"
         )
+        cur.execute("UPDATE Products SET price=100 WHERE id=1")
         conn.commit()
         ok, msg = pos_service.confirm_sale(
             "12345-6789012-3", admin_emp_id,
@@ -39,7 +40,7 @@ class TestSaleReturn:
             pid, [{"batch_id": 1, "qty": 99, "prod_id": 1, "price": 100.0}],
             employee_id=admin_emp_id,
         )
-        assert not ok and "remain returnable" in msg
+        assert not ok and "remaining returnable" in str(msg)
 
     def test_double_return_capped(self, seeded_shop, admin_emp_id):
         from core import pos_service
@@ -65,10 +66,12 @@ class TestSaleReturn:
 
 
 class TestTaxPipeline:
-    def test_percentage_setting_drives_receipt_tax(self, seeded_shop, admin_emp_id):
+    def test_percentage_setting_drives_receipt_tax(self, seeded_shop, admin_emp_id, cash_shift):
         from core import pos_service, db_engine
         from core.settings_service import SettingsService
-        SettingsService.set_setting("default_tax_rate", "18.0")
+        assert SettingsService.set_setting("default_tax_rate", "18.0", actor_id=admin_emp_id)
+        db_engine.get_conn().cursor().execute("UPDATE Products SET price=100 WHERE id=1")
+        db_engine.get_conn().commit()
         ok, msg = pos_service.confirm_sale(
             None, admin_emp_id,
             [{"prod_id": 1, "name": "TestMed", "price": 100.0, "qty": 10}],

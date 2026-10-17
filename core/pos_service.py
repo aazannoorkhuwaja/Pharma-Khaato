@@ -1,8 +1,10 @@
+from core.business_time import business_date, business_now
 import sqlite3
 import threading
+import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 from core.db_engine import get_conn, get_db
 from core.receipt_service import generate_invoice_file
 from core.inventory_service import clear_inventory_cache
@@ -23,9 +25,11 @@ def _normalize_payment_method(payment_method: str) -> tuple[str, str]:
     key = " ".join(raw.lower().replace("_", " ").split())
     if key in {"khatoo credit", "credit (khatoo)", "khatoo"}:
         return "Khatoo Credit", "Credit"
-    if key in {"cash", ""}:
-        return "Cash", "Cash"
-    return raw, "Cash"
+    methods = {"cash": "Cash", "": "Cash", "card": "Credit Card",
+               "credit card": "Credit Card", "easypaisa": "Easypaisa", "jazzcash": "JazzCash"}
+    if key not in methods:
+        raise ValueError("Choose Cash, Card, Easypaisa, JazzCash, or Customer Credit.")
+    return methods[key], "Cash"
 
 
 @dataclass
@@ -36,6 +40,12 @@ class CheckoutRequest:
     discount: float = 0.0
     payment_method: str = "Cash"
     total: float = 0.0
+    checkout_token: str | None = None
+    held_sale_id: int | None = None
+    cash_received: float | None = None
+    manager_approval_token: str | None = None
+    terminal_id: str | None = None
+    expected_total: float | None = None
 
 
 @dataclass
@@ -46,6 +56,13 @@ class CheckoutResult:
     net_total: float = 0.0
     total_tax: float = 0.0
     discount: float = 0.0
+    total: float = 0.0
+    payment_method: str = ""
+    cash_received: float | None = None
+    change_due: float = 0.0
+    outcome: str = "rejected"
+    duplicate: bool = False
+    receipt_status: str = 'SAVED'
 
 
 class POSTransactionEngine:
@@ -56,21 +73,7 @@ class POSTransactionEngine:
 
     @staticmethod
     def process_checkout(req: CheckoutRequest) -> CheckoutResult:
-        success, msg = confirm_sale(
-            customer_id=req.customer_id,
-            employee_id=req.employee_id,
-            cart=req.cart,
-            total=req.total,
-            discount=req.discount,
-            payment_method=req.payment_method
-        )
-        purchase_id = None
-        if success and "Sale #" in msg:
-            try:
-                purchase_id = int(msg.split("Sale #")[1].split(" ")[0])
-            except (ValueError, IndexError, AttributeError) as parse_err:
-                logger.warning(f"Handled sale ID parse notice: {parse_err}")
-        return CheckoutResult(success=success, message=msg, purchase_id=purchase_id)
+        return _execute_checkout(req)
 
 
 def allocate_sellable_batches(product_id, qty_needed, conn=None):
@@ -89,10 +92,10 @@ def allocate_sellable_batches(product_id, qty_needed, conn=None):
         return []
     try:
         cur = conn.cursor()
-        today = date.today().strftime("%Y-%m-%d")
+        today = business_date().strftime("%Y-%m-%d")
         cur.execute(
             "SELECT id, quantity, expiry_date FROM Batch "
-            "WHERE product_id = %s AND expiry_date > %s AND quantity > 0 "
+            "WHERE product_id = %s AND expiry_date >= %s AND quantity > 0 AND stock_status = 'SELLABLE' "
             "ORDER BY expiry_date ASC, id ASC",
             (product_id, today)
         )
@@ -142,113 +145,114 @@ def get_sellable_batch(product_id, qty_needed=1, conn=None):
 # Takes an open cursor so it participates in the caller's transaction.
 # ---------------------------------------------------------------------------
 def _validate_and_allocate_cart(cur, cart, customer_id, employee_id, total, pay_label, conn):
-    """
-    Pure validation + FEFO allocation pass over a raw cart.
-
-    Inputs:
-        cur         — active db cursor (participates in caller's transaction)
-        cart        — list of cart item dicts from the UI
-        customer_id — CNIC string
-        employee_id — int
-        total       — declared cart total (used for credit limit check)
-        pay_label   — "Cash" or "Credit"
-        conn        — connection reference (needed for allocate_sellable_batches)
-
-    Returns:
-        final_items — list of consolidated, batch-resolved cart item dicts:
-                      [{"prod_id", "name", "price", "batch_id", "qty", "subtotal"}, ...]
-
-    Raises:
-        ValueError  — with a user-facing message on any validation failure.
-    """
-    today = date.today().strftime("%Y-%m-%d")
-
-    # Employee existence guard
-    try:
-        emp_id_int = int(employee_id)
-    except (ValueError, TypeError):
-        raise ValueError(f"Invalid employee ID '{employee_id}'. Cannot process checkout.")
-    cur.execute("SELECT Employee_id FROM Employee WHERE Employee_id = %s", (emp_id_int,))
+    from core.permission_service import require_permission
+    from core.unit_service import whole_quantity, resolve_unit
+    allowed, reason = require_permission(employee_id, "pos.sell")
+    if not allowed:
+        raise ValueError(reason)
+    if pay_label == "Credit" and customer_id == "WALKIN":
+        raise ValueError("Select a registered customer before using customer credit.")
+    cur.execute("SELECT id_card_number FROM Customers WHERE id_card_number=%s", (customer_id,))
     if not cur.fetchone():
-        raise ValueError(f"Employee ID #{emp_id_int} not found. Please log in again before checkout.")
-
-    # Customer existence guard
-    cur.execute("SELECT id_card_number FROM Customers WHERE id_card_number = %s", (customer_id,))
-    if not cur.fetchone():
-        if customer_id == "WALKIN":
-            cur.execute(
-                "INSERT OR IGNORE INTO Customers (id_card_number, first_name, last_name, Email_Address, city, registration_date) "
-                "VALUES ('WALKIN', 'Walk-in', 'Customer', 'N/A', 'N/A', '2026-01-01')"
-            )
-        elif pay_label == "Credit":
-            raise ValueError(
-                f"Customer CNIC '{customer_id}' is not registered. "
-                "Credit (Khatoo) checkout requires a registered customer."
-            )
-
-    # Per-item quantity validation + FEFO batch resolution
-    expanded_cart = []
+        raise ValueError("The selected customer no longer exists. Select the customer again.")
+    if not isinstance(cart, list) or not cart:
+        raise ValueError("Cart is empty.")
+    if len(cart) > 1000:
+        raise ValueError("This sale contains too many lines.")
+    today = business_date().isoformat()
+    expanded = []
+    reserved = {}
     for item in cart:
-        try:
-            qty = int(item.get("qty", 0))
-            if qty <= 0:
-                raise ValueError(f"Invalid quantity ({qty}) specified for item '{item.get('name', 'Unknown')}'.")
-        except (ValueError, TypeError) as exc:
-            raise ValueError(f"Non-numeric quantity for item '{item.get('name', 'Unknown')}'.") from exc
-
-        prod_id = item["prod_id"]
-        price_dec = Decimal(str(item.get("price", 0.0))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-
-        # If the UI supplied a specific batch, validate it first
-        batch_id = item.get("batch_id")
-        if batch_id:
-            cur.execute("SELECT quantity, expiry_date FROM Batch WHERE id = %s", (batch_id,))
-            res = cur.fetchone()
-            if res:
-                current_qty, exp_date = res
-                exp_date_str = str(exp_date)
-                if exp_date_str <= today:
-                    raise ValueError(
-                        f"STOP! Medicine '{item.get('name')}' (Batch #{batch_id}) is EXPIRED ({exp_date_str})."
-                    )
-                if current_qty >= qty:
-                    expanded_cart.append({
-                        "prod_id": prod_id,
-                        "name": item.get("name"),
-                        "price": float(price_dec),
-                        "batch_id": batch_id,
-                        "qty": qty,
-                        "subtotal": float(price_dec * qty),
-                    })
-                    continue
-
-        # Fall back to FEFO multi-batch allocation
-        allocations = allocate_sellable_batches(prod_id, qty, conn=conn)
-        if not allocations:
-            raise ValueError(
-                f"Insufficient valid non-expired stock for product '{item.get('name')}'. Requested: {qty}."
-            )
-        for alloc in allocations:
-            expanded_cart.append({
-                "prod_id": prod_id,
-                "name": item.get("name"),
-                "price": float(price_dec),
-                "batch_id": alloc["batch_id"],
-                "qty": alloc["quantity"],
-                "subtotal": float(price_dec * alloc["quantity"]),
-            })
-
-    # Consolidate split-batch rows for the same batch_id
-    consolidated: dict = {}
-    for item in expanded_cart:
+        qty_selected = whole_quantity(item.get("qty", 0))
+        prod_id = whole_quantity(item.get("prod_id", item.get("id")))
+        cur.execute("SELECT product_name,price,is_active,base_unit,strength,dosage_form FROM Products WHERE id=%s", (prod_id,))
+        product = cur.fetchone()
+        if not product or not product[2]:
+            raise ValueError("A product in this cart is no longer available. Remove it and search again.")
+        unit = resolve_unit(prod_id, item.get("unit_code", "base"), cur=cur)
+        multiplier = int(unit["multiplier"])
+        if "unit_multiplier" in item and whole_quantity(item["unit_multiplier"]) != multiplier:
+            raise ValueError("This pack size changed. Remove the item and select it again.")
+        qty_base = whole_quantity(qty_selected * multiplier)
+        supplied = _finite_money(item.get("price", 0), "Selling price")
+        specific = item.get("batch_id")
+        if specific:
+            specific = whole_quantity(specific)
+            cur.execute("SELECT product_id,expiry_date,stock_status FROM Batch WHERE id=%s", (specific,))
+            batch = cur.fetchone()
+            if not batch or int(batch[0]) != prod_id:
+                raise ValueError("This medicine does not match its batch. Remove the item and search again.")
+            if str(batch[1]) < today or batch[2] != "SELLABLE":
+                raise ValueError(f"{product[0]} is expired, recalled, or quarantined and cannot be sold.")
+        cur.execute("SELECT id,quantity,expiry_date,COALESCE(sale_price,%s) FROM Batch "
+                    "WHERE product_id=%s AND expiry_date>=%s AND quantity>0 AND stock_status='SELLABLE' "
+                    "ORDER BY CASE WHEN id=%s THEN 0 ELSE 1 END,expiry_date,id",
+                    (product[1], prod_id, today, specific or -1))
+        batches = cur.fetchall()
+        remaining = qty_base
+        allocations = []
+        expected_price = None
+        for bid, stock, expiry, base_price in batches:
+            available = int(stock) - reserved.get(int(bid), 0)
+            if available <= 0:
+                continue
+            selected_price = (Decimal(str(base_price)) * multiplier).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if not selected_price.is_finite() or selected_price <= 0:
+                raise ValueError("The selling price needs an owner review before this medicine can be sold.")
+            if expected_price is None:
+                expected_price = selected_price
+                if supplied != selected_price:
+                    raise ValueError(f"The price of {product[0]} changed to Rs. {selected_price:.2f}. Remove the item and select it again.")
+            # A single cart line cannot silently combine differently priced lots.
+            if selected_price != expected_price:
+                continue
+            take = min(remaining, available)
+            allocations.append((int(bid), take))
+            reserved[int(bid)] = reserved.get(int(bid), 0) + take
+            remaining -= take
+            if not remaining:
+                break
+        if remaining:
+            raise ValueError(f"Insufficient sellable stock at this price for {product[0]}. Refresh the item or choose another batch.")
+        selected_total = expected_price * qty_selected
+        allocated_total = Decimal("0.00")
+        for index, (bid, take) in enumerate(allocations):
+            line_total = (selected_total * take / qty_base).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if index == len(allocations) - 1:
+                line_total = selected_total - allocated_total
+            allocated_total += line_total
+            expanded.append({"prod_id": prod_id, "name": product[0],
+                             "price": float(expected_price / multiplier), "batch_id": bid,
+                             "qty": take, "subtotal": float(line_total), "unit_label": product[3] or "unit",
+                             "unit_code": unit["code"], "unit_multiplier": multiplier,
+                             "display_quantity": float(Decimal(take) / multiplier),
+                             "strength": product[4], "dosage_form": product[5]})
+    consolidated = {}
+    for item in expanded:
         bid = item["batch_id"]
         if bid in consolidated:
-            consolidated[bid]["qty"] += item["qty"]
-            consolidated[bid]["subtotal"] += item["subtotal"]
+            previous = consolidated[bid]
+            if Decimal(str(previous["price"])) != Decimal(str(item["price"])):
+                raise ValueError("The same batch has conflicting prices or pack sizes. Use one selling unit for this medicine.")
+            previous["qty"] += item["qty"]
+            previous["subtotal"] = float(Decimal(str(previous["subtotal"])) + Decimal(str(item["subtotal"])))
+            if previous["unit_code"] == item["unit_code"]:
+                previous["display_quantity"] += item["display_quantity"]
+            else:
+                previous.update(unit_code="base", unit_multiplier=1, display_quantity=previous["qty"])
         else:
             consolidated[bid] = item.copy()
-
     return list(consolidated.values())
+
+
+def _finite_money(value, label="Amount"):
+    try:
+        amount = Decimal(str(value))
+        if not amount.is_finite() or abs(amount) > Decimal("1000000000"):
+            raise ValueError()
+        return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError(f"{label} must be a valid finite amount.") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -279,10 +283,12 @@ def calculate_sale_totals(final_items: list, discount: float, tax_rate_dec: Deci
     """
     disc_dec = Decimal(str(discount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     subtotal_dec = sum(
-        (Decimal(str(i["price"])) * i["qty"] for i in final_items),
+        (Decimal(str(i.get("subtotal", Decimal(str(i["price"])) * i["qty"]))) for i in final_items),
         Decimal("0.00"),
     )
-    net_total_dec = max(subtotal_dec - disc_dec, Decimal("0.00"))
+    if disc_dec < 0 or disc_dec > subtotal_dec:
+        raise ValueError("Discount must be between zero and the sale subtotal.")
+    net_total_dec = subtotal_dec - disc_dec
     tax_amount_dec = (net_total_dec * tax_rate_dec).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     price_with_tax_dec = (net_total_dec + tax_amount_dec).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return SaleFinancials(
@@ -298,7 +304,7 @@ def calculate_sale_totals(final_items: list, discount: float, tax_rate_dec: Deci
 # Pure SQL writer — accepts resolved data, executes all INSERTs/UPDATEs,
 # returns the new purchase_id. No business logic, no financial maths.
 # ---------------------------------------------------------------------------
-def _write_sale_to_db(cur, customer_id, employee_id, pay_label, final_items, financials: SaleFinancials, payment_method: str = "Cash"):
+def _write_sale_to_db(cur, customer_id, employee_id, pay_label, final_items, financials: SaleFinancials, payment_method: str = "Cash", *, request=None, session_id=None, tax_rate=None, received=None, change=0):
     """
     Writes a fully resolved sale to the database inside an existing transaction.
     pay_label drives Cash-vs-Credit behaviour (Khatoo ledger); payment_method
@@ -318,14 +324,14 @@ def _write_sale_to_db(cur, customer_id, employee_id, pay_label, final_items, fin
 
     No validation. No financial logic. Only SQL.
     """
-    today = date.today().strftime("%Y-%m-%d")
-    now_time = datetime.now().strftime("%H:%M:%S")
+    today = business_date().strftime("%Y-%m-%d")
+    now_time = business_now().strftime("%H:%M:%S")
 
     # INSERT Purchase header
     cur.execute(
         "INSERT INTO Purchase "
-        "(number_of_products, total_price, price_with_tax, customer_id, employee_id, payment_method, discount_amount) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        "(number_of_products,total_price,price_with_tax,customer_id,employee_id,payment_method,discount_amount,checkout_token,held_sale_id,session_id,tax_rate,total_tax,cash_received,change_due,terminal_id) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (
             len(final_items),
             financials.net_total,
@@ -333,7 +339,8 @@ def _write_sale_to_db(cur, customer_id, employee_id, pay_label, final_items, fin
             customer_id,
             employee_id,
             payment_method,
-            financials.discount,
+            financials.discount, request.checkout_token, request.held_sale_id, session_id,
+            float(tax_rate), financials.tax_amount, received, float(change), request.terminal_id,
         ),
     )
     purchase_id = cur.lastrowid
@@ -341,8 +348,8 @@ def _write_sale_to_db(cur, customer_id, employee_id, pay_label, final_items, fin
     # INSERT Sales_details + deduct Batch and Products stock
     for item in final_items:
         cur.execute(
-            "INSERT INTO Sales_details (purchase_id, batch_id, Quantity) VALUES (%s, %s, %s)",
-            (purchase_id, item["batch_id"], item["qty"]),
+            "INSERT INTO Sales_details (purchase_id,batch_id,Quantity,unit_price,line_subtotal,unit_code,unit_multiplier,display_quantity) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+            (purchase_id,item["batch_id"],item["qty"],item["price"],item["subtotal"],item["unit_code"],item["unit_multiplier"],item["display_quantity"]),
         )
         cur.execute(
             "UPDATE Batch SET quantity = quantity - %s WHERE id = %s AND quantity >= %s",
@@ -363,6 +370,9 @@ def _write_sale_to_db(cur, customer_id, employee_id, pay_label, final_items, fin
                 f"Stock conflict: Product #{item['prod_id']} does not have "
                 f"sufficient aggregate stock ({item['qty']} requested)."
             )
+
+        cur.execute("INSERT INTO Stock_Movement(product_id,batch_id,quantity_delta,movement_type,reason,employee_id,operation_key,created_at) VALUES(%s,%s,%s,'SALE',%s,%s,%s,%s)",
+                    (item["prod_id"],item["batch_id"],-item["qty"],f"Sale #{purchase_id}",employee_id,request.checkout_token,business_now().isoformat(timespec="seconds")))
 
     # INSERT Receipt
     cur.execute(
@@ -388,121 +398,104 @@ def _write_sale_to_db(cur, customer_id, employee_id, pay_label, final_items, fin
 # commits, then fires decoupled side-effects (audit + receipt).
 # Interface is unchanged — all existing callers continue to work.
 # ---------------------------------------------------------------------------
-def confirm_sale(customer_id, employee_id, cart, *, total=0.0, discount=0.0, payment_method="Cash"):
-    """
-    Executes an atomic checkout transaction for a shopping cart.
-    Protected by _CHECKOUT_LOCK against concurrent double-checkout submissions.
+def confirm_sale(customer_id, employee_id, cart, *, total=0.0, discount=0.0, payment_method="Cash", **kwargs):
+    """Compatibility API; a caller retry must reuse an explicit checkout_token."""
+    result = _execute_checkout(CheckoutRequest(customer_id, employee_id, cart, discount,
+                                               payment_method, total, **kwargs))
+    return result.success, result.message
 
-    Delegates to three internal seams:
-      1. _validate_and_allocate_cart  — input validation + FEFO batch resolution
-      2. calculate_sale_totals        — pure financial calculation
-      3. _write_sale_to_db            — SQL INSERT/UPDATE, no logic
 
-    Side-effects (audit log, receipt file) run after commit and do not
-    trigger a rollback on failure.
-    """
-    if not _CHECKOUT_LOCK.acquire(blocking=False):
-        return False, "Checkout request already in progress. Duplicate submission prevented."
-
+def _execute_checkout(request):
+    from core.checkout_idempotency_service import claim_checkout, _result_from_purchase
+    from core.settings_service import SettingsService
+    from core.permission_service import require_permission
+    request.checkout_token = request.checkout_token or uuid.uuid4().hex
     try:
-        return _confirm_sale_locked(customer_id, employee_id, cart, total=total, discount=discount, payment_method=payment_method)
-    finally:
-        _CHECKOUT_LOCK.release()
-
-
-def _confirm_sale_locked(customer_id, employee_id, cart, *, total=0.0, discount=0.0, payment_method="Cash"):
-    """Body of confirm_sale — caller owns the _CHECKOUT_LOCK lifecycle."""
-
-    # CRITICAL: normalize customer identity ONCE at the boundary. All debt
-    # lookups (get_customer_total_debt etc.) use validate_cnic()'s 13-digit
-    # normalized form — storing a dashed/raw string here makes debt silently
-    # unreadable and defeats credit-limit enforcement.
-    if customer_id:
-        from core.customer_service import validate_cnic
-        normalized = validate_cnic(customer_id)
-        if not normalized and str(customer_id).strip().upper() != "WALKIN":
-            return False, f"Invalid Customer ID/CNIC format: '{customer_id}'."
-        customer_id = normalized or "WALKIN"
-    else:
-        customer_id = "WALKIN"
-
-    conn = None
-    try:
-        conn = get_conn()
-        if not conn:
-            return False, "Database connection offline."
-
-        if not cart:
-            return False, "Cart is empty."
-
-        cur = conn.cursor()
-        payment_method, pay_label = _normalize_payment_method(payment_method)
-
-        # Validate discount sign before passing to pure function
-        disc_dec = Decimal(str(discount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if disc_dec < Decimal("0.00"):
-            return False, "Discount cannot be a negative amount."
-
-        # Seam 1 — validate cart and resolve FEFO batches
-        final_items = _validate_and_allocate_cart(cur, cart, customer_id, employee_id, total, pay_label, conn)
-
-        # Resolve tax rate — normalisation lives in SettingsService.get_tax_rate()
-        from core.settings_service import SettingsService
-        tax_rate_dec = SettingsService.get_tax_rate()
-
-        # Seam 2 — pure financial calculation
-        financials = calculate_sale_totals(final_items, float(disc_dec), tax_rate_dec)
-
-        # Post-tax credit limit validation for Khatoo Credit payment mode
-        if pay_label == "Credit":
-            from core.customer_service import check_customer_credit_limit
-            ok_limit, limit_msg = check_customer_credit_limit(customer_id, float(financials.price_with_tax), conn=conn)
-            if not ok_limit:
-                raise ValueError(limit_msg)
-
-        # Seam 3 — write to DB
-        purchase_id = _write_sale_to_db(cur, customer_id, employee_id, pay_label, final_items, financials, payment_method)
-
-        conn.commit()
+        request.employee_id = int(request.employee_id)
+        from core.customer_service import resolve_customer_ref
+        customer_id = resolve_customer_ref(request.customer_id) if request.customer_id and request.customer_id != "WALKIN" else "WALKIN"
+        if not customer_id:
+            raise ValueError("Select a valid registered customer.")
+        request.customer_id = customer_id
+        payment_method, pay_label = _normalize_payment_method(request.payment_method)
+        request.payment_method = payment_method
+        with get_db(immediate=True) as (conn, cur):
+            allowed, reason = require_permission(request.employee_id, "pos.sell")
+            if not allowed:
+                raise ValueError(reason)
+            duplicate = claim_checkout(cur, request)
+            if duplicate is not None:
+                return duplicate
+            final_items = _validate_and_allocate_cart(cur,request.cart,customer_id,request.employee_id,request.total,pay_label,conn)
+            tax_rate = SettingsService.get_tax_rate()
+            discount = _finite_money(request.discount, "Discount")
+            financials = calculate_sale_totals(final_items, discount, tax_rate)
+            if request.expected_total is not None and _finite_money(request.expected_total, "Expected total") != Decimal(str(financials.price_with_tax)):
+                raise ValueError("The bill changed. Refresh the total and try again.")
+            subtotal = sum((Decimal(str(i["subtotal"])) for i in final_items),Decimal("0.00"))
+            from core.manager_auth_service import discount_requires_authorization, validate_discount_approval
+            if discount_requires_authorization(float(discount),float(subtotal)):
+                allowed, reason = validate_discount_approval(cur,request.manager_approval_token,request.employee_id,float(discount),float(subtotal))
+                if not allowed:
+                    raise ValueError(reason)
+            if pay_label == "Credit":
+                from core.customer_service import check_customer_credit_limit
+                allowed, reason = check_customer_credit_limit(customer_id,financials.price_with_tax,conn=conn)
+                if not allowed:
+                    raise ValueError(reason)
+            session_id = None
+            received = None
+            change = Decimal("0.00")
+            if payment_method == "Cash":
+                from core.cash_session_service import _terminal
+                terminal_id = _terminal(request.terminal_id)
+                cur.execute("SELECT id FROM Cash_Register_Session WHERE employee_id=%s AND terminal_id=%s AND status='OPEN' ORDER BY id DESC LIMIT 1", (request.employee_id, terminal_id))
+                session = cur.fetchone()
+                if not session:
+                    raise ValueError("Start a cash shift before accepting cash payments.")
+                session_id = int(session[0])
+                received_dec = Decimal(str(financials.price_with_tax)) if request.cash_received is None else _finite_money(request.cash_received,"Cash received")
+                if received_dec < Decimal(str(financials.price_with_tax)):
+                    raise ValueError("Cash received is less than the payable amount. Choose customer credit or enter the full cash amount.")
+                received = float(received_dec)
+                change = received_dec - Decimal(str(financials.price_with_tax))
+            if request.held_sale_id is not None:
+                request.held_sale_id = int(request.held_sale_id)
+                cur.execute("SELECT employee_id,status,purchase_id FROM Hold_Sales WHERE id=%s",(request.held_sale_id,))
+                held=cur.fetchone()
+                if not held or int(held[0]) != request.employee_id or held[1] != "RESUMED" or held[2] is not None:
+                    raise ValueError("This held sale is no longer available. Review its completed sale before trying again.")
+            purchase_id = _write_sale_to_db(cur,customer_id,request.employee_id,pay_label,final_items,financials,payment_method,
+                                            request=request,session_id=session_id,tax_rate=tax_rate,received=received,change=change)
+            if request.held_sale_id is not None:
+                cur.execute("UPDATE Hold_Sales SET status='COMPLETED',purchase_id=%s,completed_at=%s,updated_at=%s WHERE id=%s AND status='RESUMED' AND purchase_id IS NULL",
+                            (purchase_id,business_now().isoformat(),business_now().isoformat(),request.held_sale_id))
+                if cur.rowcount != 1:
+                    raise ValueError("This held sale changed before completion. No sale was saved.")
+            cur.execute("UPDATE Checkout_Request SET status='COMPLETED',purchase_id=%s,updated_at=%s WHERE token=%s AND status='PENDING'",
+                        (purchase_id,business_now().isoformat(),request.checkout_token))
+            if cur.rowcount != 1:
+                raise ValueError("The checkout safety record changed. No sale was saved.")
+            cur.execute("INSERT INTO Audit_Log(timestamp,user_id,action,details) VALUES(%s,%s,'POS_CHECKOUT_SUCCESS',%s)",
+                        (business_now().isoformat(),str(request.employee_id),f"Sale #{purchase_id}; {payment_method}; Rs.{financials.price_with_tax:.2f}"))
+            from core.receipt_service import create_receipt_snapshot
+            create_receipt_snapshot(cur,purchase_id,customer_id,final_items,financials.price_with_tax,
+                                    financials.tax_amount,financials.discount,payment_method,request.employee_id,
+                                    amount_received=received,change=float(change))
+            result = _result_from_purchase(cur,purchase_id)
         clear_inventory_cache()
-
-        # Decoupled side-effects — failures here do NOT rollback the committed sale
         try:
-            from core.audit_service import log_audit_event
-            log_audit_event(
-                employee_id,
-                "POS_CHECKOUT_SUCCESS",
-                f"Sale #{purchase_id} committed ({pay_label}). Net: Rs.{financials.net_total:.2f}",
-            )
-        except (sqlite3.Error, ValueError, OSError) as audit_err:
-            logger.warning(f"Handled checkout audit logging notice: {audit_err}")
-
-        try:
-            generate_invoice_file(
-                purchase_id, customer_id, final_items,
-                financials.price_with_tax, financials.tax_amount,
-                financials.discount, pay_label,
-            )
-        except Exception as pe:
-            logger.warning(f"Receipt generation issue for sale #{purchase_id}: {pe}")
-
-        return True, f"Sale #{purchase_id} recorded successfully! Invoice generated."
-
-    except ValueError as ve:
-        if conn:
-            conn.rollback()
-        return False, str(ve)
-    except Exception as e:
-        if conn:
-            conn.rollback()
-        logger.error(f"Checkout transaction failed: {e}")
-        return False, f"Checkout failed: {e}"
-    finally:
-        try:
-            if conn:
-                conn.close()
-        except (sqlite3.Error, OSError) as close_err:
-            logger.warning(f"Handled checkout connection close notice: {close_err}")
+            generate_invoice_file(purchase_id,customer_id,final_items,financials.price_with_tax,
+                                  financials.tax_amount,financials.discount,payment_method)
+        except Exception as exc:
+            logger.warning("Sale #%s saved; receipt export/printing needs retry: %s",purchase_id,exc)
+            result.message = f"Sale #{purchase_id} completed. Receipt printing needs retry; do not repeat the sale."
+        return result
+    except (ValueError, TypeError, InvalidOperation, KeyError) as exc:
+        return CheckoutResult(False,str(exc),outcome="rejected")
+    except Exception as exc:
+        logger.exception("Checkout outcome could not be confirmed for token %s",request.checkout_token)
+        return CheckoutResult(False,"The sale result could not be confirmed. Check this saved request before trying again.",outcome="unknown")
 
 
 def get_sales_history():
@@ -535,7 +528,7 @@ def get_purchase_items(purchase_id):
     try:
         cur = conn.cursor()
         cur.execute(
-            "SELECT p.product_name, sd.batch_id, sd.Quantity, p.price, (sd.Quantity * p.price) as subtotal "
+            "SELECT p.product_name, sd.batch_id, sd.Quantity, sd.unit_price, sd.line_subtotal as subtotal "
             "FROM Sales_details sd "
             "JOIN Batch b ON sd.batch_id = b.id "
             "JOIN Products p ON b.product_id = p.id "
@@ -550,129 +543,8 @@ def get_purchase_items(purchase_id):
         conn.close()
 
 
-def process_sale_return(purchase_id: int, return_items: list, reason: str = "Customer Return", employee_id: int = 1, restock_sellable: bool = True):
-    """
-    Processes formal sales item returns and refunds.
-    Persists formal audit records in Customer_Returns and Return_Items tables.
-    Inputs:
-        purchase_id      - Original purchase ID
-        return_items     - List of dicts: [{"batch_id": int, "qty": int, "prod_id": int, "price": float}]
-        reason           - Reason string for audit log
-        employee_id      - Authorizing employee ID
-        restock_sellable - If True, returns stock to sellable Batch; if False, flags as damaged/quarantine
-    Returns:
-        (success: bool, message: str)
-    """
-    if not return_items:
-        return False, "No return items specified."
-
-    try:
-        with get_db() as (conn, cur):
-            cur.execute("SELECT customer_id, payment_method FROM Purchase WHERE id = %s", (purchase_id,))
-            row = cur.fetchone()
-            if not row:
-                return False, f"Purchase #{purchase_id} not found."
-            customer_id = row[0] if row and row[0] else "WALKIN"
-            payment_method = str(row[1]) if len(row) > 1 and row[1] else "Cash"
-
-            today_str = date.today().strftime("%Y-%m-%d")
-            time_str = datetime.now().strftime("%H:%M:%S")
-
-            total_refund = Decimal("0.00")
-            valid_items = []
-            for item in return_items:
-                qty = int(item.get("qty", 0))
-                if qty <= 0:
-                    continue
-                batch_id = item.get("batch_id")
-                prod_id = item.get("prod_id")
-
-                # Guard: cannot return more than was sold on this purchase line.
-                cur.execute(
-                    "SELECT COALESCE(SUM(Quantity), 0) FROM Sales_details "
-                    "WHERE purchase_id = %s AND batch_id = %s",
-                    (purchase_id, batch_id),
-                )
-                sold_qty = int(cur.fetchone()[0] or 0)
-                cur.execute(
-                    "SELECT COALESCE(SUM(ri.quantity), 0) FROM Return_Items ri "
-                    "JOIN Customer_Returns cr ON ri.return_id = cr.id "
-                    "WHERE cr.purchase_id = %s AND ri.batch_id = %s",
-                    (purchase_id, batch_id),
-                )
-                already_returned = int(cur.fetchone()[0] or 0)
-                if qty > sold_qty - already_returned:
-                    return False, (
-                        f"Cannot return {qty} of batch #{batch_id}: only "
-                        f"{max(sold_qty - already_returned, 0)} remain returnable on this sale."
-                    )
-
-                unit_price = Decimal(str(item.get("price", 0.0)))
-                subtotal = (unit_price * qty).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-                total_refund += subtotal
-                valid_items.append((item, qty, unit_price, subtotal))
-
-            if not valid_items:
-                return False, "No valid item quantities to return."
-
-            cur.execute(
-                "INSERT INTO Customer_Returns (purchase_id, customer_id, employee_id, refund_amount, reason, return_date, return_time) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (purchase_id, customer_id, employee_id, float(total_refund), reason, today_str, time_str)
-            )
-            return_id = cur.lastrowid
-
-            restock_label = "RESTOCKED" if restock_sellable else "DAMAGED_QUARANTINE"
-            for item, qty, unit_price, subtotal in valid_items:
-                batch_id = item["batch_id"]
-                prod_id = item["prod_id"]
-
-                cur.execute(
-                    "INSERT INTO Return_Items (return_id, product_id, batch_id, quantity, unit_price, subtotal, restock_status) "
-                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                    (return_id, prod_id, batch_id, qty, float(unit_price), float(subtotal), restock_label)
-                )
-
-                if restock_sellable:
-                    cur.execute(
-                        "UPDATE Batch SET quantity = quantity + %s WHERE id = %s",
-                        (qty, batch_id)
-                    )
-                    cur.execute(
-                        "UPDATE Products SET stock_quantity = stock_quantity + %s WHERE id = %s",
-                        (qty, prod_id)
-                    )
-
-            # Credit-sale returns reduce the Khatoo ledger debt, not cash.
-            if payment_method == "Khatoo Credit" and customer_id and customer_id != "WALKIN":
-                cur.execute(
-                    "SELECT id, amount_due FROM Customer_Khatoo "
-                    "WHERE purchase_id = %s AND customer_id = %s ORDER BY id DESC LIMIT 1",
-                    (purchase_id, customer_id),
-                )
-                khatoo_row = cur.fetchone()
-                if khatoo_row:
-                    ledger_id, amount_due = khatoo_row[0], Decimal(str(khatoo_row[1]))
-                    reduction = min(total_refund, max(amount_due, Decimal("0.00")))
-                    cur.execute(
-                        "UPDATE Customer_Khatoo SET amount_due = amount_due - %s, "
-                        "amount_paid = amount_paid + %s WHERE id = %s",
-                        (float(reduction), float(reduction), ledger_id),
-                    )
-
-            # Record audit log event for sale return
-            try:
-                from core.audit_service import log_audit_event
-                log_audit_event(
-                    employee_id,
-                    "SALE_RETURN",
-                    f"Returned {len(valid_items)} items for Purchase #{purchase_id}. Refund: Rs.{total_refund:.2f}. Reason: {reason}"
-                )
-            except (sqlite3.Error, ValueError, OSError) as audit_err:
-                logger.warning(f"Handled return audit logging notice: {audit_err}")
-
-        logger.info(f"Sale return #{return_id} processed for Purchase #{purchase_id}. Refund Amount: Rs.{total_refund:.2f}")
-        return True, f"Return #{return_id} processed successfully. Refund Due: Rs. {total_refund:.2f}"
-    except Exception as e:
-        logger.error(f"Sale return failed for Purchase #{purchase_id}: {e}")
-        return False, f"Return failed: {e}"
+def process_sale_return(purchase_id, return_items, reason="Customer Return", employee_id=1, restock_sellable=True, **kwargs):
+    """Compatibility entry point delegates to the authoritative return service."""
+    from core.return_service import process_return
+    return process_return(purchase_id,return_items,employee_id,reason,
+                          "SELLABLE" if restock_sellable else "DAMAGED",**kwargs)

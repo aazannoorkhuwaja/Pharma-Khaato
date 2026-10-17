@@ -2,6 +2,7 @@
 
 import os
 import shutil
+import time
 from typing import Any
 
 from core.path_manager import PathManager
@@ -84,5 +85,16 @@ class SystemHealthService:
                 )
         except OSError as exc:
             results["issues"].append(f"Could not check available disk space: {exc}")
+
+        try:
+            snapshots = [os.path.getmtime(os.path.join(results["backups_dir"], name))
+                         for name in os.listdir(results["backups_dir"])
+                         if name.endswith(".sqlite")]
+            age = (time.time() - max(snapshots)) / 3600 if snapshots else None
+            results["backup_age_hours"] = age
+            if age is not None and age > 24:
+                results["issues"].append("No backup has been saved in the last 24 hours. Open Settings → System & Recovery.")
+        except OSError:
+            results["issues"].append("The backup folder could not be checked.")
 
         return results

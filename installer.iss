@@ -4,7 +4,7 @@
 
 #define MyAppName "Pharma Khaato"
 #ifndef MyAppVersion
-  #define MyAppVersion "2.3.1"
+  #define MyAppVersion "2.4.0"
 #endif
 #define MyAppPublisher "Pharma Khaato"
 #define MyAppExeName "pharma_khaato.exe"
@@ -15,7 +15,7 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\Pharma Khaato
+DefaultDirName={localappdata}\Programs\Pharma Khaato
 DefaultGroupName=Pharma Khaato
 DisableProgramGroupPage=yes
 OutputDir=release
@@ -24,6 +24,7 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+MinVersion=10.0.17763
 PrivilegesRequired=lowest
 WizardStyle=modern
 CloseApplications=yes
@@ -36,25 +37,24 @@ VersionInfoDescription=Pharmacy POS & Inventory Management
 VersionInfoProductName={#MyAppName}
 VersionInfoProductVersion={#MyAppVersion}
 
-[Dirs]
-; Must match PathManager's stable filesystem product name under LOCALAPPDATA.
-Name: "{localappdata}\Pharma-Khaato"; Permissions: users-full
-Name: "{localappdata}\Pharma-Khaato\data"; Permissions: users-full
-Name: "{localappdata}\Pharma-Khaato\logs"; Permissions: users-full
-Name: "{localappdata}\Pharma-Khaato\backups"; Permissions: users-full
-Name: "{localappdata}\Pharma-Khaato\receipts"; Permissions: users-full
-Name: "{localappdata}\Pharma-Khaato\exports"; Permissions: users-full
-Name: "{localappdata}\Pharma-Khaato\config"; Permissions: users-full
+; Shop data is created by the app for the current Windows user.
+; Never grant all local users write access or delete it during uninstall.
 
 [Files]
 Source: "dist\pharma_khaato\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
+Source: "packaging\windows\START-HERE.html"; DestDir: "{app}"; Flags: ignoreversion
+
+Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+
 [Tasks]
-Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
+Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Icons]
 Name: "{autoprograms}\Pharma Khaato"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{autodesktop}\Pharma Khaato"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+
+Name: "{autoprograms}\Pharma Khaato - Getting Started"; Filename: "{app}\START-HERE.html"
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent

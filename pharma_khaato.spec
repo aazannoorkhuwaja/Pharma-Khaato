@@ -7,6 +7,7 @@ block_cipher = None
 BASE_DIR = os.path.dirname(os.path.abspath('__file__'))
 
 datas = [
+    ('LICENSE', '.'),
     ('schema_sqlite.sql', '.'),
     ('migrations/*.sql', 'migrations'),
     ('.env.example', '.'),
@@ -19,6 +20,16 @@ binaries = []
 # Keep the packaged build explicit: a release must contain every major screen
 # and every service reached through MVC facades/background tasks.
 hiddenimports = [
+    'ui.dialogs.about_dialog', 'controllers.update_controller', 'ui.dialogs.update_dialog',
+    'core.installed_smoke', 'core.business_time', 'core.counter_preferences', 'core.lan_client',
+    'core.lan_config', 'core.lan_service', 'core.local_operations',
+    'core.recovery_service', 'core.runtime_context', 'core.supplier_service',
+    'core.unit_service', 'models.remote', 'models.return_model',
+    'controllers.shop_connection_controller', 'controllers.return_controller',
+    'ui.dialogs.counter_connection_dialog', 'ui.screens.recovery_screen',
+    'ui.screens.supplier_accounts', 'scripts.run_shop_server',
+    'cryptography.x509', 'tzdata',
+
     'sqlite3',
     'PySide6.QtCore',
     'PySide6.QtGui',

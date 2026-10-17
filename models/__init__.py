@@ -18,6 +18,14 @@ from .services import (
     SettingsModel,
 )
 
+from .remote import routed_model
+
+for _name in (
+    'AppModel', 'AuthModel', 'CashSessionModel', 'CustomerModel', 'InventoryModel',
+    'ManagerAuthModel', 'KhatooModel', 'POSModel', 'ReportsModel', 'SettingsModel',
+):
+    globals()[_name] = routed_model(globals()[_name])
+
 __all__ = [
     "AppModel",
     "AuthModel",

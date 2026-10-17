@@ -59,6 +59,17 @@ def _money(value) -> Decimal:
     return Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _rate(value):
+    return f"{value:.2f}" if value == value.quantize(Decimal(".01")) else f"{value:.4f}"
+
+
+def _item_total(item):
+    value = item.get("subtotal")
+    if value is None:
+        value = Decimal(str(item.get("price", 0))) * int(item.get("qty", 1))
+    return _money(value)
+
+
 def _receipt_settings():
     return SettingsService.get_many(
         _RECEIPT_SETTING_KEYS,
@@ -132,7 +143,7 @@ def _purchase_receipt_context(purchase_id, fallback_payment="Cash", fallback_cas
         cur = conn.cursor()
         cur.execute(
             "SELECT p.payment_method, e.first_name, e.last_name "
-            "FROM Purchase p LEFT JOIN Employee e ON e.id = p.employee_id "
+            "FROM Purchase p LEFT JOIN Employee e ON e.Employee_id = p.employee_id "
             "WHERE p.id = %s LIMIT 1",
             (purchase_id,),
         )
@@ -159,6 +170,8 @@ def generate_invoice_text(
     amount_received=None,
     change=None,
     template=None,
+    *,
+    sale_datetime=None,
 ):
     """Render the selected fast thermal-receipt template."""
     settings = _receipt_settings()
@@ -166,13 +179,20 @@ def generate_invoice_text(
     width = _template_width(key)
     sep = "-" * width
     strong = "=" * width
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = sale_datetime or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # A database reference is not useful customer-facing receipt information.
+    identity = str(customer_id or "Walk-in Customer").strip()
+    if identity.upper() in {"WALKIN", "GUEST_WALKIN"} or identity.startswith("CUST_"):
+        customer_id = "Walk-in Customer" if identity.upper() in {"WALKIN", "GUEST_WALKIN"} else "Customer"
+    elif identity.replace("-", "").isdigit() and len(identity.replace("-", "")) == 13:
+        customer_id = "Customer • " + identity.replace("-", "")[-4:]
     footer = settings.get("receipt_footer", "NOT_CONFIGURED")
 
     dec_discount = _money(discount)
     dec_tax = _money(tax)
     grand_total = _money(total)
-    subtotal = sum((_money(item.get("price", 0)) * int(item.get("qty", 1)) for item in items), Decimal("0.00"))
+    subtotal = sum((_item_total(item) for item in items), Decimal("0.00"))
+    items = [dict(item, name=str(item.get("name", "Item")) + (" [" + str(item["unit_label"]) + "]" if item.get("unit_label") else "")) for item in items]
     lines = []
 
     if key == "compact_58":
@@ -184,9 +204,10 @@ def generate_invoice_text(
         for item in items:
             name = str(item.get("name", "Item"))[:20]
             qty = int(item.get("qty", 1))
-            price = _money(item.get("price", 0))
+            price = Decimal(str(item.get("price", 0)))
+            line_total = _item_total(item)
             lines.append(name)
-            lines.append(_pair(f" {qty} x {price:.2f}", f"{price * qty:.2f}", width))
+            lines.append(_pair(f" {qty} x {_rate(price)}", f"{line_total:.2f}", width))
         lines.append(sep)
         lines.append(_pair("TOTAL", f"Rs.{grand_total:.2f}", width))
         if amount_received is not None:
@@ -210,8 +231,9 @@ def generate_invoice_text(
         for item in items:
             name = str(item.get("name", "Item"))[:19]
             qty = int(item.get("qty", 1))
-            price = _money(item.get("price", 0))
-            lines.append(f"{name:<20}{qty:>4}{price:>8.2f}{(price * qty):>10.2f}"[:width])
+            price = Decimal(str(item.get("price", 0)))
+            line_total = _item_total(item)
+            lines.append(f"{name:<20}{qty:>4}{_rate(price):>8}{line_total:>10.2f}"[:width])
         lines.append(sep)
         lines.append(_pair("Subtotal", f"Rs. {subtotal:.2f}", width))
         if dec_discount:
@@ -241,8 +263,9 @@ def generate_invoice_text(
         for item in items:
             name = str(item.get("name", "Item"))[:17]
             qty = int(item.get("qty", 1))
-            price = _money(item.get("price", 0))
-            lines.append(f"{name:<18} {qty:<4} {price:>8.2f} {(price * qty):>8.2f}")
+            price = Decimal(str(item.get("price", 0)))
+            line_total = _item_total(item)
+            lines.append(f"{name:<18} {qty:<4} {_rate(price):>8} {line_total:>8.2f}")
         lines.append(sep)
         lines.append(_pair("Subtotal", f"Rs.{subtotal:.2f}", width))
         lines.append(_pair("Discount", f"Rs.{dec_discount:.2f}", width))
@@ -270,8 +293,9 @@ def generate_invoice_text(
         for item in items:
             name = str(item.get("name", "Item"))[:18]
             qty = int(item.get("qty", 1))
-            price = _money(item.get("price", 0))
-            lines.append(f"{name:<19}{qty:>4}{price:>8.2f}{(price * qty):>11.2f}"[:width])
+            price = Decimal(str(item.get("price", 0)))
+            line_total = _item_total(item)
+            lines.append(f"{name:<19}{qty:>4}{_rate(price):>8}{line_total:>11.2f}"[:width])
         lines.append(sep)
         lines.append(_pair("Gross amount", f"Rs.{subtotal:.2f}", width))
         if dec_discount:
@@ -296,8 +320,9 @@ def generate_invoice_text(
         for item in items:
             name = str(item.get("name", "Item"))[:17]
             qty = int(item.get("qty", 1))
-            price = _money(item.get("price", 0))
-            lines.append(f"{name:<18} {qty:<4} {price:>8.2f} {(price * qty):>8.2f}")
+            price = Decimal(str(item.get("price", 0)))
+            line_total = _item_total(item)
+            lines.append(f"{name:<18} {qty:<4} {_rate(price):>8} {line_total:>8.2f}")
         lines.append(sep)
         lines.append(_pair("Subtotal:", f"Rs.{subtotal:.2f}", width))
         if dec_discount:
@@ -322,12 +347,17 @@ def generate_invoice_text(
 def print_receipt_spooler(receipt_text: str, printer_name: str | None = None) -> bool:
     """Send receipt text to a configured OS printer without affecting sale state."""
     try:
-        from PySide6.QtGui import QTextDocument, QFont
+        from PySide6.QtGui import QTextDocument, QFont, QPageSize, QPageLayout
+        from PySide6.QtCore import QSizeF, QMarginsF
         from PySide6.QtPrintSupport import QPrinter
 
+        from core.lan_config import load_counter_config
+        from core.counter_preferences import read as local_preferences
+        remote_counter = load_counter_config() is not None
+        preferences = local_preferences() if remote_counter else {}
         chosen = str(printer_name or "").strip()
         if not chosen:
-            chosen = str(SettingsService.get_setting("preferred_printer", "") or "").strip()
+            chosen = str(preferences.get("preferred_printer", "") if remote_counter else SettingsService.get_setting("preferred_printer", "") or "").strip()
 
         if chosen and chosen not in available_printers():
             logger.warning("Configured receipt printer is not currently available: %s", chosen)
@@ -343,12 +373,104 @@ def print_receipt_spooler(receipt_text: str, printer_name: str | None = None) ->
         document = QTextDocument()
         document.setDefaultFont(QFont("Courier New", 9))
         document.setPlainText(receipt_text)
+        template = preferences.get('printer_template','standard_80') if remote_counter else _template_key(settings=_receipt_settings())
+        width_mm = 58.0 if template == "compact_58" else 80.0
+        printer.setPageSize(QPageSize(QSizeF(width_mm, 297.0), QPageSize.Millimeter, "Receipt"))
+        printer.setPageMargins(QMarginsF(2, 2, 2, 2), QPageLayout.Millimeter)
         document.print_(printer)
         logger.info("Receipt sent to OS print spooler%s.", f" ({chosen})" if chosen else "")
         return True
     except Exception as exc:
         logger.warning("Print spooler unavailable or printer not configured: %s", exc)
         return False
+
+
+def create_receipt_snapshot(
+    cur, purchase_id, customer_id, items, total, tax, discount,
+    payment_method, employee_id, amount_received=None, change=None,
+):
+    """Capture the exact receipt inside the caller's sale transaction."""
+    cur.execute("SELECT receipt_text FROM Receipt_Snapshot WHERE purchase_id = %s", (purchase_id,))
+    existing = cur.fetchone()
+    if existing:
+        return existing[0]
+    cur.execute("SELECT First_name, Last_name FROM Employee WHERE Employee_id = %s", (employee_id,))
+    employee = cur.fetchone()
+    cashier = " ".join(str(part or "").strip() for part in (employee or ())) or "Cashier"
+    cur.execute("SELECT first_name, last_name FROM Customers WHERE id_card_number = %s", (customer_id,))
+    customer = cur.fetchone()
+    customer_label = " ".join(str(part or "").strip() for part in (customer or ())).strip()
+    customer_label = customer_label or "Walk-in Customer"
+    cur.execute("SELECT printing_date, time FROM Receipt WHERE purchase_id = %s", (purchase_id,))
+    receipt = cur.fetchone()
+    stamp = " ".join(str(part) for part in receipt) if receipt else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    template = _template_key(settings=_receipt_settings())
+    text = generate_invoice_text(
+        purchase_id, customer_label, items, total, tax, discount,
+        payment_method, cashier, amount_received, change, template,
+        sale_datetime=stamp,
+    )
+    cur.execute(
+        "INSERT INTO Receipt_Snapshot (purchase_id, receipt_text, template, created_at) VALUES (%s,%s,%s,%s)",
+        (purchase_id, text, template, stamp),
+    )
+    return text
+
+
+def receipt_for_sale(purchase_id):
+    """Read immutable content; legacy receipts are rebuilt from saved sale facts."""
+    from core.db_engine import get_db
+    purchase_id = int(purchase_id)
+    with get_db() as (_conn, cur):
+        cur.execute(
+            "SELECT receipt_text, print_status FROM Receipt_Snapshot WHERE purchase_id = %s", (purchase_id,),
+        )
+        snapshot = cur.fetchone()
+        if not snapshot:
+            cur.execute(
+                "SELECT p.customer_id,p.price_with_tax,COALESCE(p.total_tax,p.price_with_tax-p.total_price),p.discount_amount,p.payment_method,p.employee_id "
+                "FROM Purchase p WHERE p.id=%s", (purchase_id,),
+            )
+            sale = cur.fetchone()
+            if not sale:
+                raise ValueError("That saved sale could not be found.")
+            cur.execute(
+                "SELECT p.product_name,sd.Quantity,sd.unit_price,sd.line_subtotal "
+                "FROM Sales_details sd JOIN Batch b ON b.id=sd.batch_id "
+                "JOIN Products p ON p.id=b.product_id WHERE sd.purchase_id=%s", (purchase_id,),
+            )
+            items = [{"name": name, "qty": qty, "price": price, "subtotal": subtotal}
+                     for name, qty, price, subtotal in cur.fetchall()]
+            if any(item["price"] is None for item in items):
+                raise ValueError("This older receipt has incomplete price history. Ask the owner for help.")
+            text = create_receipt_snapshot(cur, purchase_id, sale[0], items, sale[1], sale[2], sale[3], sale[4], sale[5])
+            snapshot = (text, "SAVED")
+    return {"purchase_id": purchase_id, "receipt_text": snapshot[0],
+            "filepath": os.path.join(PathManager.get_receipts_dir(), f"sale_{purchase_id}.txt"),
+            "print_status": snapshot[1]}
+
+
+def _update_print_status(purchase_id, printed):
+    from core.db_engine import get_db
+    with get_db() as (_conn, cur):
+        cur.execute(
+            "UPDATE Receipt_Snapshot SET print_status=%s,print_attempts=print_attempts+1, "
+            "last_printed_at=CASE WHEN %s THEN %s ELSE last_printed_at END WHERE purchase_id=%s",
+            ("SENT_TO_PRINTER" if printed else "PRINT_PENDING", bool(printed), datetime.now().isoformat(), int(purchase_id)),
+        )
+
+
+def reprint_sale_receipt(purchase_id):
+    """Print a saved sale without creating or changing any business transaction."""
+    try:
+        saved = receipt_for_sale(purchase_id)
+        # A repeated physical copy is visibly distinguished from the original.
+        printed = print_receipt_spooler("REPRINT — Sale #" + str(purchase_id) + "\n" + saved["receipt_text"])
+        _update_print_status(purchase_id, printed)
+        return (True, "Receipt sent to the printer.") if printed else (False, "Sale is saved. Check the printer and retry printing.")
+    except Exception as exc:
+        logger.error("Saved receipt printing failed for sale %s: %s", purchase_id, exc)
+        return False, "Sale is saved. The receipt could not be printed. Ask the owner for help."
 
 
 def generate_invoice_file(
@@ -372,8 +494,7 @@ def generate_invoice_file(
     try:
         receipts_dir = PathManager.get_receipts_dir()
         os.makedirs(receipts_dir, exist_ok=True)
-        now_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filepath = os.path.join(receipts_dir, f"invoice_{now_str}_{purchase_id}.txt")
+        filepath = os.path.join(receipts_dir, f"sale_{purchase_id}.txt")
         actual_payment, actual_cashier = _purchase_receipt_context(
             purchase_id,
             payment_method,
@@ -392,15 +513,26 @@ def generate_invoice_file(
             change,
             template,
         )
-        with open(filepath, "w", encoding="utf-8") as file_handle:
+        # The sale transaction already committed its snapshot. Never regenerate
+        # historical content from changed settings/catalog data during export.
+        try:
+            saved = receipt_for_sale(purchase_id)
+            content = saved["receipt_text"]
+        except ValueError:
+            # Rendering helpers may also be used without a real sale (preview).
+            pass
+        with open(filepath + ".partial", "w", encoding="utf-8") as file_handle:
             file_handle.write(content)
+        os.replace(filepath + ".partial", filepath)
 
         print_settings = SettingsService.get_many(
             ("receipt_auto_print", "preferred_printer"),
             {"receipt_auto_print": "0", "preferred_printer": ""},
         )
-        if _truthy(print_settings.get("receipt_auto_print")):
+        from core.runtime_context import remote_request
+        if _truthy(print_settings.get("receipt_auto_print")) and not remote_request.get():
             printed = print_receipt_spooler(content, print_settings.get("preferred_printer"))
+            _update_print_status(purchase_id, printed)
             if not printed:
                 logger.warning(
                     "Sale #%s receipt was saved but automatic printing did not complete.",

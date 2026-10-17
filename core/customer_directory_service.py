@@ -1,72 +1,52 @@
-"""Bounded customer lookups for responsive counter and directory screens."""
-
-from core.customer_service import escape_sql_like, validate_cnic
+"""Bounded, tokenized customer lookups, including Urdu names and local phones."""
+from core.customer_service import escape_sql_like, normalize_search, normalize_phone, validate_cnic
 from core.db_engine import get_db
-from core.logger import get_logger
-
-logger = get_logger("PharmaKhaatoCustomerDirectory")
-
-_POS_SEARCH_LIMIT = 60
-_DIRECTORY_LIMIT = 120
 
 
-def search_customers(text="", limit=_POS_SEARCH_LIMIT):
-    """Small, exact-first lookup used by POS customer selection."""
-    raw = str(text or "").strip()
+def customer_filter(text='', alias='c'):
+    raw = normalize_search(text)
     if not raw:
-        return []
-    safe_limit = max(1, min(int(limit), 120))
+        return '1=1', []
+    cnic = validate_cnic(raw)
     try:
-        with get_db() as (_conn, cur):
-            exact_id = validate_cnic(raw)
-            if exact_id:
-                cur.execute(
-                    "SELECT id_card_number, first_name, last_name, Email_Address, city "
-                    "FROM Customers WHERE id_card_number = %s LIMIT 1",
-                    (exact_id,),
-                )
-                exact = cur.fetchall()
-                if exact:
-                    return exact
+        phone = normalize_phone(raw)
+    except ValueError:
+        phone = None
+    if cnic or phone:
+        value = cnic or phone
+        return f'({alias}.id_card_number=%s OR {alias}.cnic=%s OR {alias}.phone=%s)', [value,value,value]
+    fields = f"lower({alias}.display_name || ' ' || {alias}.first_name || ' ' || {alias}.last_name || ' ' || {alias}.city || ' ' || {alias}.phone)"
+    terms = raw.split()[:8]
+    return ' AND '.join(f"{fields} LIKE %s ESCAPE '\\'" for _ in terms), [f'%{escape_sql_like(t)}%' for t in terms]
 
-            escaped = escape_sql_like(raw)
-            like = f"%{escaped}%"
-            cur.execute(
-                "SELECT id_card_number, first_name, last_name, Email_Address, city "
-                "FROM Customers "
-                "WHERE id_card_number LIKE %s OR first_name LIKE %s OR last_name LIKE %s "
-                "ORDER BY first_name ASC, last_name ASC " + f"LIMIT {safe_limit}",
-                (like, like, like),
-            )
-            return cur.fetchall()
-    except Exception as exc:
-        logger.error("Customer lookup failed: %s", exc)
+
+def search_customers(text='', limit=60):
+    if not str(text or '').strip():
         return []
+    where, params = customer_filter(text)
+    safe_limit = max(1,min(int(limit),120))
+    with get_db() as (_conn,cur):
+        cur.execute('SELECT c.id_card_number,c.first_name,c.last_name,c.phone,c.city '
+                    f'FROM Customers c WHERE c.id_card_number != \'WALKIN\' AND ({where}) '
+                    'ORDER BY c.display_name COLLATE NOCASE,c.id_card_number LIMIT %s', (*params,safe_limit))
+        return cur.fetchall()
 
 
-def search_customers_with_debt(text="", limit=_DIRECTORY_LIMIT):
-    """Return a bounded directory page with debt aggregated in one SQL query.
+def search_customers_with_debt(text='', limit=120, offset=0):
+    where,params = customer_filter(text)
+    safe_limit = max(1,min(int(limit),250))
+    with get_db() as (_conn,cur):
+        cur.execute('SELECT c.id_card_number,c.first_name,c.last_name,c.phone,c.city, '
+                    'COALESCE(SUM(k.amount_due),0) FROM Customers c '
+                    'LEFT JOIN Customer_Khatoo k ON k.customer_id=c.id_card_number '
+                    f'WHERE c.id_card_number != \'WALKIN\' AND ({where}) GROUP BY c.id_card_number '
+                    'ORDER BY c.display_name COLLATE NOCASE,c.id_card_number LIMIT %s OFFSET %s',
+                    (*params,safe_limit,max(0,int(offset))))
+        return cur.fetchall()
 
-    The customer screen intentionally renders a working set rather than an
-    unlimited database dump. Staff can narrow it immediately by name or CNIC.
-    """
-    raw = str(text or "").strip()
-    safe_limit = max(1, min(int(limit), 250))
-    escaped = escape_sql_like(raw)
-    like = f"%{escaped}%"
-    try:
-        with get_db() as (_conn, cur):
-            cur.execute(
-                "SELECT c.id_card_number, c.first_name, c.last_name, c.Email_Address, c.city, "
-                "       COALESCE(SUM(k.amount_due), 0.0) AS total_debt "
-                "FROM Customers c "
-                "LEFT JOIN Customer_Khatoo k ON k.customer_id = c.id_card_number "
-                "WHERE c.id_card_number LIKE %s OR c.first_name LIKE %s OR c.last_name LIKE %s "
-                "GROUP BY c.id_card_number, c.first_name, c.last_name, c.Email_Address, c.city "
-                "ORDER BY c.first_name ASC, c.last_name ASC " + f"LIMIT {safe_limit}",
-                (like, like, like),
-            )
-            return cur.fetchall()
-    except Exception as exc:
-        logger.error("Customer directory lookup failed: %s", exc)
-        return []
+
+def count_customers(text=''):
+    where,params = customer_filter(text)
+    with get_db() as (_conn,cur):
+        cur.execute(f"SELECT COUNT(*) FROM Customers c WHERE c.id_card_number!='WALKIN' AND ({where})", params)
+        return int(cur.fetchone()[0])

@@ -54,6 +54,7 @@ class SettingsService:
                         result[str(key)] = str(value)
         except Exception as exc:
             logger.warning("Error reading settings batch: %s", exc)
+            raise RuntimeError("Shop settings could not be read. Reconnect or retry before continuing.") from exc
         return result
 
     @classmethod
@@ -62,8 +63,8 @@ class SettingsService:
         return values.get(key, default_val or "")
 
     @classmethod
-    def set_setting(cls, key: str, value: str) -> bool:
-        return cls.update_settings({key: value})
+    def set_setting(cls, key: str, value: str, actor_id=None) -> bool:
+        return cls.update_settings({key: value}, actor_id=actor_id)
 
     @classmethod
     def get_all_settings(cls) -> dict:
@@ -76,24 +77,42 @@ class SettingsService:
 
     @classmethod
     def get_tax_rate(cls) -> "Decimal":
-        """Return the configured tax rate as a scaled Decimal fraction."""
-        from decimal import Decimal, ROUND_HALF_UP
-
+        """Read the canonical percentage; ambiguous legacy values require review."""
+        from decimal import Decimal, InvalidOperation
+        with get_db() as (_conn, cur):
+            cur.execute("SELECT setting_key,setting_value FROM Pharmacy_Settings WHERE setting_key IN ('default_tax_rate','default_tax_rate_format','tax_rate_review_required')")
+            settings = dict(cur.fetchall())
+        if not all(key in settings for key in ("default_tax_rate", "default_tax_rate_format", "tax_rate_review_required")):
+            raise ValueError("Sales tax settings are incomplete. Review Settings before completing sales.")
+        if settings["tax_rate_review_required"] == "1":
+            raise ValueError("Review and save Sales tax in Settings before completing sales. An older tax value had ambiguous units.")
         try:
-            raw = cls.get_setting("default_tax_rate", str(PharmacySettings.TAX_RATE))
-            val = float(raw)
-            if val > 1.0:
-                val = val / 100.0
-            return Decimal(str(val)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
-        except Exception:
-            return Decimal(str(PharmacySettings.TAX_RATE))
+            percentage = Decimal(settings["default_tax_rate"])
+            if settings["default_tax_rate_format"] != "percent_v1" or not percentage.is_finite() or not 0 <= percentage <= 50:
+                raise ValueError()
+            return percentage / Decimal("100")
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise ValueError("Sales tax must be a percentage between 0 and 50. Review Settings.") from exc
 
     @classmethod
-    def update_settings(cls, settings_dict: dict) -> bool:
+    def update_settings(cls, settings_dict: dict, actor_id=None) -> bool:
         """Save multiple settings atomically in one transaction."""
         if not settings_dict:
             return True
         try:
+            from core.permission_service import require_permission
+            allowed, reason = require_permission(actor_id, "settings.manage")
+            if not allowed:
+                logger.warning("Settings update denied: %s", reason)
+                return False
+            settings_dict = dict(settings_dict)
+            if "default_tax_rate" in settings_dict:
+                from decimal import Decimal, InvalidOperation
+                percentage = Decimal(str(settings_dict["default_tax_rate"]))
+                if not percentage.is_finite() or not 0 <= percentage <= 50:
+                    raise ValueError("Sales tax must be between 0 and 50 percent.")
+                settings_dict["default_tax_rate_format"] = "percent_v1"
+                settings_dict["tax_rate_review_required"] = "0"
             with get_db() as (_conn, cur):
                 for key, value in settings_dict.items():
                     key = str(key)

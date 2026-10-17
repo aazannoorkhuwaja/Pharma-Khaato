@@ -24,6 +24,38 @@ _THREAD_LOCAL = threading.local()
 _MIGRATED_PATHS = set()
 _MIGRATION_LOCK = threading.Lock()
 _SQLITE_BUSY_TIMEOUT_MS = 3000
+_DB_GATE = threading.RLock()
+_CONNECTIONS = set()
+_RESTART_PATHS = set()
+
+
+def bounded_setting(name, default, minimum, maximum):
+    try:
+        return max(minimum, min(maximum, int(os.environ.get(name, default))))
+    except (TypeError, ValueError):
+        return default
+
+
+@contextmanager
+def database_guard():
+    """Exclude maintenance while an operation is using the local store."""
+    with _DB_GATE:
+        yield
+
+
+@contextmanager
+def database_maintenance():
+    """Drain managed transactions and close worker connections before replacement."""
+    with _DB_GATE:
+        if any(conn.in_transaction for conn in list(_CONNECTIONS)):
+            raise RuntimeError("Finish the current operation before restoring a backup.")
+        for conn in list(_CONNECTIONS):
+            try:
+                conn.close()
+            finally:
+                _CONNECTIONS.discard(conn)
+        _MIGRATED_PATHS.discard(PathManager.get_db_path())
+        yield
 
 
 class UnifiedCursor:
@@ -33,6 +65,10 @@ class UnifiedCursor:
         self.is_sqlite = is_sqlite
 
     def execute(self, sql, params=None):
+        with _DB_GATE:
+            return self._execute(sql, params)
+
+    def _execute(self, sql, params=None):
         if self.is_sqlite:
             sql = self._translate_sql(sql)
             if params is None:
@@ -83,10 +119,12 @@ class UnifiedConnection:
         return UnifiedCursor(self.raw_conn.cursor(), is_sqlite=self.is_sqlite)
 
     def commit(self):
-        self.raw_conn.commit()
+        with _DB_GATE:
+            self.raw_conn.commit()
 
     def rollback(self):
-        self.raw_conn.rollback()
+        with _DB_GATE:
+            self.raw_conn.rollback()
 
     def close(self, force=False):
         """Clean connection close API. Safe no-op for persistent thread-local connections unless force=True."""
@@ -98,6 +136,7 @@ class UnifiedConnection:
                 _THREAD_LOCAL.sqlite_conn = None
                 _THREAD_LOCAL.sqlite_path = None
             self.raw_conn.close()
+            _CONNECTIONS.discard(self.raw_conn)
             logger.debug("Database connection closed cleanly.")
         except Exception as e:
             logger.warning(f"Error closing database connection: {e}")
@@ -106,6 +145,8 @@ class UnifiedConnection:
 def _get_sqlite_connection():
     """Initialize and return a long-lived thread-local SQLite connection."""
     db_path = PathManager.get_db_path()
+    from core.backup_service import recover_interrupted_restore
+    recover_interrupted_restore()
 
     if hasattr(_THREAD_LOCAL, "sqlite_conn") and _THREAD_LOCAL.sqlite_conn is not None:
         if getattr(_THREAD_LOCAL, "sqlite_path", None) == db_path:
@@ -114,6 +155,7 @@ def _get_sqlite_connection():
                 return UnifiedConnection(_THREAD_LOCAL.sqlite_conn, is_sqlite=True, engine_type="SQLite")
             except (sqlite3.Error, OSError) as e:
                 logger.warning(f"Handled connection liveness notice: {e}")
+                _CONNECTIONS.discard(_THREAD_LOCAL.sqlite_conn)
                 _THREAD_LOCAL.sqlite_conn = None
                 _THREAD_LOCAL.sqlite_path = None
 
@@ -128,8 +170,9 @@ def _get_sqlite_connection():
     # writes; a short busy timeout avoids turning lock contention into a
     # 15-second apparent application freeze.
     conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA synchronous = NORMAL;")
-    conn.execute("PRAGMA cache_size = -64000;")  # 64MB memory cache
+    conn.execute("PRAGMA synchronous = FULL;")
+    cache_kib = bounded_setting("PHARMA_KHAATO_CACHE_KIB", 8192, 1024, 32768)
+    conn.execute(f"PRAGMA cache_size = -{cache_kib};")
     conn.execute("PRAGMA temp_store = MEMORY;")
     conn.execute("PRAGMA foreign_keys = ON;")
     conn.execute(f"PRAGMA busy_timeout = {_SQLITE_BUSY_TIMEOUT_MS};")
@@ -147,18 +190,22 @@ def _get_sqlite_connection():
     if db_path not in _MIGRATED_PATHS:
         with _MIGRATION_LOCK:
             if db_path not in _MIGRATED_PATHS:
-                MigrationManager.apply_migrations(conn, is_sqlite=True)
+                MigrationManager.apply_migrations(conn, is_sqlite=True, new_database=first_time)
                 _MIGRATED_PATHS.add(db_path)
 
     _THREAD_LOCAL.sqlite_conn = conn
     _THREAD_LOCAL.sqlite_path = db_path
+    _CONNECTIONS.add(conn)
 
     return UnifiedConnection(conn, is_sqlite=True, engine_type="SQLite")
 
 
 def get_conn():
     """Main database connection factory for the local SQLite database."""
-    return _get_sqlite_connection()
+    with _DB_GATE:
+        if PathManager.get_db_path() in _RESTART_PATHS:
+            raise RuntimeError("Recovery completed. Restart Pharma Khaato before continuing work.")
+        return _get_sqlite_connection()
 
 
 def reset_thread_connections():
@@ -166,6 +213,7 @@ def reset_thread_connections():
     if hasattr(_THREAD_LOCAL, "sqlite_conn") and _THREAD_LOCAL.sqlite_conn is not None:
         try:
             _THREAD_LOCAL.sqlite_conn.close()
+            _CONNECTIONS.discard(_THREAD_LOCAL.sqlite_conn)
         except (sqlite3.Error, OSError) as e:
             logger.warning(f"Handled non-critical error closing sqlite connection: {e}")
         _THREAD_LOCAL.sqlite_conn = None
@@ -173,15 +221,31 @@ def reset_thread_connections():
 
 
 @contextmanager
-def get_db():
-    """Preferred transaction-aware database context manager."""
-    conn = get_conn()
-    if not conn:
-        raise RuntimeError("Database connection unavailable.")
-    cur = conn.cursor()
-    try:
-        yield conn, cur
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
+def get_db(immediate=False):
+    """Own one transaction; nested helpers never commit their caller's writes.
+
+    ``immediate=True`` acquires the write reservation before reading balances
+    or stock. A savepoint protects callers that already own a transaction.
+    """
+    with _DB_GATE:
+        conn = get_conn()
+        cur = conn.cursor()
+        nested = conn.raw_conn.in_transaction
+        savepoint = f"pk_nested_{time.monotonic_ns()}"
+        if nested:
+            cur.execute(f"SAVEPOINT {savepoint}")
+        else:
+            cur.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+        try:
+            yield conn, cur
+            if nested:
+                cur.execute(f"RELEASE SAVEPOINT {savepoint}")
+            else:
+                conn.commit()
+        except Exception:
+            if nested:
+                cur.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                cur.execute(f"RELEASE SAVEPOINT {savepoint}")
+            else:
+                conn.rollback()
+            raise

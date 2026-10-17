@@ -18,9 +18,10 @@ import tarfile
 import zipfile
 from pathlib import Path
 
-from config import ApplicationSettings
-
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from config import ApplicationSettings
 DIST = ROOT / "dist"
 BUILD = ROOT / "build"
 RELEASE = ROOT / "release"
@@ -82,6 +83,7 @@ def write_sha256(artifact: Path) -> Path:
 
 def main() -> int:
     build_pyinstaller()
+    run(sys.executable, "scripts/smoke_packaged.py")
     version = ApplicationSettings.APP_VERSION
     system = platform.system()
     if system == "Windows":

@@ -1,10 +1,12 @@
 """Stock and product management views for Pharma-Khaato."""
 
+import uuid
+
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QSpinBox,
     QDoubleSpinBox, QDateEdit, QTabWidget, QDialog, QFormLayout,
-    QCheckBox, QMessageBox,
+    QCheckBox, QMessageBox, QScrollArea,
 )
 from PySide6.QtCore import QDate, QTimer, Qt
 
@@ -18,6 +20,7 @@ from ui.widgets.responsive import configure_dialog, flexible_side_panel
 from ui.app.async_tasks import AsyncTaskRunner
 
 from controllers.inventory_controller import InventoryController
+from controllers.inventory_controller import business_date
 
 _INVENTORY_CONTROLLER = InventoryController()
 
@@ -25,9 +28,11 @@ _INVENTORY_CONTROLLER = InventoryController()
 class AddProductDialog(QDialog):
     """Register a new product without exposing database terminology."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, product=None):
         super().__init__(parent)
-        self.setWindowTitle("Add Product")
+        self._product = product
+        self._tasks = AsyncTaskRunner(self)
+        self.setWindowTitle("Edit Product" if product else "Add Product")
         configure_dialog(self, 540, 600, minimum_width=420, minimum_height=420)
         self.setStyleSheet(f"""
             QDialog {{
@@ -48,7 +53,7 @@ class AddProductDialog(QDialog):
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
 
-        title = QLabel("Add Product")
+        title = QLabel("Edit Product" if product else "Add Product")
         title.setStyleSheet(f"font-weight: 800; color: {ThemeTokens.ACCENT};")
         layout.addWidget(title)
 
@@ -61,12 +66,27 @@ class AddProductDialog(QDialog):
         form.addRow("Product name *:", self.txt_name)
 
         self.spn_price = QDoubleSpinBox()
-        self.spn_price.setRange(0.01, 100000.0)
-        self.spn_price.setValue(50.0)
+        self.spn_price.setRange(0, 100000.0)
+        self.spn_price.setValue(0)
         self.spn_price.setPrefix("Rs. ")
         self.spn_price.setDecimals(2)
         self.spn_price.setAccessibleName("Selling price")
-        form.addRow("Selling price *:", self.spn_price)
+        form.addRow("Price per smallest unit *:", self.spn_price)
+
+        self.cmb_base_unit = QComboBox()
+        self.cmb_base_unit.setEditable(True)
+        self.cmb_base_unit.addItems(["tablet", "capsule", "bottle", "vial", "tube", "sachet", "unit"])
+        form.addRow("Smallest counted unit *:", self.cmb_base_unit)
+        self.spn_strip = QSpinBox()
+        self.spn_strip.setRange(1, 100000)
+        self.spn_strip.setValue(1)
+        self.spn_strip.setToolTip("Use 1 when this product is not sold in strips.")
+        form.addRow("Smallest units in a strip:", self.spn_strip)
+        self.spn_box = QSpinBox()
+        self.spn_box.setRange(1, 1000000)
+        self.spn_box.setValue(1)
+        self.spn_box.setToolTip("Total tablets, bottles or other smallest units in a full box.")
+        form.addRow("Smallest units in a box:", self.spn_box)
 
         self.spn_min_stock = QSpinBox()
         self.spn_min_stock.setRange(0, 100000)
@@ -90,12 +110,30 @@ class AddProductDialog(QDialog):
 
         self.txt_barcode = QLineEdit()
         self.txt_barcode.setPlaceholderText("Scan barcode or leave blank")
-        form.addRow("Barcode:", self.txt_barcode)
+        form.addRow("Smallest-unit barcode:", self.txt_barcode)
+        self.txt_strip_barcode = QLineEdit()
+        self.txt_strip_barcode.setPlaceholderText("Optional strip barcode")
+        form.addRow("Strip barcode:", self.txt_strip_barcode)
+        self.txt_box_barcode = QLineEdit()
+        self.txt_box_barcode.setPlaceholderText("Optional full-box barcode")
+        form.addRow("Box barcode:", self.txt_box_barcode)
+        self.txt_rack = QLineEdit()
+        self.txt_rack.setPlaceholderText("e.g. Shelf A-2 (optional)")
+        form.addRow("Shelf / rack:", self.txt_rack)
+        self.chk_active = QCheckBox("Available for new sales")
+        self.chk_active.setChecked(True)
+        if product:
+            form.addRow("", self.chk_active)
 
         self.chk_prescription = QCheckBox("Prescription only (Rx)")
         form.addRow("", self.chk_prescription)
 
-        layout.addLayout(form)
+        form_widget = QWidget()
+        form_widget.setLayout(form)
+        form_scroll = QScrollArea()
+        form_scroll.setWidgetResizable(True)
+        form_scroll.setWidget(form_widget)
+        layout.addWidget(form_scroll, 1)
         layout.addSpacing(10)
 
         buttons = QHBoxLayout()
@@ -110,6 +148,23 @@ class AddProductDialog(QDialog):
         buttons.addWidget(self.btn_cancel)
         buttons.addWidget(self.btn_save)
         layout.addLayout(buttons)
+        if product:
+            self.txt_name.setText(product["name"])
+            self.spn_price.setValue(float(product["price"]))
+            self.spn_min_stock.setValue(int(product["min_stock"]))
+            self.txt_company.setText(product["company"])
+            self.cmb_category.setCurrentText(product["category"])
+            self.txt_formula.setText(product["formula"])
+            self.cmb_base_unit.setCurrentText(product["base_unit"])
+            self.spn_strip.setValue(int(product["units_per_strip"]))
+            self.spn_box.setValue(int(product["units_per_box"]))
+            codes=product.get("unit_barcodes",{})
+            self.txt_barcode.setText(codes.get("base") or product.get("barcode") or "")
+            self.txt_strip_barcode.setText(codes.get("strip", ""))
+            self.txt_box_barcode.setText(codes.get("box", ""))
+            self.txt_rack.setText(product["rack_location"] or "")
+            self.chk_prescription.setChecked(bool(product["requires_prescription"]))
+            self.chk_active.setChecked(bool(product["is_active"]))
 
     def on_save(self):
         name = self.txt_name.text().strip()
@@ -117,7 +172,10 @@ class AddProductDialog(QDialog):
             show_toast(self, "Enter a product name.", ToastType.WARNING)
             return
 
-        ok, msg = _INVENTORY_CONTROLLER.register_product(
+        if self.spn_price.value() <= 0:
+            show_toast(self, "Enter the selling price per smallest unit.", ToastType.WARNING)
+            return
+        details = dict(
             name=name,
             price=self.spn_price.value(),
             min_stock=self.spn_min_stock.value(),
@@ -126,8 +184,27 @@ class AddProductDialog(QDialog):
             formula=self.txt_formula.text().strip() or "N/A",
             barcode=self.txt_barcode.text().strip() or None,
             requires_prescription=1 if self.chk_prescription.isChecked() else 0,
+            base_unit=self.cmb_base_unit.currentText().strip(),
+            units_per_strip=self.spn_strip.value(), units_per_box=self.spn_box.value(),
+            rack_location=self.txt_rack.text().strip() or "Unassigned",
+            unit_barcodes={"base": self.txt_barcode.text().strip(),
+                           "strip": self.txt_strip_barcode.text().strip(),
+                           "box": self.txt_box_barcode.text().strip()},
         )
+        if self._product:
+            details["is_active"] = int(self.chk_active.isChecked())
+        self.btn_save.setEnabled(False)
+        self.btn_cancel.setEnabled(False)
+        def save():
+            if self._product:
+                return _INVENTORY_CONTROLLER.update_product(self._product["id"], **details)
+            return _INVENTORY_CONTROLLER.register_product(**details)
+        self._tasks.run(save, self._saved, lambda _details: self._saved((False,"Could not save. Try again.")))
 
+    def _saved(self, result):
+        self.btn_save.setEnabled(True)
+        self.btn_cancel.setEnabled(True)
+        ok, msg = result
         if ok:
             target = self.parent() if hasattr(self.parent(), "show_message_box") else self
             show_toast(target, msg, ToastType.SUCCESS)
@@ -162,7 +239,7 @@ class AddSupplierDialog(QDialog):
 
         form.addRow("Supplier name *:", self.txt_name)
         form.addRow("Company:", self.txt_company)
-        form.addRow("Phone *:", self.txt_phone)
+        form.addRow("Phone (optional):", self.txt_phone)
         layout.addLayout(form)
 
         buttons = QHBoxLayout()
@@ -182,9 +259,6 @@ class AddSupplierDialog(QDialog):
         if not name:
             show_toast(self, "Enter the supplier name.", ToastType.WARNING)
             return
-        if not phone:
-            show_toast(self, "Enter a supplier phone number.", ToastType.WARNING)
-            return
 
         ok, msg = _INVENTORY_CONTROLLER.register_supplier(
             name,
@@ -196,6 +270,70 @@ class AddSupplierDialog(QDialog):
             self.accept()
         else:
             QMessageBox.critical(self, "Could Not Save Supplier", msg)
+
+
+class StockCorrectionDialog(QDialog):
+    """Count one physical lot or block it from sale, with a recorded reason."""
+
+    def __init__(self, batches, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Count / Block Stock")
+        configure_dialog(self,560,420)
+        self._tasks=AsyncTaskRunner(self)
+        self._key=uuid.uuid4().hex
+        self._batches={row[0]:row for row in batches}
+        layout=QVBoxLayout(self)
+        help_text=QLabel("Count the smallest units physically on the shelf. Expired or blocked stock remains in the record and cannot be sold.")
+        help_text.setWordWrap(True)
+        layout.addWidget(help_text)
+        form=QFormLayout()
+        self.cmb_batch=QComboBox()
+        for row in batches:
+            self.cmb_batch.addItem(f"Lot {row[2] or 'not recorded'} · Expiry {row[4]} · {row[3]} {row[6]}s",row[0])
+        form.addRow("Printed batch / lot:",self.cmb_batch)
+        self.spn_count=QSpinBox()
+        self.spn_count.setRange(0,1000000000)
+        form.addRow("Counted smallest units:",self.spn_count)
+        self.cmb_status=QComboBox()
+        for label,value in (("Available for sale","SELLABLE"),("Keep aside / damaged","QUARANTINED"),("Recalled — do not sell","RECALLED")):
+            self.cmb_status.addItem(label,value)
+        form.addRow("Condition:",self.cmb_status)
+        self.txt_reason=QLineEdit()
+        self.txt_reason.setPlaceholderText("e.g. Physical count, damaged pack, supplier recall")
+        form.addRow("Reason *:",self.txt_reason)
+        layout.addLayout(form)
+        self.btn_save=QPushButton("Save Count / Condition")
+        self.btn_save.clicked.connect(self.on_save)
+        layout.addWidget(self.btn_save)
+        self.cmb_batch.currentIndexChanged.connect(self._selected)
+        self._selected()
+
+    def _selected(self,*_args):
+        row=self._batches[self.cmb_batch.currentData()]
+        self.spn_count.setValue(int(row[3]))
+        self.cmb_status.setCurrentIndex(max(0,self.cmb_status.findData(row[5])))
+
+    def on_save(self):
+        reason=self.txt_reason.text().strip()
+        if len(reason)<3:
+            show_toast(self,"Enter a short reason before saving.",ToastType.WARNING)
+            return
+        batch_id=self.cmb_batch.currentData()
+        row=self._batches[batch_id]
+        count=self.spn_count.value()
+        status=self.cmb_status.currentData()
+        self.btn_save.setEnabled(False)
+        def save():
+            return _INVENTORY_CONTROLLER.set_batch_count(batch_id,count,reason,expected_quantity=row[3],
+                                                         stock_status=status,operation_key=self._key)
+        def complete(result):
+            self.btn_save.setEnabled(True)
+            if result[0]:
+                show_toast(self.parent(),result[1],ToastType.SUCCESS)
+                self.accept()
+            else:
+                QMessageBox.warning(self,"Could Not Save Stock",result[1])
+        self._tasks.run(save,complete,lambda _details:complete((False,"Could not save stock. Try again.")))
 
 
 class InventoryScreen(QWidget):
@@ -215,6 +353,7 @@ class InventoryScreen(QWidget):
         self._intake_loading = False
         self._pending_intake_product_id = None
         self._stock_write_in_progress = False
+        self._receiving_key = uuid.uuid4().hex
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -231,6 +370,13 @@ class InventoryScreen(QWidget):
         header_card.add_pill(self.pill_low_stock)
         header_card.add_pill(self.pill_near_expiry)
         layout.addWidget(header_card)
+        owner_actions=QHBoxLayout()
+        supplier_accounts=QPushButton('Supplier Invoices & Payments')
+        supplier_accounts.clicked.connect(self.open_supplier_accounts)
+        recover_receiving=QPushButton('Confirm Pending Stock Entry')
+        recover_receiving.clicked.connect(self.recover_stock_entry)
+        owner_actions.addWidget(supplier_accounts);owner_actions.addWidget(recover_receiving);owner_actions.addStretch()
+        layout.addLayout(owner_actions)
 
         self.tabs = QTabWidget()
         self.tabs.setUsesScrollButtons(True)
@@ -254,6 +400,18 @@ class InventoryScreen(QWidget):
     def on_screen_show(self):
         self.refresh_catalog_data()
         self._refresh_visible_tab()
+
+    def open_supplier_accounts(self):
+        from ui.screens.supplier_accounts import SupplierAccountsDialog
+        SupplierAccountsDialog(self).exec()
+        self.refresh_catalog_data()
+
+    def recover_stock_entry(self):
+        def complete(result):
+            show_toast(self,str(result[1]),ToastType.SUCCESS if result[0] else ToastType.WARNING)
+            self.refresh_catalog_data()
+        self._tasks.run(_INVENTORY_CONTROLLER.recover_stock_entry,complete,
+                       lambda _e:show_toast(self,'Stock result unconfirmed. Check the shop connection and confirm again.',ToastType.WARNING))
 
     def setup_catalog_tab(self):
         layout = QVBoxLayout(self.tab_catalog)
@@ -279,9 +437,17 @@ class InventoryScreen(QWidget):
         self.btn_add_prod = QPushButton("Add Product")
         self.btn_add_prod.setObjectName("primaryButton")
         self.btn_add_prod.clicked.connect(self.open_add_product_dialog)
+        self.btn_edit_prod = QPushButton("Edit Product")
+        self.btn_edit_prod.setEnabled(False)
+        self.btn_edit_prod.clicked.connect(self.open_edit_product_dialog)
+        self.btn_correct_stock = QPushButton("Count / Block Stock")
+        self.btn_correct_stock.setEnabled(False)
+        self.btn_correct_stock.clicked.connect(self.open_stock_correction)
 
         bar.addWidget(self.txt_catalog_search, 1)
         bar.addWidget(self.btn_selected_stock)
+        bar.addWidget(self.btn_edit_prod)
+        bar.addWidget(self.btn_correct_stock)
         bar.addWidget(self.btn_add_prod)
         layout.addLayout(bar)
 
@@ -328,6 +494,7 @@ class InventoryScreen(QWidget):
         form.setSpacing(12)
 
         self.cmb_intake_prod = QComboBox()
+        self.cmb_intake_prod.currentIndexChanged.connect(self._intake_product_changed)
         form.addRow("Product *:", self.cmb_intake_prod)
 
         self.cmb_intake_supp = QComboBox()
@@ -339,20 +506,69 @@ class InventoryScreen(QWidget):
 
         self.spn_intake_qty = QSpinBox()
         self.spn_intake_qty.setRange(1, 100000)
-        self.spn_intake_qty.setValue(100)
+        self.spn_intake_qty.setValue(1)
         form.addRow("Quantity *:", self.spn_intake_qty)
+        self.cmb_intake_unit = QComboBox()
+        self.cmb_intake_unit.addItem("Smallest unit", "base")
+        form.addRow("Counted as *:", self.cmb_intake_unit)
+        self.lbl_base_count = QLabel("Choose the product and pack size.")
+        self.lbl_base_count.setWordWrap(True)
+        form.addRow("", self.lbl_base_count)
+        self.spn_intake_qty.valueChanged.connect(self._update_base_count)
+        self.cmb_intake_unit.currentIndexChanged.connect(self._update_base_count)
+        self.txt_invoice = QLineEdit()
+        self.txt_invoice.setPlaceholderText("Supplier invoice number (optional)")
+        form.addRow("Invoice:", self.txt_invoice)
+        self.txt_lot = QLineEdit()
+        self.txt_lot.setPlaceholderText("Batch / lot printed on the pack")
+        form.addRow("Printed batch / lot *:", self.txt_lot)
+
+        self.cmb_expiry_precision = QComboBox()
+        self.cmb_expiry_precision.addItem("Month / year", "MONTH")
+        self.cmb_expiry_precision.addItem("Full date", "DAY")
+        form.addRow("Expiry shown as:", self.cmb_expiry_precision)
+        self.txt_expiry_month = QLineEdit()
+        self.txt_expiry_month.setPlaceholderText("MM/YYYY, e.g. 08/2028")
+        form.addRow("Expiry month *:", self.txt_expiry_month)
 
         self.dt_expiry = QDateEdit()
         self.dt_expiry.setCalendarPopup(True)
-        self.dt_expiry.setDate(QDate.currentDate().addYears(1))
+        self.dt_expiry.setMinimumDate(QDate(1900,1,1))
+        self.dt_expiry.setSpecialValueText("Choose printed expiry")
+        self.dt_expiry.setDate(QDate(1900,1,1))
+        self.dt_expiry.setDisplayFormat("dd/MM/yyyy")
+        self.dt_expiry.setVisible(False)
         form.addRow("Expiry date *:", self.dt_expiry)
+        self.cmb_expiry_precision.currentIndexChanged.connect(
+            lambda: (self.txt_expiry_month.setVisible(self.cmb_expiry_precision.currentData()=="MONTH"),
+                     self.dt_expiry.setVisible(self.cmb_expiry_precision.currentData()=="DAY")))
 
         self.dt_mfg = QDateEdit()
         self.dt_mfg.setCalendarPopup(True)
         self.dt_mfg.setDate(QDate.currentDate())
+        self.dt_mfg.setEnabled(False)
+        self.chk_mfg_known = QCheckBox("Manufacture date is printed / known")
+        self.chk_mfg_known.toggled.connect(self.dt_mfg.setEnabled)
+        form.addRow("", self.chk_mfg_known)
         form.addRow("Manufacture date:", self.dt_mfg)
 
-        form_layout.addLayout(form)
+        self._intake_prices = {}
+        for key,label in (("cost_price","Cost per smallest unit"),("sale_price","Sell per smallest unit"),("mrp","Printed MRP per smallest unit")):
+            field=QDoubleSpinBox()
+            field.setRange(0,10000000)
+            field.setDecimals(4)
+            field.setPrefix("Rs. ")
+            field.setSpecialValueText("Not entered")
+            field.setToolTip("Enter prices per tablet, bottle or other smallest unit, not the full box.")
+            self._intake_prices[key]=field
+            form.addRow(label+":",field)
+
+        intake_fields=QWidget()
+        intake_fields.setLayout(form)
+        intake_scroll=QScrollArea()
+        intake_scroll.setWidgetResizable(True)
+        intake_scroll.setWidget(intake_fields)
+        form_layout.addWidget(intake_scroll,1)
         form_layout.addSpacing(14)
 
         self.btn_submit_intake = QPushButton("Add Stock")
@@ -501,6 +717,7 @@ class InventoryScreen(QWidget):
 
         self.cmb_intake_prod.blockSignals(True)
         self.cmb_intake_prod.clear()
+        self.cmb_intake_prod.addItem("Choose a product", None)
         for item in rows:
             product_id, product_name = item[0], item[1]
             self.cmb_intake_prod.addItem(str(product_name), product_id)
@@ -510,6 +727,27 @@ class InventoryScreen(QWidget):
                 self.cmb_intake_prod.setCurrentIndex(index)
         self.cmb_intake_prod.blockSignals(False)
         self._pending_intake_product_id = None
+        self._intake_product_changed()
+
+    def _intake_product_changed(self, *_args):
+        product_id=self.cmb_intake_prod.currentData()
+        if product_id is None:
+            return
+        def complete(units):
+            if self.cmb_intake_prod.currentData()!=product_id:
+                return
+            self.cmb_intake_unit.clear()
+            for unit in units:
+                self.cmb_intake_unit.addItem(unit["label"],unit["code"])
+                self.cmb_intake_unit.setItemData(self.cmb_intake_unit.count()-1,unit,Qt.ItemDataRole.UserRole+1)
+            self._update_base_count()
+        self._tasks.run_latest("intake-units",lambda:_INVENTORY_CONTROLLER.sell_units(product_id),complete,
+                               lambda _details:self.lbl_base_count.setText("Could not load pack sizes. Choose the product again."))
+
+    def _update_base_count(self, *_args):
+        data=self.cmb_intake_unit.currentData(Qt.ItemDataRole.UserRole+1) or {}
+        multiplier=int(data.get("multiplier",1))
+        self.lbl_base_count.setText(f"Stock added: {self.spn_intake_qty.value()*multiplier} smallest units.")
 
     def _load_intake_data(self):
         if self._intake_loading:
@@ -586,9 +824,12 @@ class InventoryScreen(QWidget):
                 product_item.setData(Qt.ItemDataRole.UserRole, product_id)
                 self.tbl_products.setItem(row, 0, product_item)
                 self.tbl_products.setItem(row, 1, QTableWidgetItem(f"Rs. {float(price):.2f}"))
-                self.tbl_products.setItem(row, 2, QTableWidgetItem(str(stock)))
+                unit=str(item[5] or "unit") if len(item)>5 else "unit"
+                self.tbl_products.setItem(row, 2, QTableWidgetItem(f"{stock} {unit}s"))
 
-                if stock <= 0:
+                if len(item)>6 and not item[6]:
+                    status = "Blocked"
+                elif stock <= 0:
                     status = "Out of Stock"
                 elif reorder_level is not None and stock <= reorder_level:
                     status = "Low Stock"
@@ -691,6 +932,8 @@ class InventoryScreen(QWidget):
     def _update_catalog_actions(self):
         selected = self._selected_product_id() is not None
         self.btn_selected_stock.setEnabled(selected)
+        self.btn_edit_prod.setEnabled(selected)
+        self.btn_correct_stock.setEnabled(selected)
         self.btn_selected_stock.setToolTip(
             "Receive stock for the selected product" if selected else "Select a product first"
         )
@@ -706,6 +949,29 @@ class InventoryScreen(QWidget):
         dialog = AddProductDialog(self)
         if dialog.exec() == QDialog.Accepted:
             self.refresh_catalog_data()
+
+    def open_edit_product_dialog(self):
+        product_id=self._selected_product_id()
+        if product_id is None:
+            return
+        def complete(product):
+            if AddProductDialog(self,product).exec()==QDialog.Accepted:
+                self.refresh_catalog_data()
+        self._tasks.run_latest("product-edit",lambda:_INVENTORY_CONTROLLER.product_details(product_id),complete,
+                               lambda _details:show_toast(self,"Could not load product details. Try again.",ToastType.WARNING))
+
+    def open_stock_correction(self):
+        product_id=self._selected_product_id()
+        if product_id is None:
+            return
+        def complete(batches):
+            if not batches:
+                show_toast(self,"This product has no received stock yet.",ToastType.INFO)
+                return
+            if StockCorrectionDialog(batches,self).exec()==QDialog.Accepted:
+                self.refresh_catalog_data()
+        self._tasks.run_latest("stock-count",lambda:_INVENTORY_CONTROLLER.stock_batches(product_id),complete,
+                               lambda _details:show_toast(self,"Could not load stock. Try again.",ToastType.WARNING))
 
     def open_add_supplier_dialog(self):
         dialog = AddSupplierDialog(self)
@@ -735,15 +1001,22 @@ class InventoryScreen(QWidget):
 
         manufacture_date = self.dt_mfg.date()
         expiry_date = self.dt_expiry.date()
-        today = QDate.currentDate()
+        today = QDate.fromString(business_date().isoformat(),"yyyy-MM-dd")
 
-        if manufacture_date > today:
+        if self.chk_mfg_known.isChecked() and manufacture_date > today:
             show_toast(self, "Manufacture date cannot be in the future.", ToastType.WARNING)
             return
-        if expiry_date <= today:
-            show_toast(self, "Expiry date must be in the future.", ToastType.WARNING)
+        precision=self.cmb_expiry_precision.currentData()
+        if not self.txt_lot.text().strip():
+            show_toast(self,"Enter the batch / lot printed on the pack.",ToastType.WARNING)
             return
-        if manufacture_date >= expiry_date:
+        if precision=="DAY" and expiry_date < today:
+            show_toast(self, "Choose the printed expiry date. Expired stock cannot be received for sale.", ToastType.WARNING)
+            return
+        if precision=="MONTH" and not self.txt_expiry_month.text().strip():
+            show_toast(self,"Enter the printed expiry month as MM/YYYY.",ToastType.WARNING)
+            return
+        if precision=="DAY" and self.chk_mfg_known.isChecked() and manufacture_date >= expiry_date:
             show_toast(self, "Manufacture date must be before the expiry date.", ToastType.WARNING)
             return
 
@@ -751,15 +1024,18 @@ class InventoryScreen(QWidget):
             product_id,
             supplier_id,
             self.spn_intake_qty.value(),
-            expiry_date.toString("yyyy-MM-dd"),
-            manufacture_date.toString("yyyy-MM-dd"),
+            self.txt_expiry_month.text().strip() if precision=="MONTH" else expiry_date.toString("yyyy-MM-dd"),
+            manufacture_date.toString("yyyy-MM-dd") if self.chk_mfg_known.isChecked() else None,
         )
+        details={key:(field.value() or None) for key,field in self._intake_prices.items()}
+        details.update(unit_code=self.cmb_intake_unit.currentData() or "base",lot_number=self.txt_lot.text().strip(),
+                       expiry_precision=precision,invoice_reference=self.txt_invoice.text().strip(),operation_key=self._receiving_key)
         self._stock_write_in_progress = True
         self.btn_submit_intake.setEnabled(False)
         self.btn_submit_intake.setText("Adding Stock…")
 
         self._tasks.run(
-            lambda: _INVENTORY_CONTROLLER.add_batch(*args),
+            lambda: _INVENTORY_CONTROLLER.add_batch(*args,**details),
             self._stock_write_complete,
             lambda _details: self._stock_write_failed(),
         )
@@ -769,6 +1045,14 @@ class InventoryScreen(QWidget):
         self.btn_submit_intake.setText("Add Stock")
         ok, msg = result
         if ok:
+            self._receiving_key=uuid.uuid4().hex
+            self.spn_intake_qty.setValue(1)
+            self.txt_lot.clear()
+            self.txt_expiry_month.clear()
+            self.dt_expiry.setDate(QDate(1900,1,1))
+            self.chk_mfg_known.setChecked(False)
+            for field in self._intake_prices.values():
+                field.setValue(0)
             show_toast(self, msg, ToastType.SUCCESS)
             self._intake_loaded = False
             self.refresh_catalog_data()

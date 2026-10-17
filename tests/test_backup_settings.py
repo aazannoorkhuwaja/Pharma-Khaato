@@ -2,7 +2,7 @@
 
 
 class TestBackup:
-    def test_backup_and_restore_roundtrip(self, seeded_shop):
+    def test_backup_and_restore_roundtrip(self, seeded_shop, cash_shift):
         from core import backup_service, pos_service, db_engine
         ok, msg = pos_service.confirm_sale(
             None, 1,
@@ -30,14 +30,14 @@ class TestBackup:
 
 
 class TestSettings:
-    def test_tax_rate_fraction_passthrough(self, fresh_db):
+    def test_small_percentage_keeps_percentage_units(self, seeded_shop, admin_emp_id):
         from core.settings_service import SettingsService
         from decimal import Decimal
-        SettingsService.set_setting("default_tax_rate", "0.10")
-        assert float(SettingsService.get_tax_rate()) == 0.10
+        assert SettingsService.set_setting("default_tax_rate", "0.10", actor_id=admin_emp_id)
+        assert SettingsService.get_tax_rate() == Decimal("0.001")
 
-    def test_tax_rate_percentage_normalized(self, fresh_db):
+    def test_tax_rate_percentage_normalized(self, seeded_shop, admin_emp_id):
         from core.settings_service import SettingsService
         from decimal import Decimal
-        SettingsService.set_setting("default_tax_rate", "18.0")
+        assert SettingsService.set_setting("default_tax_rate", "18.0", actor_id=admin_emp_id)
         assert float(SettingsService.get_tax_rate()) == 0.18

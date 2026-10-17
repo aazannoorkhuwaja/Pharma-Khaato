@@ -25,10 +25,10 @@ def test_shared_table_polish_does_not_stretch_action_column():
 
 def test_credit_screen_uses_task_language_currency_and_one_selected_row_action():
     source = read("ui/screens/khatoo_screen.py")
-    assert '["Customer", "Sale", "Paid", "Balance", "CNIC"]' in source
+    assert '["Customer", "Phone", "Area", "Unpaid Bills", "Balance"]' in source
     assert 'QPushButton("Record Payment")' in source
     assert 'setCellWidget(row' not in source
-    assert 'f"Rs. {float(amount_due):.2f}"' in source
+    assert 'Balance: Rs.' in source
     assert "Credit Ref:" not in source
     assert 'setPrefix("Rs. ")' in source
     assert "Qt.ItemDataRole.UserRole" in source
@@ -36,7 +36,7 @@ def test_credit_screen_uses_task_language_currency_and_one_selected_row_action()
 
 def test_customer_directory_is_task_relevant_not_database_shaped():
     source = read("ui/screens/customer_screen.py")
-    assert '["Customer", "CNIC", "Area", "Amount Due"]' in source
+    assert '["Customer", "Phone", "Area", "Amount Due"]' in source
     assert '"EMAIL"' not in source
     assert "Rs. {float(debt):.2f}" in source
 
@@ -90,7 +90,7 @@ def test_pos_keeps_shortcuts_but_removes_hotkey_wall_and_internal_batch_ids():
     assert 'setPrefix("Rs. ")' in source
     assert "No matching sellable stock" in source
     assert "No shift open" in source
-    assert 'HEADERS = ["Product", "Expiry", "In Stock", "Price"]' in model_source
+    assert 'HEADERS = ["Product", "Expiry", "In Stock", "Price", "Unit"]' in model_source
     assert "Batch #" not in model_source
     assert 'setHorizontalHeaderLabels(["Held At", "Customer", "Items", "Total"])' in held_source
     assert "import json" in held_source

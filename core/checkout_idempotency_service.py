@@ -1,127 +1,120 @@
-"""Durable protection against duplicate POS checkout submissions."""
-
+"""Explicit, transaction-coupled identity for every checkout submission."""
 from __future__ import annotations
-
+from core.business_time import business_date, business_now
+import hashlib
+import json
 from datetime import datetime
-
+from decimal import Decimal, InvalidOperation
 from core.db_engine import get_db
-from core.logger import get_logger
-
-logger = get_logger("PharmaKhaatoCheckoutIdempotency")
 
 
-def _clean_token(token) -> str:
+def _clean_token(token):
     value = str(token or "").strip()
-    if not value or len(value) > 80:
-        return ""
-    if not all(ch.isalnum() or ch in "-_" for ch in value):
-        return ""
-    return value
+    return value if 0 < len(value) <= 80 and all(c.isalnum() or c in "-_" for c in value) else ""
 
 
-def prepare_checkout(token, employee_id: int):
-    """Register one active checkout token or return its completed purchase.
+def request_fingerprint(request):
+    from core.pos_service import _normalize_payment_method
+    def money(value):
+        d = Decimal(str(value))
+        if not d.is_finite():
+            raise ValueError("Enter a valid finite amount.")
+        return format(d.quantize(Decimal("0.01")), ".2f")
+    cart = [{"product": str(i.get("prod_id", i.get("id"))),
+             "batch": str(i.get("batch_id") or ""),
+             "qty": str(i.get("qty")), "price": money(i.get("price", 0)),
+             "unit": str(i.get("unit_code", "base")),
+             "multiplier": str(i.get("unit_multiplier", 1))} for i in request.cart]
+    payload = {"employee": int(request.employee_id), "customer": str(request.customer_id or "WALKIN"),
+               "cart": cart, "discount": money(request.discount),
+               "tender": _normalize_payment_method(request.payment_method)[0],
+               "cash_received": None if request.cash_received is None else money(request.cash_received),
+               "expected_total": None if request.expected_total is None else money(request.expected_total),
+               "hold": request.held_sale_id, "terminal": request.terminal_id}
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
-    Older abandoned PENDING requests for the same employee are cancelled when a
-    genuinely new token is prepared. The Purchase trigger completes the active
-    token in the same transaction that commits the sale.
-    """
+
+def _result_from_purchase(cur, purchase_id, duplicate=False):
+    from core.pos_service import CheckoutResult
+    cur.execute("SELECT total_price,price_with_tax,discount_amount,payment_method,cash_received,change_due,"
+                "COALESCE(total_tax,price_with_tax-total_price) FROM Purchase WHERE id=%s", (purchase_id,))
+    row = cur.fetchone()
+    if row is None:
+        raise RuntimeError("The checkout safety record does not match a saved sale.")
+    return CheckoutResult(True, f"Sale #{purchase_id} completed." + (" Duplicate submission prevented." if duplicate else ""),
+                          purchase_id=int(purchase_id), net_total=float(row[0]), total=float(row[1]),
+                          discount=float(row[2]), payment_method=row[3], cash_received=row[4],
+                          change_due=float(row[5] or 0), total_tax=float(row[6] or 0),
+                          outcome="completed", duplicate=duplicate)
+
+
+def claim_checkout(cur, request):
+    """Called only while the sale owns its write transaction. Return saved result or None."""
+    token = _clean_token(request.checkout_token)
+    if not token:
+        raise ValueError("Invalid checkout request token.")
+    fingerprint = request_fingerprint(request)
+    cur.execute("SELECT employee_id,status,purchase_id,request_fingerprint FROM Checkout_Request WHERE token=%s", (token,))
+    row = cur.fetchone()
+    if row:
+        if int(row[0]) != int(request.employee_id):
+            raise ValueError("Checkout request belongs to another staff member.")
+        if row[3] and row[3] != fingerprint:
+            raise ValueError("This checkout request was already used for a different sale. Restore the original sale or start a new sale.")
+        if row[1] == "COMPLETED" and row[2] is not None:
+            return _result_from_purchase(cur, row[2], True)
+        if row[1] == "CANCELLED":
+            raise ValueError("Checkout request was cancelled. Start a new sale.")
+        cur.execute("UPDATE Checkout_Request SET request_fingerprint=%s WHERE token=%s", (fingerprint, token))
+    else:
+        now = business_now().isoformat(timespec="microseconds")
+        cur.execute("INSERT INTO Checkout_Request(token,employee_id,status,created_at,updated_at,request_fingerprint) "
+                    "VALUES(%s,%s,'PENDING',%s,%s,%s)", (token, request.employee_id, now, now, fingerprint))
+    return None
+
+
+def lookup_checkout_result(token, employee_id=None):
+    """None means definitely uncommitted; database errors propagate as unknown outcome."""
+    token = _clean_token(token)
+    if not token:
+        raise ValueError("Invalid checkout request token.")
+    with get_db() as (_conn, cur):
+        cur.execute("SELECT employee_id,purchase_id,status FROM Checkout_Request WHERE token=%s", (token,))
+        row = cur.fetchone()
+        if row and employee_id is not None and int(row[0]) != int(employee_id):
+            raise ValueError("Checkout request belongs to another staff member.")
+        if row and row[2] == "COMPLETED" and row[1] is not None:
+            return _result_from_purchase(cur, row[1], True)
+    return None
+
+
+def completed_purchase(token):
+    result = lookup_checkout_result(token)
+    return result.purchase_id if result else None
+
+
+def prepare_checkout(token, employee_id):
+    """Compatibility preparation; never cancels another terminal's live operation."""
     token = _clean_token(token)
     if not token:
         return False, "Invalid checkout request token.", None
     try:
         employee_id = int(employee_id)
-    except (TypeError, ValueError):
-        return False, "Invalid employee for checkout request.", None
-
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-    try:
-        with get_db() as (_conn, cur):
-            cur.execute(
-                "SELECT employee_id, status, purchase_id FROM Checkout_Request WHERE token = %s",
-                (token,),
-            )
+        with get_db(immediate=True) as (_conn, cur):
+            cur.execute("SELECT employee_id,status,purchase_id FROM Checkout_Request WHERE token=%s", (token,))
             row = cur.fetchone()
             if row:
                 if int(row[0]) != employee_id:
                     return False, "Checkout request belongs to another staff member.", None
-                if row[1] == "COMPLETED" and row[2] is not None:
-                    return True, "COMPLETED", int(row[2])
-                if row[1] == "PENDING":
-                    cur.execute(
-                        "UPDATE Checkout_Request SET updated_at = %s WHERE token = %s",
-                        (now, token),
-                    )
-                    return True, "PENDING", None
-                # A cancelled token is never resurrected; the UI must create a
-                # fresh token for a new sale attempt.
-                return False, "Checkout request was cancelled. Start a new sale.", None
-
-            cur.execute(
-                "UPDATE Checkout_Request SET status = 'CANCELLED', updated_at = %s "
-                "WHERE employee_id = %s AND status = 'PENDING'",
-                (now, employee_id),
-            )
-            cur.execute(
-                "INSERT INTO Checkout_Request "
-                "(token, employee_id, status, purchase_id, created_at, updated_at) "
-                "VALUES (%s, %s, 'PENDING', NULL, %s, %s)",
-                (token, employee_id, now, now),
-            )
+                return row[1] != "CANCELLED", row[1], row[2]
+            now = business_now().isoformat(timespec="microseconds")
+            cur.execute("INSERT INTO Checkout_Request(token,employee_id,status,created_at,updated_at) VALUES(%s,%s,'PENDING',%s,%s)",
+                        (token, employee_id, now, now))
         return True, "PENDING", None
-    except Exception as exc:
-        logger.error("Could not prepare checkout token: %s", exc)
-        return False, "Checkout safety record could not be prepared. Please try again.", None
-
-
-def completed_purchase(token):
-    token = _clean_token(token)
-    if not token:
-        return None
-    try:
-        with get_db() as (_conn, cur):
-            cur.execute(
-                "SELECT purchase_id FROM Checkout_Request "
-                "WHERE token = %s AND status = 'COMPLETED' AND purchase_id IS NOT NULL",
-                (token,),
-            )
-            row = cur.fetchone()
-            return int(row[0]) if row else None
-    except Exception as exc:
-        logger.warning("Checkout completion lookup failed: %s", exc)
-        return None
+    except (TypeError, ValueError):
+        return False, "Invalid employee for checkout request.", None
 
 
 def process_checkout_idempotently(request, process_callable):
-    """Run ``process_callable`` at most once for a request token.
-
-    The callable is normally POSModel.process_checkout. A retry after a commit
-    returns the original purchase number without writing stock/cash/credit a
-    second time.
-    """
-    token = _clean_token(getattr(request, "checkout_token", None))
-    if not token:
-        return process_callable(request)
-
-    ok, status, purchase_id = prepare_checkout(token, request.employee_id)
-    if not ok:
-        from core.pos_service import CheckoutResult
-        return CheckoutResult(False, status)
-    if status == "COMPLETED" and purchase_id is not None:
-        from core.pos_service import CheckoutResult
-        return CheckoutResult(
-            True,
-            f"Sale #{purchase_id} was already completed. Duplicate submission prevented.",
-            purchase_id=purchase_id,
-        )
-
-    result = process_callable(request)
-    if getattr(result, "success", False):
-        durable_id = completed_purchase(token)
-        if durable_id is None:
-            # The sale result says success but its idempotency record was not
-            # completed. Do not pretend the safety contract succeeded.
-            logger.error("Sale succeeded but checkout token %s was not completed", token)
-        elif getattr(result, "purchase_id", None) is None:
-            result.purchase_id = durable_id
-    return result
+    """The engine claims the explicit operation inside its transaction, including concurrent retries."""
+    return process_callable(request)

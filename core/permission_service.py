@@ -12,7 +12,7 @@ from core.logger import get_logger
 
 logger = get_logger("PharmaKhaatoPermissions")
 
-_ROLE_CACHE: dict[int, tuple[str, float]] = {}
+_ROLE_CACHE: dict[tuple[str, int], tuple[str, float]] = {}
 _CACHE_TTL = 30.0
 
 _ROLE_PERMISSIONS = {
@@ -39,7 +39,9 @@ def clear_permission_cache(employee_id: int | None = None) -> None:
     if employee_id is None:
         _ROLE_CACHE.clear()
     else:
-        _ROLE_CACHE.pop(int(employee_id), None)
+        for key in list(_ROLE_CACHE):
+            if key[1] == int(employee_id):
+                _ROLE_CACHE.pop(key, None)
 
 
 def get_employee_role(employee_id: int) -> str | None:
@@ -48,7 +50,9 @@ def get_employee_role(employee_id: int) -> str | None:
     except (TypeError, ValueError):
         return None
 
-    cached = _ROLE_CACHE.get(employee_id)
+    from core.path_manager import PathManager
+    cache_key = (PathManager.get_db_path(), employee_id)
+    cached = _ROLE_CACHE.get(cache_key)
     if cached and time.monotonic() - cached[1] < _CACHE_TTL:
         return cached[0]
 
@@ -59,7 +63,7 @@ def get_employee_role(employee_id: int) -> str | None:
         if not row:
             return None
         role = str(row[0] or "").strip().lower()
-        _ROLE_CACHE[employee_id] = (role, time.monotonic())
+        _ROLE_CACHE[cache_key] = (role, time.monotonic())
         return role
     except Exception as exc:
         logger.error("Permission role lookup failed: %s", exc)

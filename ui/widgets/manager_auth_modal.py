@@ -9,16 +9,23 @@ from PySide6.QtCore import Qt
 
 from controllers.manager_auth_controller import ManagerAuthController
 from ui.widgets.responsive import configure_dialog
+from ui.app.async_tasks import AsyncTaskRunner
 
 _MANAGER_AUTH_CONTROLLER = ManagerAuthController()
 
 
 class ManagerAuthModal(QDialog):
-    def __init__(self, discount_amount: float, subtotal: float, parent=None):
+    def __init__(self, discount_amount: float, subtotal: float, parent=None, employee_id=None):
         super().__init__(parent)
         self.discount_amount = discount_amount
         self.subtotal = subtotal
         self.authorized_by = None  # display name when approved
+        self.approval_token = None
+        self.employee_id = employee_id
+        self._tasks = AsyncTaskRunner(self)
+        self._approval_pending = False
+        self._closed = False
+        self.finished.connect(lambda _code: setattr(self, "_closed", True))
 
         self.setWindowTitle("Manager Approval")
         configure_dialog(self, 450, 320, minimum_width=380, minimum_height=260)
@@ -46,10 +53,10 @@ class ManagerAuthModal(QDialog):
         self.txt_pass.setPlaceholderText("Manager password")
         layout.addWidget(self.txt_pass)
 
-        btn = QPushButton("Approve Discount", self)
-        btn.setObjectName("primaryButton")
-        btn.clicked.connect(self._verify)
-        layout.addWidget(btn)
+        self.btn_approve = QPushButton("Approve Discount", self)
+        self.btn_approve.setObjectName("primaryButton")
+        self.btn_approve.clicked.connect(self._verify)
+        layout.addWidget(self.btn_approve)
 
         self.error = QLabel("", self)
         self.error.setStyleSheet("color: #d9534f;")
@@ -58,8 +65,29 @@ class ManagerAuthModal(QDialog):
         self.txt_user.setFocus()
 
     def _verify(self):
-        emp_id, who = _MANAGER_AUTH_CONTROLLER.verify(self.txt_user.text(), self.txt_pass.text())
-        if emp_id is not None:
+        if self._approval_pending:
+            return
+        if self.employee_id is None:
+            from ui.app.state.session_state import SessionState
+            user = SessionState.get_instance().current_user or {}
+            self.employee_id = user.get("id") or user.get("emp_id")
+        username, password = self.txt_user.text(), self.txt_pass.text()
+        self.txt_pass.clear()
+        self._approval_pending = True
+        self.btn_approve.setEnabled(False)
+        self.error.setText("Checking approval…")
+        self._tasks.run(lambda: _MANAGER_AUTH_CONTROLLER.issue_discount_approval(username, password, self.employee_id,
+                                             self.discount_amount, self.subtotal), self._approval_finished,
+                        lambda _details: self._approval_finished((None, "Approval is unavailable. Try again.")))
+
+    def _approval_finished(self, result):
+        if self._closed:
+            return
+        self._approval_pending = False
+        self.btn_approve.setEnabled(True)
+        token, who = result
+        if token is not None:
+            self.approval_token = token
             self.authorized_by = who
             self.accept()
         else:

@@ -1,335 +1,184 @@
+"""Customer identities and balances without requiring national identity details."""
 import re
-import time
+import unicodedata
+import uuid
+from contextlib import contextmanager
 from datetime import date, datetime
-from decimal import Decimal, ROUND_HALF_UP
-from core.db_engine import get_db, get_conn
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+
+from core.db_engine import get_db
 from core.settings_service import SettingsService
 from core.logger import get_logger
 
-logger = get_logger("PharmaKhaatoCust")
+logger = get_logger('PharmaKhaatoCust')
 
-# In-memory TTL Cache for Customer Searches
-_CUST_CACHE: dict = {}
-_CUST_CACHE_TTL = 5.0  # seconds
 
-def _get_cust_cached(key):
-    if key in _CUST_CACHE:
-        val, timestamp = _CUST_CACHE[key]
-        if time.time() - timestamp < _CUST_CACHE_TTL:
-            return val
-    return None
+def normalize_digits(value):
+    return ''.join(str(unicodedata.decimal(c)) if c.isdecimal() else c
+                   for c in unicodedata.normalize('NFKC', str(value or '')))
 
-def _set_cust_cache(key, val):
-    _CUST_CACHE[key] = (val, time.time())
 
-def clear_customer_cache():
-    global _CUST_CACHE
-    _CUST_CACHE.clear()
+def normalize_search(value):
+    return ' '.join(normalize_digits(value).casefold().split())
 
 
 def validate_cnic(cnic):
-    """
-    Validates and normalizes CNIC number string.
-    Accepts 13 digits with or without dashes (e.g. 35202-1234567-1 or 3520212345671).
-    Returns normalized 13-digit string or None if invalid.
-    """
-    if not cnic:
-        return None
-    cleaned = re.sub(r'[\s\-]', '', str(cnic).strip())
-    if re.fullmatch(r'^\d{13}$', cleaned):
-        return cleaned
-    return None
+    cleaned = re.sub(r'[\s\-]', '', normalize_digits(cnic))
+    return cleaned if re.fullmatch(r'[0-9]{13}', cleaned) else None
 
 
-def escape_sql_like(val):
-    """Escapes % and _ wildcard characters for SQL LIKE pattern matching."""
-    if not val:
-        return ""
-    return str(val).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+def normalize_phone(phone):
+    if not str(phone or '').strip():
+        return ''
+    cleaned = re.sub(r'[\s()+.\-]', '', normalize_digits(phone))
+    if cleaned.startswith('0092'):
+        cleaned = '0' + cleaned[4:]
+    elif cleaned.startswith('92') and len(cleaned) == 12:
+        cleaned = '0' + cleaned[2:]
+    if not re.fullmatch(r'0[0-9]{9,10}', cleaned):
+        raise ValueError('Enter a local phone number, such as 0300 1234567, or leave it blank.')
+    return cleaned
 
 
-def register_customer(cnic, fname, lname, email="N/A", city="N/A"):
-    """Registers a customer with strict input validation."""
-    valid_cnic = validate_cnic(cnic)
-    if not valid_cnic:
-        return False, "Invalid CNIC format. Must be 13 numeric digits (e.g., 3520212345671)."
-    fname = str(fname).strip()[:50]
-    lname = str(lname).strip()[:50]
-    if not fname or not lname:
-        return False, "First and Last names are required."
-    email = email or "N/A"
-    city = city or "N/A"
+def escape_sql_like(value):
+    return str(value or '').replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
 
+
+def clear_customer_cache():
+    """Compatibility hook: customer reads now use fresh bounded queries."""
+
+
+@contextmanager
+def _cursor(conn=None):
+    if conn is not None:
+        yield conn.cursor()
+    else:
+        with get_db() as (_conn, cur):
+            yield cur
+
+
+def resolve_customer_ref(customer_ref, conn=None):
+    """Resolve an opaque selected reference, or a normalized CNIC, without guessing."""
+    raw = str(customer_ref or '').strip()
+    if not raw or raw.upper() == 'WALKIN':
+        raise ValueError('Select a customer account first.')
+    with _cursor(conn) as cur:
+        cur.execute('SELECT id_card_number FROM Customers WHERE id_card_number = %s', (raw,))
+        row = cur.fetchone()
+        if row:
+            return str(row[0])
+        cnic = validate_cnic(raw)
+        if cnic:
+            cur.execute('SELECT id_card_number FROM Customers WHERE cnic = %s OR id_card_number = %s',
+                        (cnic, cnic))
+            rows = cur.fetchall()
+            if len(rows) == 1:
+                return str(rows[0][0])
+            if len(rows) > 1:
+                raise ValueError('More than one account has these identity details. Select the customer by name and area.')
+    raise ValueError('This customer account could not be found.')
+
+
+def create_customer(display_name, phone='', area='', cnic='', employee_id=None, *, last_name='', email='N/A'):
+    """Create a name-only account; contact and CNIC are optional, never generated."""
+    name = ' '.join(str(display_name or '').strip().split())
+    last = ' '.join(str(last_name or '').strip().split())
+    if not name or len(name) > 100 or len(last) > 100:
+        return False, 'Enter the customer name (up to 100 characters).', None
+    full_name = ' '.join(part for part in (name, last) if part)
     try:
-        with get_db() as (conn, cur):
+        phone = normalize_phone(phone)
+        normalized_cnic = validate_cnic(cnic)
+        if str(cnic or '').strip() and not normalized_cnic:
+            raise ValueError('CNIC must contain 13 digits, or leave it blank.')
+        if employee_id is not None:
+            from core.permission_service import require_permission
+            allowed, reason = require_permission(employee_id, 'customer.create')
+            if not allowed:
+                return False, reason, None
+        ref = normalized_cnic or ('CUST_' + uuid.uuid4().hex)
+        with get_db(immediate=True) as (_conn, cur):
+            if normalized_cnic:
+                # Also catch legacy identities stored using Urdu/Persian digits.
+                cur.execute('SELECT id_card_number, cnic FROM Customers WHERE id_card_number != %s', ('WALKIN',))
+                if any(validate_cnic(existing_cnic or existing_ref) == normalized_cnic
+                       for existing_ref, existing_cnic in cur.fetchall()):
+                    raise ValueError('A customer already uses this CNIC. Find their existing account instead.')
             cur.execute(
-                "SELECT id_card_number FROM Customers WHERE id_card_number = %s", (valid_cnic,)
-            )
-            if cur.fetchone():
-                raise ValueError(f"Customer with CNIC {valid_cnic} is already registered.")
-            cur.execute(
-                "INSERT INTO Customers "
-                "(id_card_number, first_name, last_name, Email_Address, city, registration_date) "
-                "VALUES (%s, %s, %s, %s, %s, %s)",
-                (valid_cnic, fname, lname, email, city, date.today().strftime("%Y-%m-%d")),
-            )
-        clear_customer_cache()
-        return True, f"Customer '{fname} {lname}' registered successfully!"
-    except ValueError as ve:
-        return False, str(ve)
-    except Exception as e:
-        return False, f"Registration failed: {e}"
+                'INSERT INTO Customers (id_card_number,first_name,last_name,Email_Address,city,registration_date,display_name,phone,cnic) '
+                'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                (ref,name,last,str(email or 'N/A').strip()[:150],str(area or '').strip()[:100],
+                 date.today().isoformat(),full_name,phone,normalized_cnic))
+        return True, f'Customer {full_name} added.', ref
+    except ValueError as exc:
+        return False, str(exc), None
+    except Exception:
+        logger.exception('Customer creation failed')
+        return False, 'The customer could not be saved. Try again.', None
+
+
+def register_customer(cnic, fname, lname='', email='N/A', city='N/A', *, phone=''):
+    ok, message, _ref = create_customer(fname, phone, city, cnic, last_name=lname, email=email)
+    return ok, message
 
 
 def search_customer(keyword):
-    """
-    Search customer by CNIC (exact match first, then partial) or First/Last Name with 5s TTL caching.
-    Returns list of tuples: (id_card_number, first_name, last_name, email, city)
-    """
-    raw_kw = str(keyword).strip()
-    if not raw_kw:
-        return []
+    from core.customer_directory_service import search_customers
+    return search_customers(keyword)
 
-    cached = _get_cust_cached(raw_kw)
-    if cached is not None:
-        return cached
 
+def search_customers_with_debt(keyword=''):
+    from core.customer_directory_service import search_customers_with_debt as search
+    return search(keyword)
+
+
+def get_customer_total_debt(customer_ref, conn=None):
+    """A failed balance read raises; unavailable credit must never look like zero."""
+    with _cursor(conn) as cur:
+        ref = resolve_customer_ref(customer_ref, conn)
+        cur.execute('SELECT COALESCE(SUM(amount_due),0) FROM Customer_Khatoo WHERE customer_id=%s', (ref,))
+        return Decimal(str(cur.fetchone()[0])).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+
+def check_customer_credit_limit(customer_ref, new_credit_amount=0.0, conn=None):
     try:
-        with get_db() as (conn, cur):
-            cleaned_cnic = validate_cnic(raw_kw)
-            if cleaned_cnic:
-                cur.execute(
-                    "SELECT id_card_number, first_name, last_name, Email_Address, city "
-                    "FROM Customers WHERE id_card_number = %s",
-                    (cleaned_cnic,),
-                )
-                exact = cur.fetchall()
-                if exact:
-                    _set_cust_cache(raw_kw, exact)
-                    return exact
-            safe_kw = escape_sql_like(raw_kw)
-            cur.execute(
-                "SELECT id_card_number, first_name, last_name, Email_Address, city "
-                "FROM Customers WHERE id_card_number LIKE %s OR first_name LIKE %s OR last_name LIKE %s",
-                (f"%{safe_kw}%", f"%{safe_kw}%", f"%{safe_kw}%"),
-            )
-            res = cur.fetchall()
-            _set_cust_cache(raw_kw, res)
-            return res
-    except Exception as e:
-        logger.error(f"Customer search error: {e}")
-        return []
+        amount = Decimal(str(new_credit_amount)).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        limit = Decimal(str(SettingsService.get_setting('max_customer_credit_limit', '25000.00')))
+        if not amount.is_finite() or amount < 0 or not limit.is_finite() or limit < 0:
+            raise ValueError('Invalid credit amount or limit.')
+        debt = get_customer_total_debt(customer_ref, conn)
+        if debt + amount > limit:
+            return False, f'Credit limit reached. Due Rs. {debt:.2f}; this sale Rs. {amount:.2f}; limit Rs. {limit:.2f}.'
+        return True, 'Credit limit approved.'
+    except (ValueError, TypeError, InvalidOperation) as exc:
+        return False, str(exc)
+    except Exception:
+        logger.exception('Credit balance verification failed')
+        return False, 'The customer balance could not be verified. Try again before issuing credit.'
 
 
-def search_customers_with_debt(keyword=""):
-    """
-    Batched query returning customer tuples with total outstanding debt in a single SQL roundtrip:
-    (id_card_number, first_name, last_name, email, city, total_debt)
-    Eliminates N+1 debt queries on customer directory listing.
-    """
-    try:
-        with get_db() as (conn, cur):
-            raw_kw = str(keyword).strip()
-            safe_kw = escape_sql_like(raw_kw)
-            cur.execute(
-                "SELECT c.id_card_number, c.first_name, c.last_name, c.Email_Address, c.city, "
-                "       COALESCE(SUM(k.amount_due), 0.0) AS total_debt "
-                "FROM Customers c "
-                "LEFT JOIN Customer_Khatoo k ON k.customer_id = c.id_card_number "
-                "WHERE c.id_card_number LIKE %s OR c.first_name LIKE %s OR c.last_name LIKE %s "
-                "GROUP BY c.id_card_number, c.first_name, c.last_name, c.Email_Address, c.city "
-                "ORDER BY c.first_name ASC",
-                (f"%{safe_kw}%", f"%{safe_kw}%", f"%{safe_kw}%"),
-            )
-            return cur.fetchall()
-    except Exception as e:
-        logger.error(f"Search customers with debt error: {e}")
-        return []
+def get_customer_debt_aging(customer_ref):
+    ref = resolve_customer_ref(customer_ref)
+    with get_db() as (_conn, cur):
+        cur.execute('SELECT k.amount_due,r.printing_date FROM Customer_Khatoo k '
+                    'JOIN Receipt r ON r.purchase_id=k.purchase_id WHERE k.customer_id=%s AND k.amount_due>0', (ref,))
+        rows = cur.fetchall()
+    buckets = {'0_30': Decimal('0'), '31_60': Decimal('0'), '61_plus': Decimal('0')}
+    for due, sale_date in rows:
+        age = (date.today()-date.fromisoformat(str(sale_date)[:10])).days
+        buckets['0_30' if age <= 30 else '31_60' if age <= 60 else '61_plus'] += Decimal(str(due))
+    return {key: float(value) for key,value in buckets.items()}
 
 
-def get_customer_total_debt(cnic, conn=None):
-    """
-    Returns total outstanding credit debt for a customer CNIC.
-    Accepts an optional external connection to participate in a caller's transaction.
-    """
-    valid_cnic = validate_cnic(cnic)
-    if not valid_cnic:
-        return Decimal("0.00")
-
-    # Opt-in conn path: caller owns the connection lifecycle
-    if conn is not None:
-        try:
-            cur = conn.cursor()
-            cur.execute(
-                "SELECT SUM(amount_due) FROM Customer_Khatoo WHERE customer_id = %s", (valid_cnic,)
-            )
-            res = cur.fetchone()
-            if res and res[0] is not None:
-                return Decimal(str(res[0])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            return Decimal("0.00")
-        except Exception as e:
-            logger.error(f"Get customer total debt error: {e}")
-            return Decimal("0.00")
-
-    try:
-        with get_db() as (_conn, cur):
-            cur.execute(
-                "SELECT SUM(amount_due) FROM Customer_Khatoo WHERE customer_id = %s", (valid_cnic,)
-            )
-            res = cur.fetchone()
-            if res and res[0] is not None:
-                return Decimal(str(res[0])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            return Decimal("0.00")
-    except Exception as e:
-        logger.error(f"Get customer total debt error: {e}")
-        return Decimal("0.00")
-
-
-def check_customer_credit_limit(cnic, new_credit_amount=0.0, conn=None):
-    """
-    Validates whether adding new_credit_amount would exceed customer's maximum credit limit.
-    Returns (True, ok_msg) or (False, limit_exceeded_msg).
-    Accepts an optional external connection to participate in a caller's transaction.
-    """
-    valid_cnic = validate_cnic(cnic)
-    if not valid_cnic:
-        return False, "Invalid Customer CNIC."
-    current_debt = get_customer_total_debt(valid_cnic, conn=conn)
-    try:
-        add_dec = Decimal(str(new_credit_amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    except (ValueError, TypeError):
-        return False, "Invalid credit amount."
-    projected_debt = current_debt + add_dec
-    limit_setting = SettingsService.get_setting("max_customer_credit_limit", "25000.00")
-    max_limit = Decimal(str(limit_setting))
-    if projected_debt > max_limit:
-        return False, (
-            f"Credit Limit Exceeded! Current Debt: Rs.{current_debt:.2f}, "
-            f"Requested: Rs.{add_dec:.2f}, Projected Total: Rs.{projected_debt:.2f} "
-            f"(Max Credit Limit: Rs.{max_limit:.2f})"
-        )
-    return True, "Credit limit approved."
-
-
-def get_customer_debt_aging(cnic):
-    """
-    Calculates debt aging buckets (0-30 days, 31-60 days, 61+ days) for customer CNIC.
-    """
-    valid_cnic = validate_cnic(cnic)
-    if not valid_cnic:
-        return {"0_30": 0.0, "31_60": 0.0, "61_plus": 0.0}
-    try:
-        with get_db() as (conn, cur):
-            cur.execute(
-                "SELECT k.amount_due, r.printing_date "
-                "FROM Customer_Khatoo k "
-                "JOIN Receipt r ON k.purchase_id = r.purchase_id "
-                "WHERE k.customer_id = %s AND k.amount_due > 0",
-                (valid_cnic,),
-            )
-            rows = cur.fetchall()
-
-        today = date.today()
-        bucket_30 = Decimal("0.00")
-        bucket_60 = Decimal("0.00")
-        bucket_plus = Decimal("0.00")
-        for due, pdate_str in rows:
-            due_dec = Decimal(str(due))
-            try:
-                pdate = datetime.strptime(str(pdate_str)[:10], "%Y-%m-%d").date()
-                days_old = (today - pdate).days
-            except Exception:
-                days_old = 0
-            if days_old <= 30:
-                bucket_30 += due_dec
-            elif days_old <= 60:
-                bucket_60 += due_dec
-            else:
-                bucket_plus += due_dec
-        return {
-            "0_30": float(bucket_30),
-            "31_60": float(bucket_60),
-            "61_plus": float(bucket_plus),
-        }
-    except Exception as e:
-        logger.error(f"Debt aging calculation error: {e}")
-        return {"0_30": 0.0, "31_60": 0.0, "61_plus": 0.0}
-
-
-def load_khatoo(keyword=""):
-    """
-    Returns Khatoo credit ledger records with safe query parameters.
-    Tuples: (khatoo_id, customer_name, purchase_id, amount_due, amount_paid, customer_cnic)
-    """
-    try:
-        with get_db() as (conn, cur):
-            raw_kw = str(keyword).strip()
-            safe_kw = escape_sql_like(raw_kw)
-            if safe_kw:
-                cur.execute(
-                    "SELECT k.id, c.first_name || ' ' || c.last_name, k.purchase_id, "
-                    "k.amount_due, k.amount_paid, k.customer_id "
-                    "FROM Customer_Khatoo k "
-                    "JOIN Customers c ON k.customer_id = c.id_card_number "
-                    "WHERE c.id_card_number = %s OR c.first_name LIKE %s OR c.last_name LIKE %s",
-                    (raw_kw, f"%{safe_kw}%", f"%{safe_kw}%"),
-                )
-            else:
-                cur.execute(
-                    "SELECT k.id, c.first_name || ' ' || c.last_name, k.purchase_id, "
-                    "k.amount_due, k.amount_paid, k.customer_id "
-                    "FROM Customer_Khatoo k "
-                    "JOIN Customers c ON k.customer_id = c.id_card_number "
-                    "ORDER BY k.id DESC"
-                )
-            return cur.fetchall()
-    except Exception as e:
-        logger.error(f"Load Khatoo error: {e}")
-        return []
+def load_khatoo(keyword=''):
+    from core.credit_query_service import load_open_credit
+    return load_open_credit(keyword)
 
 
 def record_payment(khatoo_id, amount):
-    """Updates amount_paid and amount_due for a Khatoo entry with Decimal input validation."""
-    try:
-        dec_amount = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if dec_amount <= Decimal("0.00"):
-            return False, "Payment amount must be greater than zero."
-    except (ValueError, TypeError):
-        return False, "Invalid payment amount specified."
-
-    try:
-        with get_db() as (conn, cur):
-            cur.execute(
-                "SELECT amount_due, amount_paid FROM Customer_Khatoo WHERE id = %s", (khatoo_id,)
-            )
-            res = cur.fetchone()
-            if not res:
-                raise ValueError("Khatoo record not found.")
-            due_dec = Decimal(str(res[0])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            paid_dec = Decimal(str(res[1])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            if dec_amount > due_dec:
-                raise ValueError(
-                    f"Payment amount (Rs.{dec_amount:.2f}) exceeds "
-                    f"outstanding due balance (Rs.{due_dec:.2f})."
-                )
-            cur.execute(
-                "UPDATE Customer_Khatoo SET amount_paid = %s, amount_due = %s WHERE id = %s",
-                (float(paid_dec + dec_amount), float(due_dec - dec_amount), khatoo_id),
-            )
-        return True, "Payment recorded successfully."
-    except ValueError as ve:
-        return False, str(ve)
-    except Exception as e:
-        return False, f"Payment recording failed: {e}"
+    return False, 'Sign in and use Record Payment so the payment has a staff and tender history.'
 
 
 def get_khatoo_summary():
-    """Returns sum of total pending debt across all customers."""
-    try:
-        with get_db() as (conn, cur):
-            cur.execute("SELECT SUM(amount_due) FROM Customer_Khatoo")
-            res = cur.fetchone()
-            return float(res[0]) if res and res[0] is not None else 0.0
-    except Exception as e:
-        logger.error(f"Get Khatoo summary error: {e}")
-        return 0.0
+    from core.credit_query_service import total_open_credit
+    return total_open_credit()

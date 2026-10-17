@@ -55,14 +55,16 @@ class ReportsScreen(QWidget):
         self.kpi_grid = QGridLayout()
         self.kpi_grid.setHorizontalSpacing(12)
         self.kpi_grid.setVerticalSpacing(12)
-        self.card_total = self.create_kpi_card("Sales Total", "Rs. 0.00", ThemeTokens.SUCCESS)
+        self.card_total = self.create_kpi_card("Gross Sales", "Rs. 0.00", ThemeTokens.SUCCESS)
+        self.card_refunds = self.create_kpi_card("Returns", "Rs. 0.00", ThemeTokens.WARNING)
+        self.card_net = self.create_kpi_card("Net Sales", "Rs. 0.00", ThemeTokens.SUCCESS)
         self.card_tx = self.create_kpi_card("Number of Sales", "0", ThemeTokens.ACCENT)
         self.card_cash = self.create_kpi_card("Cash Sales", "Rs. 0.00", ThemeTokens.INFO)
         self.card_digital = self.create_kpi_card("Card & Wallets", "Rs. 0.00", ThemeTokens.ACCENT)
         self.card_credit = self.create_kpi_card("Customer Credit Sales", "Rs. 0.00", ThemeTokens.WARNING)
-        self.card_collections = self.create_kpi_card("Credit Collected", "Rs. 0.00", ThemeTokens.SUCCESS)
+        self.card_collections = self.create_kpi_card("Net Credit Collected", "Rs. 0.00", ThemeTokens.SUCCESS)
         self._kpi_cards = [
-            self.card_total, self.card_tx, self.card_cash,
+            self.card_total, self.card_refunds, self.card_net, self.card_tx, self.card_cash,
             self.card_digital, self.card_credit, self.card_collections,
         ]
         self._kpi_columns = 0
@@ -165,26 +167,34 @@ class ReportsScreen(QWidget):
         self._set_financials_loading()
 
         def load():
-            return (
-                _REPORTS_CONTROLLER.daily_sales(selected_date) or {},
-                _REPORTS_CONTROLLER.credit_collections(selected_date) or {},
-            )
+            sales = _REPORTS_CONTROLLER.daily_sales(selected_date)
+            collections = _REPORTS_CONTROLLER.credit_collections(selected_date)
+            if sales is None or collections is None:
+                raise RuntimeError("The report could not be loaded. Retry before using these totals.")
+            return sales, collections
+
+        def failed(message):
+            for card in self._kpi_cards:
+                card.val_label.setText("Unavailable")
+            self._task_failed("financial summary", message)
 
         self._tasks.run_latest(
             "reports-financials",
             load,
             self._apply_financials,
-            lambda message: self._task_failed("financial summary", message),
+            failed,
         )
 
     def _apply_financials(self, payload):
         sales, collections = payload
         self.card_total.val_label.setText(f"Rs. {float(sales.get('total_sales', 0)):.2f}")
+        self.card_refunds.val_label.setText(f"Rs. {float(sales['returns_total']):,.2f}")
+        self.card_net.val_label.setText(f"Rs. {float(sales['net_sales']):,.2f}")
         self.card_tx.val_label.setText(str(int(sales.get("total_transactions", 0))))
         self.card_cash.val_label.setText(f"Rs. {float(sales.get('cash_sales', 0)):.2f}")
         self.card_digital.val_label.setText(f"Rs. {float(sales.get('digital_sales', 0)):.2f}")
         self.card_credit.val_label.setText(f"Rs. {float(sales.get('credit_sales', 0)):.2f}")
-        self.card_collections.val_label.setText(f"Rs. {float(collections.get('total', 0)):.2f}")
+        self.card_collections.val_label.setText(f"Rs. {float(collections['net_total']):,.2f}")
 
     def _load_current_tab(self, index):
         index = int(index)

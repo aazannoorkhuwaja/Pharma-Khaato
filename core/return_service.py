@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import sqlite3
 import threading
-from datetime import date, datetime
+import hashlib
+import json
+from core.business_time import business_date, business_now
 from decimal import Decimal, ROUND_HALF_UP
 
 from core.db_engine import get_db
@@ -20,6 +22,18 @@ from core.permission_service import require_permission
 logger = get_logger("PharmaKhaatoReturns")
 _RETURN_LOCK = threading.Lock()
 _CENT = Decimal("0.01")
+
+
+def lookup_return_result(operation_id, employee_id):
+    """None means no committed return under this identity; DB errors propagate."""
+    with get_db() as (_conn, cur):
+        cur.execute("SELECT employee_id,result_json FROM Return_Operation WHERE operation_id=%s", (str(operation_id),))
+        row = cur.fetchone()
+        if row is None:
+            return None
+        if int(row[0]) != int(employee_id):
+            raise ValueError("That return belongs to another staff member.")
+        return json.loads(row[1])
 
 
 def _money(value) -> Decimal:
@@ -153,6 +167,8 @@ def _allocate_credit_repayment_refunds(
         "SELECT cp.id, cp.amount, cp.payment_method, "
         "       COALESCE((SELECT SUM(rt.amount) FROM Refund_Transaction rt "
         "                 WHERE rt.source_credit_payment_id = cp.id), 0) "
+        "       + COALESCE((SELECT SUM(rv.amount) FROM Credit_Payment_Reversal rv "
+        "                 WHERE rv.payment_id=cp.id), 0) "
         "FROM Credit_Payment cp WHERE cp.khatoo_id = %s ORDER BY cp.id DESC",
         (ledger_id,),
     )
@@ -229,6 +245,7 @@ def process_return(
     employee_id: int,
     reason: str = "Customer return",
     condition: str = "SELLABLE",
+    operation_id: str | None = None,
 ):
     """Process a return atomically using authoritative sale data.
 
@@ -256,7 +273,10 @@ def process_return(
     try:
         for item in requested_items:
             batch_id = int(item.get("batch_id"))
-            qty = int(item.get("qty", 0))
+            raw_qty = Decimal(str(item.get("qty", 0)))
+            if not raw_qty.is_finite() or raw_qty != raw_qty.to_integral_value():
+                raise ValueError("Return quantities must be whole units.")
+            qty = int(raw_qty)
             if qty <= 0:
                 continue
             requested_by_batch[batch_id] = requested_by_batch.get(batch_id, 0) + qty
@@ -265,6 +285,14 @@ def process_return(
     if not requested_by_batch:
         return False, "Select at least one positive return quantity."
 
+    token = str(operation_id or "").strip()
+    if token and (len(token) > 100 or not all(c.isalnum() or c in '-_' for c in token)):
+        return False, "Invalid return request. Reopen the return and try again."
+    fingerprint = hashlib.sha256(json.dumps(
+        [purchase_id, employee_id, sorted(requested_by_batch.items()), reason, condition],
+        ensure_ascii=False, separators=(',', ':'),
+    ).encode()).hexdigest()
+
     if not _RETURN_LOCK.acquire(blocking=False):
         return False, "Another return is being processed. Try again in a moment."
 
@@ -272,10 +300,16 @@ def process_return(
     refund_total = Decimal("0.00")
     refund_tenders = []
     try:
-        with get_db() as (conn, cur):
+        with get_db(immediate=True) as (conn, cur):
             # Serialize validation+write so two return attempts cannot both use
             # the same remaining quantity.
-            cur.execute("BEGIN IMMEDIATE")
+            if token:
+                cur.execute("SELECT employee_id,request_hash,result_json FROM Return_Operation WHERE operation_id=%s", (token,))
+                previous = cur.fetchone()
+                if previous:
+                    if previous[0] != employee_id or previous[1] != fingerprint:
+                        raise ValueError("This return request belongs to different return details.")
+                    return True, json.loads(previous[2])
 
             header = _sale_header(cur, purchase_id)
             if not header:
@@ -296,7 +330,7 @@ def process_return(
             requested_base = Decimal("0.00")
             prepared_items = []
             remaining_after = 0
-            today = date.today().isoformat()
+            today = business_date().isoformat()
 
             for batch_id, line in line_map.items():
                 sold_qty = int(line[3] or 0)
@@ -313,14 +347,16 @@ def process_return(
 
                 product_id = int(line[1])
                 product_name = str(line[2])
-                unit_price = _money(line[4])
+                unit_price = Decimal(str(line[4]))
                 expiry_date = str(line[6])
-                line_return_base = (unit_price * request_qty).quantize(_CENT, rounding=ROUND_HALF_UP)
+                line_return_base = Decimal(str(line[5])) * request_qty / sold_qty
                 requested_base += line_return_base
 
-                can_restock = condition == "SELLABLE" and expiry_date > today
+                cur.execute("SELECT b.stock_status,p.is_active FROM Batch b JOIN Products p ON p.id=b.product_id WHERE b.id=%s", (batch_id,))
+                status = cur.fetchone()
+                can_restock = condition == "SELLABLE" and expiry_date >= today and status and status[0] == 'SELLABLE' and bool(status[1])
                 restock_status = "RESTOCKED" if can_restock else (
-                    "EXPIRED_QUARANTINE" if condition == "SELLABLE" and expiry_date <= today
+                    "EXPIRED_QUARANTINE" if condition == "SELLABLE" and expiry_date < today
                     else f"{condition}_QUARANTINE"
                 )
                 prepared_items.append({
@@ -356,7 +392,7 @@ def process_return(
             if refund_total <= Decimal("0.00"):
                 raise ValueError("This sale has already been fully refunded.")
 
-            now = datetime.now()
+            now = business_now()
             date_str = now.strftime("%Y-%m-%d")
             time_str = now.strftime("%H:%M:%S")
             now_str = now.strftime("%Y-%m-%d %H:%M:%S")
@@ -404,6 +440,11 @@ def process_return(
                     cur.execute(
                         "UPDATE Products SET stock_quantity = stock_quantity + %s WHERE id = %s",
                         (item["qty"], item["product_id"]),
+                    )
+                    cur.execute(
+                        "INSERT INTO Stock_Movement(product_id,batch_id,quantity_delta,movement_type,reason,employee_id,operation_key,created_at) "
+                        "VALUES (%s,%s,%s,'CUSTOMER_RETURN',%s,%s,%s,%s)",
+                        (item["product_id"],item["batch_id"],item["qty"],str(reason)[:250],employee_id,token or None,now_str),
                     )
 
             return_session_id = None
@@ -507,6 +548,14 @@ def process_return(
                 "UPDATE Customer_Returns SET session_id = %s WHERE id = %s",
                 (return_session_id, return_id),
             )
+            result = {"return_id": return_id, "purchase_id": purchase_id,
+                      "refund_amount": float(refund_total), "refund_tenders": refund_tenders,
+                      "items": len(prepared_items)}
+            if token:
+                cur.execute(
+                    "INSERT INTO Return_Operation(operation_id,employee_id,request_hash,return_id,result_json) VALUES (%s,%s,%s,%s,%s)",
+                    (token,employee_id,fingerprint,return_id,json.dumps(result)),
+                )
 
         clear_inventory_cache()
         try:

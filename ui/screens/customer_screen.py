@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog, QFormLayout,
     QMessageBox, QFrame,
 )
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
 
 from ui.theme.tokens import ThemeTokens
 from ui.widgets.card import Card
@@ -21,42 +21,39 @@ _CUSTOMER_CONTROLLER = CustomerController()
 
 
 class AddCustomerDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, initial_name=""):
         super().__init__(parent)
+        self.created_customer_id = None
+        self.created_customer_name = None
+        self._saving = False
+        self._tasks = AsyncTaskRunner(self)
         self.setWindowTitle("Add Customer")
-        configure_dialog(self, 520, 460, minimum_width=400, minimum_height=340)
-
+        configure_dialog(self, 500, 390, minimum_width=380, minimum_height=320)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(12)
         title = QLabel("Add Customer")
         title.setObjectName("h2")
         layout.addWidget(title)
-
+        help_label = QLabel("Only a name is needed. Phone, area and CNIC are optional.")
+        help_label.setWordWrap(True)
+        layout.addWidget(help_label)
         form = QFormLayout()
-        form.setSpacing(10)
-        self.txt_cnic = QLineEdit()
-        self.txt_cnic.setPlaceholderText("13-digit CNIC, with or without dashes")
-        self.txt_cnic.setAccessibleName("Customer CNIC")
-        form.addRow("CNIC *:", self.txt_cnic)
-
-        self.txt_fname = QLineEdit()
-        self.txt_fname.setPlaceholderText("First name")
-        form.addRow("First name *:", self.txt_fname)
-
-        self.txt_lname = QLineEdit()
-        self.txt_lname.setPlaceholderText("Last name")
-        form.addRow("Last name *:", self.txt_lname)
-
-        self.txt_email = QLineEdit()
-        self.txt_email.setPlaceholderText("Optional email address")
-        form.addRow("Email:", self.txt_email)
-
+        self.txt_name = QLineEdit(str(initial_name or ""))
+        self.txt_name.setPlaceholderText("Name or familiar shop name")
+        self.txt_name.setMaxLength(100)
+        self.txt_name.setAccessibleName("Customer name")
+        self.txt_phone = QLineEdit()
+        self.txt_phone.setPlaceholderText("Optional — 0300 1234567")
         self.txt_city = QLineEdit()
-        self.txt_city.setPlaceholderText("City or area")
-        form.addRow("City / area:", self.txt_city)
+        self.txt_city.setPlaceholderText("Optional area or nearby landmark")
+        self.txt_city.setMaxLength(100)
+        self.txt_cnic = QLineEdit()
+        self.txt_cnic.setPlaceholderText("Optional — 13 digits")
+        self.txt_cnic.setMaxLength(20)
+        form.addRow("Name *:", self.txt_name)
+        form.addRow("Phone:", self.txt_phone)
+        form.addRow("Area:", self.txt_city)
+        form.addRow("CNIC:", self.txt_cnic)
         layout.addLayout(form)
-
         buttons = QHBoxLayout()
         self.btn_cancel = QPushButton("Cancel")
         self.btn_cancel.clicked.connect(self.reject)
@@ -67,29 +64,51 @@ class AddCustomerDialog(QDialog):
         buttons.addWidget(self.btn_cancel)
         buttons.addWidget(self.btn_save)
         layout.addLayout(buttons)
+        self.txt_name.setFocus()
+
+    def reject(self):
+        if not self._saving:
+            super().reject()
+
+    def closeEvent(self, event):
+        if self._saving:
+            event.ignore()
+        else:
+            super().closeEvent(event)
 
     def on_save(self):
-        cnic = self.txt_cnic.text().strip()
-        fname = self.txt_fname.text().strip()
-        lname = self.txt_lname.text().strip()
-        if not _CUSTOMER_CONTROLLER.validate_cnic(cnic):
-            show_toast(self, "Enter a valid 13-digit CNIC.", ToastType.WARNING)
+        if self._saving:
             return
-        if not fname or not lname:
-            show_toast(self, "Enter the customer’s first and last name.", ToastType.WARNING)
+        name = self.txt_name.text().strip()
+        if not name:
+            show_toast(self, "Enter the customer name.", ToastType.WARNING)
+            self.txt_name.setFocus()
             return
-        ok, msg = _CUSTOMER_CONTROLLER.register(
-            cnic,
-            fname,
-            lname,
-            self.txt_email.text().strip() or "N/A",
-            self.txt_city.text().strip() or "N/A",
-        )
-        if ok:
-            show_toast(self.parent() or self, msg, ToastType.SUCCESS)
-            self.accept()
-        else:
-            QMessageBox.critical(self, "Could Not Save Customer", msg)
+        from ui.app.state.session_state import SessionState
+        employee_id = (SessionState.get_instance().current_user or {}).get("id")
+        args = (name, self.txt_phone.text().strip(), self.txt_city.text().strip(), self.txt_cnic.text().strip(), employee_id)
+        self._saving = True
+        self.btn_save.setEnabled(False)
+        self.btn_cancel.setEnabled(False)
+        self._tasks.run(lambda: _CUSTOMER_CONTROLLER.create(*args), self._saved,
+                        lambda _details: self._save_failed("The customer could not be saved. Try again."))
+
+    def _saved(self, result):
+        ok, message, customer_ref = result
+        if not ok:
+            self._save_failed(message)
+            return
+        self._saving = False
+        self.created_customer_id = customer_ref
+        self.created_customer_name = self.txt_name.text().strip()
+        show_toast(self.parent() or self, message, ToastType.SUCCESS)
+        self.accept()
+
+    def _save_failed(self, message):
+        self._saving = False
+        self.btn_save.setEnabled(True)
+        self.btn_cancel.setEnabled(True)
+        QMessageBox.warning(self, "Customer Could Not Be Saved", message)
 
 
 class CustomerScreen(QWidget):
@@ -98,6 +117,8 @@ class CustomerScreen(QWidget):
         self.show_message_box = show_message_box
         self._tasks = AsyncTaskRunner(self)
         self._selected_cnic: str | None = None
+        self._page = 0
+        self._page_size = 120
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 16, 16, 16)
@@ -121,7 +142,7 @@ class CustomerScreen(QWidget):
         left_layout.setSpacing(10)
         search_row = QHBoxLayout()
         self.txt_search = QLineEdit()
-        self.txt_search.setPlaceholderText("Search by customer name or CNIC")
+        self.txt_search.setPlaceholderText("Search name, phone, area or optional CNIC")
         self.txt_search.setAccessibleName("Search customers")
         self.btn_add_cust = QPushButton("Add Customer")
         self.btn_add_cust.setObjectName("primaryButton")
@@ -137,7 +158,7 @@ class CustomerScreen(QWidget):
         self.txt_search.textChanged.connect(lambda *_: self.search_timer.start())
 
         self.tbl_customers = QTableWidget(0, 4)
-        self.tbl_customers.setHorizontalHeaderLabels(["Customer", "CNIC", "Area", "Amount Due"])
+        self.tbl_customers.setHorizontalHeaderLabels(["Customer", "Phone", "Area", "Amount Due"])
         self.tbl_customers.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tbl_customers.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tbl_customers.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
@@ -148,6 +169,15 @@ class CustomerScreen(QWidget):
         self.tbl_customers.setSelectionBehavior(QTableWidget.SelectRows)
         self.tbl_customers.itemSelectionChanged.connect(self.on_customer_selected)
         left_layout.addWidget(self.tbl_customers, 1)
+        pager = QHBoxLayout()
+        self.btn_previous = QPushButton("Previous")
+        self.btn_next = QPushButton("Next")
+        self.btn_previous.clicked.connect(lambda: self._change_page(-1))
+        self.btn_next.clicked.connect(lambda: self._change_page(1))
+        pager.addWidget(self.btn_previous)
+        pager.addStretch()
+        pager.addWidget(self.btn_next)
+        left_layout.addLayout(pager)
 
         right_card = Card()
         flexible_side_panel(right_card, minimum=280, maximum=410)
@@ -190,17 +220,27 @@ class CustomerScreen(QWidget):
         layout.addLayout(main_row, 1)
         self.refresh_all_data()
 
+    def _change_page(self, delta):
+        self._page = max(0, self._page + delta)
+        self._load_rows(self.txt_search.text())
+
     def _load_rows(self, text=""):
         term = text.strip()
-        self.pill_total_custs.setText("Customers shown: …")
+        offset = self._page * self._page_size
+        self.pill_total_custs.setText("Loading customers…")
 
-        def complete(rows):
-            self.populate_customers_table(rows or [])
-            self.pill_total_custs.setText(f"Customers shown: {len(rows or [])}")
+        def complete(payload):
+            rows, total = payload
+            self._selected_cnic = None
+            self.populate_customers_table(rows)
+            first = offset + 1 if rows else 0
+            self.pill_total_custs.setText(f"Customers: {first}–{offset + len(rows)} of {total}")
+            self.btn_previous.setEnabled(offset > 0)
+            self.btn_next.setEnabled(offset + len(rows) < total)
 
         self._tasks.run_latest(
             "customer-list",
-            lambda: _CUSTOMER_CONTROLLER.search_with_debt(term),
+            lambda: (_CUSTOMER_CONTROLLER.search_with_debt(term, self._page_size, offset), _CUSTOMER_CONTROLLER.count(term)),
             complete,
             lambda _message: self._customer_load_failed(),
         )
@@ -223,10 +263,12 @@ class CustomerScreen(QWidget):
         try:
             self.tbl_customers.setRowCount(len(customers))
             for row, item in enumerate(customers):
-                cnic, fname, lname, _email, city, debt = item
+                cnic, fname, lname, phone, city, debt = item
                 full_name = " ".join(part for part in (str(fname).strip(), str(lname).strip()) if part)
-                self.tbl_customers.setItem(row, 0, QTableWidgetItem(full_name or "Unnamed customer"))
-                self.tbl_customers.setItem(row, 1, QTableWidgetItem(str(cnic)))
+                name_item = QTableWidgetItem(full_name or "Unnamed customer")
+                name_item.setData(Qt.ItemDataRole.UserRole, cnic)
+                self.tbl_customers.setItem(row, 0, name_item)
+                self.tbl_customers.setItem(row, 1, QTableWidgetItem(str(phone or "—")))
                 self.tbl_customers.setItem(row, 2, QTableWidgetItem(str(city)))
                 self.tbl_customers.setItem(row, 3, QTableWidgetItem(f"Rs. {float(debt):.2f}"))
         finally:
@@ -239,6 +281,7 @@ class CustomerScreen(QWidget):
             show_toast(self, "Could not load customers. Try again.", ToastType.WARNING)
 
     def _run_search(self):
+        self._page = 0
         self._load_rows(self.txt_search.text())
 
     def on_search(self, text):
@@ -254,9 +297,9 @@ class CustomerScreen(QWidget):
         if not name_item or not cnic_item:
             return
         customer_name = name_item.text()
-        cnic = cnic_item.text()
+        cnic = name_item.data(Qt.ItemDataRole.UserRole)
         self._selected_cnic = cnic
-        self.lbl_selected_cust.setText(f"{customer_name}\nCNIC: {cnic}")
+        self.lbl_selected_cust.setText(customer_name)
         self.lbl_total_cust_debt.setText("Total Due: …")
         self.lbl_age_30.setText("0 - 30 Days: …")
         self.lbl_age_60.setText("31 - 60 Days: …")

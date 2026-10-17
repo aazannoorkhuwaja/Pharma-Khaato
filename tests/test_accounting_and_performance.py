@@ -1,6 +1,6 @@
 """Regression coverage for tender accounting and fast search paths."""
 
-from datetime import date
+from core.business_time import business_date
 
 
 def _sell(pos_service, admin_emp_id, payment_method, qty=1):
@@ -28,7 +28,7 @@ def test_digital_tenders_do_not_enter_physical_drawer(seeded_shop, admin_emp_id)
     assert summary["expected_cash"] == 1015.0
 
 
-def test_reports_keep_each_tender_separate(seeded_shop, admin_emp_id):
+def test_reports_keep_each_tender_separate(seeded_shop, admin_emp_id, cash_shift):
     from core import pos_service, reports_service
 
     _sell(pos_service, admin_emp_id, "Cash")
@@ -36,7 +36,7 @@ def test_reports_keep_each_tender_separate(seeded_shop, admin_emp_id):
     _sell(pos_service, admin_emp_id, "Easypaisa")
     _sell(pos_service, admin_emp_id, "JazzCash")
 
-    report = reports_service.get_daily_sales_report(date.today().isoformat())
+    report = reports_service.get_daily_sales_report(business_date().isoformat())
     assert report["total_sales"] == 60.0
     assert report["cash_sales"] == 15.0
     assert report["card_sales"] == 15.0
@@ -113,7 +113,7 @@ def test_fast_product_search_returns_total_sellable_stock(seeded_shop):
 
     rows = search_sellable_products("TestMed")
     assert rows
-    product_id, name, price, batch_id, sellable_stock, expiry = rows[0]
+    product_id, name, price, batch_id, sellable_stock, expiry = rows[0][:6]
     assert product_id == 1
     assert name == "TestMed"
     assert float(price) == 15.0

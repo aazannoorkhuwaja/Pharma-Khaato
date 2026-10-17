@@ -66,7 +66,7 @@ def test_hot_searches_are_bounded():
     inventory = read("core/inventory_query_service.py")
     assert "_MAX_RESULTS" in product_search and "LIMIT" in product_search
     assert "safe_limit" in customers and "LIMIT" in customers
-    assert "safe_limit" in credit and "LIMIT" in credit
+    assert "LIMIT" in credit and "OFFSET" in credit
     assert "product_limit" in inventory and "LIMIT" in inventory
     assert "search_catalog_products" in inventory
 

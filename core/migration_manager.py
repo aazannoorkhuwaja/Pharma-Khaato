@@ -85,7 +85,7 @@ class MigrationManager:
         return statements
 
     @classmethod
-    def apply_migrations(cls, raw_conn, is_sqlite=True):
+    def apply_migrations(cls, raw_conn, is_sqlite=True, new_database=False):
         """Apply pending migrations transactionally in unambiguous version order."""
         if not is_sqlite:
             raise RuntimeError("Pharma-Khaato migrations currently support SQLite only.")
@@ -116,7 +116,7 @@ class MigrationManager:
 
         # Fresh databases are already initialized by schema_sqlite.sql. Existing
         # installations get a recovery point before the first pending upgrade.
-        if applied:
+        if not new_database:
             cls._create_pre_migration_backup(raw_conn, os.path.basename(pending[0]))
 
         for filepath in pending:

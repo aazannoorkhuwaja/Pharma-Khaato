@@ -9,8 +9,11 @@ class TestDailySales:
         assert rep["total_transactions"] == 0
         assert rep["total_sales"] == 0.0
 
-    def test_cash_and_credit_split(self, seeded_shop, admin_emp_id):
+    def test_cash_and_credit_split(self, seeded_shop, admin_emp_id, cash_shift):
         from core import pos_service, reports_service
+        from core.customer_service import create_customer
+        created = create_customer('Report credit customer')
+        assert created[0]
         ok, _ = pos_service.confirm_sale(
             None, admin_emp_id,
             [{"prod_id": 1, "name": "TestMed", "price": 15.0, "qty": 2}],
@@ -18,9 +21,9 @@ class TestDailySales:
         )
         assert ok
         ok, _ = pos_service.confirm_sale(
-            None, admin_emp_id,
+            created[2], admin_emp_id,
             [{"prod_id": 1, "name": "TestMed", "price": 15.0, "qty": 1}],
-            payment_method="Credit",
+            payment_method="Khatoo Credit",
         )
         assert ok
         rep = reports_service.get_daily_sales_report()
@@ -75,6 +78,7 @@ class TestReorderStock:
         conn = db_engine.get_conn()
         cur = conn.cursor()
         cur.execute("UPDATE Products SET stock_quantity=5 WHERE id=1")
+        cur.execute("UPDATE Batch SET quantity=5 WHERE product_id=1")
         conn.commit()
         rows = reports_service.get_reorder_stock_report()
         match = [r for r in rows if r["product_id"] == 1]

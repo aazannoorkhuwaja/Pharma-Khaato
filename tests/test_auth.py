@@ -21,9 +21,9 @@ class TestAuth:
         conn.commit()
         assert auth_service.login_user("admin", "secret123") is None
 
-    def test_lockout_persists_in_db(self, seeded_shop):
+    def test_lockout_persists_in_db(self, seeded_shop, admin_emp_id):
         from core import auth_service, db_engine
-        auth_service.register_initial_admin("cashier", "goodpass1", "C", "A")
+        assert auth_service.create_employee("cashier", "goodpass1", "C", "A", occupation="Salesman", actor_id=admin_emp_id)[0]
         for _ in range(5):
             auth_service.login_user("cashier", "badpw")
         with __import__("pytest").raises(PermissionError):

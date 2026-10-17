@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QFormLayout,
     QDoubleSpinBox, QSpinBox, QMessageBox, QTabWidget, QTextEdit,
-    QComboBox, QInputDialog, QDialog, QApplication, QAbstractItemView,
+    QComboBox, QInputDialog, QDialog, QApplication, QAbstractItemView, QFileDialog,
 )
 
 from config import ApplicationSettings
@@ -313,12 +313,18 @@ class SettingsScreen(QWidget):
         title.setObjectName("h2")
         backup_layout.addWidget(title)
         backup_help = QLabel(
-            "Pharma Khaato creates an automatic integrity-checked backup each day. Create a manual backup before major changes. "
-            "Restoring always creates a safety backup first and then requires an application restart."
+            "Pharma Khaato checks backups every minute and saves an automatic snapshot at least hourly while open. "
+            "Keep a second copy on a protected USB drive or another device. Recovery preserves the previous files and requires a restart."
         )
         backup_help.setWordWrap(True)
         backup_help.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
         backup_layout.addWidget(backup_help)
+        self.lbl_backup_destination = QLabel("Second backup copy: " + (_SETTINGS_CONTROLLER.backup_destination() or "Not configured"))
+        self.lbl_backup_destination.setWordWrap(True)
+        backup_layout.addWidget(self.lbl_backup_destination)
+        self.btn_backup_destination = QPushButton("Choose Second Backup Location")
+        self.btn_backup_destination.clicked.connect(self.choose_backup_destination)
+        backup_layout.addWidget(self.btn_backup_destination)
         backup_actions = QHBoxLayout()
         self.btn_trigger_backup = QPushButton("Create Backup Now")
         self.btn_trigger_backup.setObjectName("successButton")
@@ -397,7 +403,7 @@ class SettingsScreen(QWidget):
                 "receipt_template": "standard_80",
             },
         )
-        tax_raw = settings.get("default_tax_rate", "0.10")
+        tax_raw = settings.get("default_tax_rate", "0.00")
         limit_raw = settings.get("max_customer_credit_limit", "25000.00")
         expiry_raw = settings.get("near_expiry_days") or settings.get("expiry_warning_threshold_days", "30")
         receipt_title = settings.get("pharmacy_name") or settings.get("receipt_header_text", "Pharma Khaato Pharmacy")
@@ -413,11 +419,9 @@ class SettingsScreen(QWidget):
 
         try:
             tax_value = float(tax_raw)
-            if tax_value <= 1.0:
-                tax_value *= 100.0
             self.spn_tax.setValue(tax_value)
         except Exception:
-            self.spn_tax.setValue(10.0)
+            self.spn_tax.setValue(0.0)
         try:
             self.spn_credit_limit.setValue(float(limit_raw))
         except Exception:
@@ -572,6 +576,17 @@ class SettingsScreen(QWidget):
 
         self._tasks.run(_SETTINGS_CONTROLLER.create_backup, complete, failed)
 
+    def choose_backup_destination(self):
+        destination = QFileDialog.getExistingDirectory(self, "Choose Protected Backup Folder")
+        if not destination:
+            return
+        ok, message = _SETTINGS_CONTROLLER.configure_backup_destination(destination)
+        if ok:
+            self.lbl_backup_destination.setText("Second backup copy: " + destination)
+            self.trigger_backup()
+        elif self.show_message_box:
+            QMessageBox.warning(self, "Backup Location", str(message))
+
     def _update_restore_button(self):
         row = self.tbl_backups.currentRow() if hasattr(self, "tbl_backups") else -1
         self.btn_restore_backup.setEnabled(0 <= row < len(self._backup_rows))
@@ -605,8 +620,10 @@ class SettingsScreen(QWidget):
         self.btn_restore_backup.setEnabled(False)
         self.btn_trigger_backup.setEnabled(False)
         self.btn_restore_backup.setText("Restoring…")
+        self.window().setEnabled(False)
 
         def complete(result):
+            self.window().setEnabled(True)
             ok, message = result
             if not ok:
                 self.btn_restore_backup.setText("Restore Selected Backup")
@@ -623,6 +640,7 @@ class SettingsScreen(QWidget):
             QApplication.quit()
 
         def failed(_details):
+            self.window().setEnabled(True)
             self.btn_restore_backup.setText("Restore Selected Backup")
             self.btn_trigger_backup.setEnabled(True)
             self._update_restore_button()
