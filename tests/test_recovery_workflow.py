@@ -191,3 +191,55 @@ def test_recovery_screen_opens_without_business_database(qapp, seeded_shop, monk
     dialog = RecoveryDialog()
     assert dialog.windowTitle() == "Recover Pharmacy Data"
     dialog.deleteLater()
+
+
+def test_restore_flushes_stage_with_windows_compatible_handle(seeded_shop, monkeypatch):
+    """Windows' file commit rejects read-only descriptors with EBADF."""
+    import builtins
+    import errno
+    from core import backup_service as backups
+    ok, snapshot = backups.backup_database()
+    assert ok
+    with seeded_shop.get_db(immediate=True) as (_conn, cur):
+        cur.execute("UPDATE Products SET product_name='After backup' WHERE id=1")
+    original_sync = backups.os.fsync
+    stage_handles = []
+    flushed = []
+    def track_stage_open(path, mode='r', *args, **kwargs):
+        handle = builtins.open(path, mode, *args, **kwargs)
+        if '.restore-' in str(path):
+            stage_handles.append(handle)
+        return handle
+    def windows_sync(descriptor):
+        for handle in stage_handles:
+            if not handle.closed and handle.fileno() == descriptor:
+                if not handle.writable():
+                    raise OSError(errno.EBADF, 'Bad file descriptor')
+                flushed.append(descriptor)
+        return original_sync(descriptor)
+    monkeypatch.setattr(backups, 'open', track_stage_open, raising=False)
+    monkeypatch.setattr(backups.os, 'fsync', windows_sync)
+    restored, message = backups.restore_database(snapshot)
+    assert restored, message
+    assert flushed, 'The staged database must be flushed before replacement.'
+    with seeded_shop.get_db() as (_conn, cur):
+        cur.execute('SELECT product_name FROM Products WHERE id=1')
+        assert cur.fetchone()[0] == 'TestMed'
+
+
+def test_stage_flush_failure_preserves_live_store(seeded_shop, monkeypatch):
+    """A real flush error must abort restore rather than being ignored."""
+    import errno
+    from core import backup_service as backups
+    ok, snapshot = backups.backup_database()
+    assert ok
+    with seeded_shop.get_db(immediate=True) as (_conn, cur):
+        cur.execute("UPDATE Products SET product_name='Keep current records' WHERE id=1")
+    def failed_sync(descriptor):
+        raise OSError(errno.EIO, 'Simulated disk flush failure')
+    monkeypatch.setattr(backups.os, 'fsync', failed_sync)
+    assert not backups.restore_database(snapshot)[0]
+    assert not (Path(seeded_shop.PathManager.get_config_dir()) / 'restore-pending.json').exists()
+    with seeded_shop.get_db() as (_conn, cur):
+        cur.execute('SELECT product_name FROM Products WHERE id=1')
+        assert cur.fetchone()[0] == 'Keep current records'

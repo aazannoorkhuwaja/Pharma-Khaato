@@ -27,3 +27,9 @@ The source suite now passes **222 tests** (29.49 seconds in this Linux environme
 ## Credits and optional updates follow-up
 
 The full Linux regression suite passes **238 tests** (29.19 seconds), including strict version handling, draft/prerelease and missing-installer rejection, offline recovery, successful-check throttling, official release-page construction, deferred notices during a cart/pending bill, manual checks after opting out, plain-text release notes and license-matching builder credits. Follow-up update/MVC checks pass **20 tests**. Offscreen screenshots verify the About/credits and update dialogs; all eight main screens and the layout audit pass. The packaged functional smoke also verifies the new dialogs. Native Windows and physical-device gates remain open.
+
+## Windows restore failure follow-up
+
+The supplied Windows Python 3.12 CI log reported six restore/recovery failures with `OSError: [Errno 9] Bad file descriptor`; the other 232 tests passed. The staged SQLite file was reopened read-only before `os.fsync`. Windows requires a writable descriptor for this flush. Restore now uses `r+b`, which preserves the staged bytes and permits the flush.
+
+A regression reproducing the Windows descriptor restriction failed before the fix and passes afterwards. A separate disk-flush failure check verifies that restore still aborts and preserves current shop records. All 20 backup/recovery checks and the full **240-test suite** pass locally on Linux (28.86 seconds for the full suite). Native Windows CI must rerun on the fix before the Windows gate can be considered green.

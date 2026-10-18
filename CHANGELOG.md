@@ -4,6 +4,8 @@ All notable product changes are recorded here. Dates refer to the engineering/re
 
 ## 2.4.0 — Engineering build, shop acceptance pending
 
+- Fixed Windows backup restoration failing with `Bad file descriptor`: staged databases now use a writable, non-truncating handle for the required durable flush. Restore still aborts safely if that flush fails.
+
 - Added visible builder credits matching the MIT license and optional background update checks with plain-language release notes, Later/download choices, and a workstation opt-out. Billing remains available offline.
 
 - Made Windows the primary delivery target: per-user installer, default desktop shortcut, installed getting-started guide, Windows development CI, and native install/reinstall/data-retention gates.

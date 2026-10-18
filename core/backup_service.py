@@ -310,7 +310,9 @@ def restore_database(backup_filepath, require_restart=False):
             restored_ok, restored_reason = _validate_sqlite_database(stage)
             if not restored_ok:
                 raise ValueError(restored_reason)
-            with open(stage, "rb") as durable_stage:
+            # Windows fsync uses _commit, which requires a writable descriptor.
+            # r+b preserves the staged database while allowing its durable flush.
+            with open(stage, "r+b") as durable_stage:
                 os.fsync(durable_stage.fileno())
             quarantine = os.path.join(PathManager.get_backups_dir(), "before_restore_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f"))
             os.makedirs(quarantine)
