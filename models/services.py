@@ -19,8 +19,8 @@ class AppModel:
         return SystemHealthService.run_diagnostics()
 
     def shutdown(self) -> None:
-        from core.db_engine import reset_thread_connections
-        reset_thread_connections()
+        from core.db_engine import close_all_connections
+        close_all_connections()
 
 
 class AuthModel:

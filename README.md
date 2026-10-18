@@ -1,102 +1,66 @@
 # Pharma Khaato
 
-**An offline pharmacy POS for Windows, built for everyday counter work in Pakistan.**
+**A pharmacy billing app for Windows. It works without internet.**
 
-Sell medicines, track batch stock and expiry, manage customer credit, reconcile cash, and recover saved bills without requiring an internet connection.
+Make bills, check stock and expiry, record customer dues, and count the cash in your drawer.
 
-**Lead developer and primary contributor: Azaan Noor Khuwaja**
+Built and led by **Azaan Noor Khuwaja**, with contributions from **Atif Khan**.
 
-**Contributor: Atif Khan** · [Credits](CREDITS.md) · [MIT License](LICENSE)
+## How do I try it?
 
-## Project status
+You do not need a public release to get a test installer.
 
-Version **2.4.0** is an engineering preview for supervised pharmacy testing. Source, business-flow and offscreen GUI checks have passed in the Linux development environment. Native Windows installation and real printer/scanner acceptance still need verification before live rollout. See the [validation record](docs/VALIDATION_2_4_0.md) and [shop acceptance checklist](docs/REAL_WORLD_READINESS.md).
+1. Open [Build Windows installer](https://github.com/aazannoorkhuwaja/Pharma-Khaato/actions/workflows/release-build.yml).
+2. Click **Run workflow**, choose **main**, then click **Run workflow** again.
+3. Wait for the build to finish with a green tick.
+4. Open that run. Under **Artifacts**, download **Windows-installer**.
+5. Extract the ZIP and double-click the file ending in **Setup-Windows-x64.exe**.
+6. Open **Pharma Khaato** from your desktop. The included **START-HERE.html** explains what to do next.
 
-Windows is the primary customer platform. Urdu and Sindhi interfaces are planned after pharmacy feedback; the current interface is English.
+Once these changes reach `main`, a test installer will also be built after each merge. It stays in Actions for 30 days. This does not publish a public release.
 
-## For pharmacy operators
+The owner downloads the installer and sends it to the tester. Your friend does not need GitHub, Python or any commands to use the app. If a build fails, get it fixed before sharing the installer.
 
-The intended customer delivery is a versioned **Windows Setup EXE**, with a desktop shortcut and an installed getting-started guide. Operators do not need Python, Git or terminal commands.
+## What can I do?
 
-1. Obtain the reviewed Windows installer and its checksum from your supplier or the project's [published releases](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases). A source ZIP is not the installer; the 2.4.0 Windows build must pass its native checks before distribution.
-2. Install and open **Pharma Khaato** using the same Windows account each day.
-3. Create the owner account and configure shop details, prices, units, tax settings and backups.
-4. Connect the actual scanner and printer, then complete a supervised trial with test records.
-5. Verify opening stock and customer/supplier balances before using real transactions.
+- **Make a bill:** scan a barcode or search for a medicine.
+- **Sell different packs:** choose a tablet, strip, box or sealed pack.
+- **Take payment:** cash, card, Easypaisa, JazzCash or customer credit.
+- **Record dues:** see what a customer owes and record their payment.
+- **Check stock:** add stock, check expiry and record supplier bills.
+- **Handle returns:** find the original bill and return the right quantity.
+- **Count cash:** enter opening cash and count it again when closing.
+- **Keep a backup:** save a copy of shop records on another device.
 
-Start with the [operator quick start](docs/OPERATOR_QUICK_START.md). For installer requirements and testing, read [Windows delivery](docs/WINDOWS_DELIVERY.md).
+Cash customers do not need to give their name, phone or CNIC. Leave them as **Walk-in**.
 
-**Target:** Windows 10 version 1809 or later / Windows 11, on 64-bit Intel/AMD PCs. Windows 7/8, 32-bit Windows and native ARM builds are not supported targets. Linux is a secondary engineering platform.
+## First test at the pharmacy
 
-## Everyday workflows
+Use a spare computer and practice records first. Keep the pharmacy's current billing system running for real customers.
 
-| Workflow | Capabilities |
-| --- | --- |
-| Counter sales | Barcode/name search, tablet/strip/box selection, hold/resume, discounts and saved-bill reprints |
-| Payments | Cash, Card, Easypaisa, JazzCash and customer credit; digital tenders stay separate from drawer cash |
-| Stock | Batch/lot intake, expiry, pack barcodes, supplier invoices, free stock, counted adjustments and blocked batches |
-| Customer credit | Name-first accounts, optional phone/CNIC, partial repayments, statements and auditable corrections |
-| Supplier accounts | Invoice balances, later payments and supplier return credits |
-| Returns | Original-bill lookup, quantity limits, refund tracking and eligible stock restoration |
-| Cash shifts | Opening cash, cash-in/out, counted closing cash and a separate shift for each counter |
-| Reports | Gross sales, returns, net sales, tender totals, credit collections, low stock and expiry |
-| Recovery | Durable pending operations, validated backups/restores and privacy-conscious support bundles |
+Follow [this short test](docs/TRY_IT.md). It gives you an example medicine, exact amounts to enter, and the stock and cash totals you should see.
 
-Cash customers can remain **Walk-in**. Customer details are only needed when the workflow requires an account, such as credit.
+Use Windows 10 version 1809 or later, or Windows 11, on a 64-bit Intel/AMD computer. Windows checks passing does not replace testing your own printer and scanner.
 
-## Offline operation and optional updates
+## Does it need internet?
 
-A single shop computer can bill without internet. Multiple local counters use an authenticated TLS connection to one main shop computer; they need the local router and main computer running, even without internet.
+**No, for billing on one computer.** More than one counter needs the main shop computer and local router running.
 
-The live SQLite database remains on the main computer's local disk. **Never place it on a shared network folder.** Independent offline counter sales and internet multi-branch synchronisation are not implemented.
+Internet is only used for optional update checks. An update notice shows the fixes and lets you choose **Later** or open the download page. Nothing installs by itself. You can turn checks off in **About Pharma Khaato**.
 
-When enabled, background update checks use internet access to look for a newer published Windows release. The notice shows its release notes and offers **Later** or **Open Update Download**. Nothing installs automatically. Check manually or disable automatic checks under **About Pharma Khaato**. These checks do not transmit shop records. See [update behaviour and publishing](docs/UPDATES.md).
+The interface is currently English. Urdu and Sindhi will be added after pharmacy feedback.
 
-## Data and recovery
+## Need help?
 
-Windows shop data normally lives in `%LOCALAPPDATA%\Pharma-Khaato`, outside the installation directory. Use the same Windows account to access the same shop. Updates and uninstall are designed to preserve this directory; verified external backups are still essential.
+- [Try the app: a short pharmacy test](docs/TRY_IT.md)
+- [Daily use: simple steps](docs/OPERATOR_QUICK_START.md)
+- [What to check before real sales](docs/REAL_WORLD_READINESS.md)
+- [Report a problem](https://github.com/aazannoorkhuwaja/Pharma-Khaato/issues/new/choose)
 
-Financial operations use transactional validation and durable request identities so uncertain retries can recover the original result. Historical receipts preserve sale-time values. Periodic backup snapshots, guarded restores and ordered migrations support recovery. These safeguards do not replace physical power-loss testing or an external backup on another device.
+Tell us what you were trying to do, what happened, and the app version. Do not send passwords or customer records.
 
-See [Security](SECURITY.md), [Support](SUPPORT.md) and [real-world readiness](docs/REAL_WORLD_READINESS.md).
+## For developers
 
-## Development
+[Setup and code checks](docs/DEVELOPER_WORKFLOW.md) · [Windows builds](docs/WINDOWS_DELIVERY.md) · [Update publishing](docs/UPDATES.md) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Test record](docs/VALIDATION_2_4_0.md)
 
-Use Python 3.12 or a supported newer runtime. On Windows with the Python launcher installed:
-
-```powershell
-git clone -b develop-ui https://github.com/aazannoorkhuwaja/Pharma-Khaato.git
-cd Pharma-Khaato
-py -3.12 scripts/dev_run.py --demo
-```
-
-The launcher creates a project `.venv`. Demo records live only in `.demo-data`; demo credentials and the evaluation flow are documented in the [demo guide](docs/DEMO_GUIDE.md). Never run demo/reset operations against a real shop directory.
-
-Install development dependencies and run the source checks:
-
-```powershell
-.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-$env:QT_QPA_PLATFORM = 'offscreen'
-.venv\Scripts\python.exe -m pytest -q
-.venv\Scripts\python.exe scripts/ui_audit.py
-.venv\Scripts\python.exe -m compileall -q main.py controllers core models ui scripts
-```
-
-Read [Contributing](CONTRIBUTING.md), [Architecture](docs/ARCHITECTURE.md) and [Developer workflow](docs/DEVELOPER_WORKFLOW.md) before changing business logic. Views use MVC controllers; core services own financial, inventory and permission checks.
-
-Development CI covers Windows and Linux. Release automation builds native packages and verifies the Windows installer before uploading review artifacts. Publishing a stable release remains a separate maintainer action. Work is developed on `develop-ui`; changes to `main` require owner approval and passing review gates.
-
-## Documentation
-
-- [Operator quick start](docs/OPERATOR_QUICK_START.md)
-- [Windows installation and delivery](docs/WINDOWS_DELIVERY.md)
-- [Shop acceptance and current limits](docs/REAL_WORLD_READINESS.md)
-- [Validation evidence](docs/VALIDATION_2_4_0.md)
-- [Optional updates and release publishing](docs/UPDATES.md)
-- [Demo and evaluation](docs/DEMO_GUIDE.md)
-- [Database and migrations](docs/DATABASE.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Contributing](CONTRIBUTING.md)
-- [Changelog](CHANGELOG.md)
-
-Licensed under the [MIT License](LICENSE). Builder credits are also available inside the application.
+[Credits](CREDITS.md) · [MIT License](LICENSE)

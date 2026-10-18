@@ -31,4 +31,4 @@ def test_setup_copy_is_task_focused_and_marks_required_fields():
     assert 'QLabel("Set up your pharmacy")' in SRC
     assert 'QLabel("Fields marked * are required.")' in SRC
     assert '"Pharmacy details"' in SRC
-    assert '"Administrator account"' in SRC
+    assert '"Owner account"' in SRC

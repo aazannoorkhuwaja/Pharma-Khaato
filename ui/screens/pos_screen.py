@@ -94,10 +94,10 @@ class POSScreen(QWidget):
             on_down_callback=self.on_search_input_arrow_down,
             on_escape_callback=self.hide_search_table,
         )
-        self.txt_search.setPlaceholderText("Scan barcode or search product name / formula")
+        self.txt_search.setPlaceholderText("Scan a barcode or type the medicine name")
         self.txt_search.setAccessibleName("Find product")
         self.txt_search.setAccessibleDescription(
-            "Scan a barcode or type a product name or formula."
+            "Scan a barcode or type a medicine name or ingredient."
         )
         self.txt_search.setObjectName("primarySearch")
         self.txt_search.textChanged.connect(self.on_search_text_changed)
@@ -216,7 +216,7 @@ class POSScreen(QWidget):
 
         customer_label = QLabel("Customer (optional):")
         self.txt_customer = QLineEdit()
-        self.txt_customer.setPlaceholderText("Walk-in — search name or CNIC")
+        self.txt_customer.setPlaceholderText("For credit: search name or phone")
         self.txt_customer.setAccessibleName("Find customer")
         self.txt_customer.textChanged.connect(self.on_cust_text_changed)
         summary_layout.addWidget(customer_label)
@@ -932,12 +932,12 @@ class POSScreen(QWidget):
         self._set_checkout_locked(True)
         if pending.get("recovery_error"):
             self.btn_checkout.setEnabled(False)
-            self._set_checkout_notice("The saved checkout recovery record could not be read. Ask the owner to check the last sale before billing again.", "danger")
+            self._set_checkout_notice("We could not read this bill. Ask the owner to check the last saved sale before making another bill.", "danger")
             return
         self._restore_draft(pending["draft"])
-        self.btn_checkout.setText("Check Sale Status")
+        self.btn_checkout.setText("Check This Bill")
         self._pending_retry_ready = False
-        self._set_checkout_notice("A previous checkout needs checking. This bill is locked until its saved status is known.")
+        self._set_checkout_notice("We need to check whether this bill was saved. Choose Check This Bill before taking payment again.")
 
     def on_hold_sale(self):
         if self.session.pending_checkout or self._checkout_in_progress:
@@ -1147,7 +1147,7 @@ class POSScreen(QWidget):
                 self.session.clear_pending_checkout(request.employee_id, request.checkout_token)
             except (OSError, ValueError):
                 self._checkout_unknown(request)
-                self._set_checkout_notice("Sale saved, but its recovery record could not be cleared. Check Sale Status before continuing.", "danger")
+                self._set_checkout_notice("The bill is saved, but the last step did not finish. Choose Check This Bill before making another bill.", "danger")
                 return
             self._last_sale_id = result.purchase_id
             total = float(getattr(result, "total", 0) or request.total * (1 + self._tax_rate))
@@ -1184,8 +1184,8 @@ class POSScreen(QWidget):
         self._pending_retry_ready = False
         self._set_checkout_locked(True)
         self.btn_checkout.setEnabled(True)
-        self.btn_checkout.setText("Check Sale Status")
-        self._set_checkout_notice("The sale result is not known yet. Check its status before taking payment again. This bill is kept safely.", "danger")
+        self.btn_checkout.setText("Check This Bill")
+        self._set_checkout_notice("We could not confirm whether the bill was saved. Choose Check This Bill. Do not take payment again yet.", "danger")
 
     def _check_pending_checkout(self):
         pending = self.session.pending_checkout
@@ -1204,8 +1204,8 @@ class POSScreen(QWidget):
             else:
                 self._pending_retry_ready = True
                 self.btn_checkout.setEnabled(True)
-                self.btn_checkout.setText("Retry Saved Sale")
-                self._set_checkout_notice("No saved sale was found. Retry Saved Sale submits this original bill safely with the same request number.")
+                self.btn_checkout.setText("Try This Bill Again")
+                self._set_checkout_notice("This bill has not been saved. Choose Try This Bill Again to finish it.")
         self._tasks.run(lambda: _POS_CONTROLLER.lookup_checkout_result(request.checkout_token, request.employee_id),
                         complete, lambda _details: self._checkout_unknown(request))
 

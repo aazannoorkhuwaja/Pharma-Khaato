@@ -4,6 +4,15 @@ All notable product changes are recorded here. Dates refer to the engineering/re
 
 ## 2.4.0 — Engineering build, shop acceptance pending
 
+- Fixed intermittent Python 3.14 / Qt 6.12 crashes at the end of installer verification. Disposable windows are explicitly destroyed while Qt is running, after background work finishes.
+
+- Fixed Windows cleanup retaining the SQLite database through background-thread connections. Shutdown now drains active work and closes every managed connection; transaction cursors and failed database initialisation also release their handles.
+
+- Fixed disposable installed-app checks leaving temporary log handles open on Windows. Failed windowed checks now return an error report instead of opening an exception dialog; build failures retain stage/error details.
+
+- Shortened the README and daily-use guide; added an exact practice-bill exercise. Replaced technical setup and recovery wording with owner, bill and cash-entry instructions.
+- Added automatic Windows test-installer builds for main and pilot review branches, with a single installer download containing Setup, checksum and a short guide. No public release is required for testing.
+
 - Fixed Windows backup restoration failing with `Bad file descriptor`: staged databases now use a writable, non-truncating handle for the required durable flush. Restore still aborts safely if that flush fails.
 
 - Added visible builder credits matching the MIT license and optional background update checks with plain-language release notes, Later/download choices, and a workstation opt-out. Billing remains available offline.

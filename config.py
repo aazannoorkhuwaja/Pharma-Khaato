@@ -24,8 +24,8 @@ class ApplicationSettings:
     CREDITS = "Lead developer: Azaan Noor Khuwaja\nContributor: Atif Khan"
     PRODUCT_TAGLINE = "Pharmacy POS & Inventory Management"
     PRODUCT_DESCRIPTION = (
-        "Offline-first pharmacy billing, batch inventory, customer credit, "
-        "cash shifts, returns, reports and recovery."
+        "Make bills, check medicine stock and expiry, record customer dues, "
+        "count cash, and keep backups. Billing works without internet."
     )
     DATA_NOTICE = "Shop records stay on your shop computer unless you export or back them up. Optional update checks contact GitHub for release information and do not send shop records."
     SUPPORT_EMAIL = os.getenv("PHARMA_KHAATO_SUPPORT_EMAIL", "").strip()

@@ -50,7 +50,7 @@ CASH_MOVEMENT_LABELS = {value: label for label, value in CASH_MOVEMENT_OPTIONS}
 ROLE_OPTIONS = (
     ("Cashier", "Salesman"),
     ("Pharmacist", "Pharmacist"),
-    ("Administrator", "Admin"),
+    ("Owner", "Admin"),
 )
 
 ROLE_LABELS = {value.lower(): label for label, value in ROLE_OPTIONS}

@@ -1,44 +1,55 @@
-# Shop operator quick start
+# Using Pharma Khaato
 
-## Owner: prepare the shop once
+For your first practice run, use [Try the app](TRY_IT.md). It includes sample bills and the totals to check.
 
-1. Create your owner account. Give each cashier their own staff account; keep the owner password private.
-2. Open **Settings**. Enter the real shop name, address and phone. Review and save the sales tax percentage. `1` means **1%**. Check the rules with your accountant; the application does not determine tax eligibility.
-3. Choose and test the receipt printer on each computer. Check the actual 58 mm or 80 mm paper, Urdu names, long medicine names and totals.
-4. Choose a backup location on another drive on the main computer. Automatic snapshots also remain on that computer; a second folder on the same disk will not protect against disk failure. Practise restoring a backup on a spare installation before going live.
-5. Add suppliers and medicines. Include strength and form in medicine names. Choose the smallest unit you sell: tablet, capsule, bottle, sachet or sealed pack. Set how many base units are in a strip and box. Give each pack barcode its correct unit.
-6. Receive real stock with the supplier invoice, batch/lot, expiry and prices. For month-only expiry, enter `MM/YYYY`; the app treats that as the last day of the month. Selling price is per base unit. Invoice buying cost is per selected purchasing unit. Free stock is entered in base units.
-7. Count existing stock and correct differences with a reason. Block damaged or questionable batches so they cannot be sold.
+## Before opening the shop
 
-## Cashier: start and sell
+1. Sign in with your own account.
+2. Count the cash in the drawer.
+3. Choose **Start Shift** and enter that cash amount.
 
-1. Sign in with your own account and open a cash shift. Enter the cash actually placed in the drawer.
-2. Scan a barcode, or search by medicine name/strength. Confirm the medicine and unit. A box and a tablet have different quantities and prices.
-3. Use **Walk-in** for ordinary sales. Customer details are unnecessary for a cash sale.
-4. For credit (Khaato / Udhaar), select the correct customer account. A name is sufficient to create an account; phone helps distinguish similar names. CNIC is optional. Check the customer before confirming credit.
-5. Choose Cash, Card, Easypaisa, JazzCash or Customer Credit. Only mark a digital payment after verifying that you received it. For cash, enter money received or choose exact cash; check the change displayed.
-6. Confirm once. If the outcome is uncertain, use the pending-bill status/retry action. Keep the same pending bill until its result is known. Do not create a replacement bill to work around a connection error.
-7. If printing fails, the sale can still be saved. Fix the printer and reprint that sale. A reprint does not create another sale.
+## Make a bill
 
-Use **Hold** before leaving an unfinished cart or changing cashier. An ordinary unsubmitted cart is not a saved bill. Pending submitted bills are preserved for recovery.
+1. Scan the medicine or type its name. Check the strength and expiry.
+2. Choose the right unit: tablet, strip, box or sealed pack. Enter how many the customer wants.
+3. For a normal cash sale, leave the customer as **Walk-in**. You do not need their details.
+4. Choose how they paid. For cash, enter the amount received and check the change. For Card, Easypaisa or JazzCash, confirm you received the payment first.
+5. Choose **Complete Sale** once.
 
-## Customer payments and returns
+If you need to stop before finishing, choose **Hold Sale**. Open it later from **Held Sales**. A bill that has not been completed or held is not saved for later.
 
-- Select the customer's account, enter the amount actually received and select the correct payment method. Payments settle the oldest outstanding credit first. Check the remaining balance and give the customer their slip.
-- If a repayment result is uncertain, confirm the pending payment before entering another one. Owner corrections keep an audit history.
-- Find the original bill for a return. Select quantities and refund method, review the summary, then confirm. Never refund more than the actual return. Only eligible stock is put back into saleable inventory.
-- For supplier stock, use **Supplier Invoices & Payments**. Record an invoice once, then record later payments against the supplier account. Choose **Cash from drawer** only when taking cash from the active drawer; bank and outside-drawer payments are separate.
+## If a bill does not finish
 
-## End of shift
+Choose **Check This Bill**. Do not make a second bill or take payment again until you know whether the first bill was saved.
 
-Count the cash yourself. Record genuine cash paid in/out with a reason. Enter the counted closing cash and review any difference. Digital payments do not increase drawer cash. Reconcile the card/mobile-wallet records separately. Finish pending operations before signing out or switching computers.
+If the app says the bill was not saved, use **Try This Bill Again**. This retries the same bill.
 
-## More than one counter
+If the bill is saved but the receipt does not print, fix the printer and choose **Reprint Last Receipt**. Do not make another sale just to print.
 
-On the owner computer, use **Shop Computers** and choose the main-computer mode. Keep it on, awake and running while other counters work. Give it a stable local IP address or computer name. Copy only its public shop certificate to each counter; never copy its private key or live database. On each counter choose the main shop address, trusted certificate and a unique counter name. Each drawer has its own cash shift. Internet is unnecessary, but the shop's local network and main computer must be available. Stop new sales on a disconnected counter and resolve pending results when the connection returns.
+## When a customer buys on credit
 
-Backup settings and restores belong on the main computer. Restore requires all counters to stop work and restart afterwards. A technician must check the firewall, address/certificate and recovery procedure during initial setup. Do not share the live SQLite file through a network folder.
+Select the right customer before completing the sale. If they are new, a name is enough to create an account. Phone is useful when two people have the same name. CNIC is optional.
 
-## Before serving real customers
+When they pay later, open **Customer Credit**, select their account, enter the amount actually received, and choose how they paid. Check the amount still owed. If the result is unclear, check the previous payment before entering it again.
 
-Perform the checks in [REAL_WORLD_READINESS.md](REAL_WORLD_READINESS.md) with the actual shop staff, computer, scanner and printer. Medicine selection, prescription checking and dispensing remain the responsibility of qualified pharmacy staff.
+## When a customer returns medicine
+
+Open **Returns & Refunds** and find the original bill. Choose the items and quantity returned, check the amount to refund, then confirm. The app checks how much was sold and whether the stock can be sold again.
+
+## Close for the day
+
+Count the drawer yourself. Record cash added or taken for shop expenses with a reason. Choose **Close Shift**, enter the amount counted, and check any difference.
+
+Card and mobile-wallet payments are not cash in the drawer. Check those accounts separately. If a cash entry is unclear, use **Check Last Cash Entry** before entering it again.
+
+## Owner's tasks
+
+- In **Settings**, enter the shop details and check the sales tax. A value of **1 means 1%**.
+- Give each cashier a separate account. Keep the owner password private.
+- Choose and test the receipt printer.
+- Add medicines with clear names and strengths. Set the smallest unit sold and the number of tablets in each strip or box.
+- Receive stock with the supplier, quantity, batch, expiry and prices. Enter month-only expiry as **MM/YYYY**.
+- Use **Supplier Invoices & Payments** to record supplier bills and payments. Choose **Cash from drawer** only when paying from the active drawer.
+- Keep a backup on another physical device. Ask for help practising a restore on a spare computer.
+
+For more than one counter, ask the person setting up the shop to connect the computers. The main computer and router must stay on while the other counters work. Do not copy the live database to a shared folder.

@@ -220,7 +220,7 @@ def test_checkout_is_immutable_locked_and_unknown_outcome_recovered(counter):
     screen.session.active_cart[0]["qty"] = 99  # hostile external edit cannot alter submitted snapshot
     tasks.finish(error="network result lost")
     assert screen.session.pending_checkout["request"]["cart"][0]["qty"] == 1
-    assert screen.btn_checkout.text() == "Check Sale Status"
+    assert screen.btn_checkout.text() == "Check This Bill"
     controller.saved_result = CheckoutResult(True, "Saved", purchase_id=10, total=10,
                                              payment_method="Cash", outcome="completed")
     screen.on_checkout()

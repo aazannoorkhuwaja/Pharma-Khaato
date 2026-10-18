@@ -43,17 +43,34 @@ def database_guard():
         yield
 
 
+def close_all_connections():
+    """Drain managed work, then close connections owned by every worker thread.
+
+    Resetting just the caller's thread-local cache leaves Qt worker connections
+    alive and keeps the SQLite files locked on Windows.
+    """
+    with _DB_GATE:
+        for conn in list(_CONNECTIONS):
+            try:
+                active = conn.in_transaction
+            except sqlite3.ProgrammingError:
+                # A caller may already have closed the underlying connection.
+                _CONNECTIONS.discard(conn)
+                continue
+            if active:
+                raise RuntimeError("Finish the current operation before closing the database.")
+        for conn in list(_CONNECTIONS):
+            conn.close()
+            _CONNECTIONS.discard(conn)
+        _THREAD_LOCAL.sqlite_conn = None
+        _THREAD_LOCAL.sqlite_path = None
+
+
 @contextmanager
 def database_maintenance():
     """Drain managed transactions and close worker connections before replacement."""
     with _DB_GATE:
-        if any(conn.in_transaction for conn in list(_CONNECTIONS)):
-            raise RuntimeError("Finish the current operation before restoring a backup.")
-        for conn in list(_CONNECTIONS):
-            try:
-                conn.close()
-            finally:
-                _CONNECTIONS.discard(conn)
+        close_all_connections()
         _MIGRATED_PATHS.discard(PathManager.get_db_path())
         yield
 
@@ -78,6 +95,9 @@ class UnifiedCursor:
             if params is None:
                 return self._cursor.execute(sql)
             return self._cursor.execute(sql, params)
+
+    def close(self):
+        self._cursor.close()
 
     def fetchone(self):
         return self._cursor.fetchone()
@@ -166,32 +186,38 @@ def _get_sqlite_connection():
         timeout=_SQLITE_BUSY_TIMEOUT_MS / 1000.0,
     )
 
-    # High-performance desktop settings. WAL keeps reads concurrent with normal
-    # writes; a short busy timeout avoids turning lock contention into a
-    # 15-second apparent application freeze.
-    conn.execute("PRAGMA journal_mode = WAL;")
-    conn.execute("PRAGMA synchronous = FULL;")
-    cache_kib = bounded_setting("PHARMA_KHAATO_CACHE_KIB", 8192, 1024, 32768)
-    conn.execute(f"PRAGMA cache_size = -{cache_kib};")
-    conn.execute("PRAGMA temp_store = MEMORY;")
-    conn.execute("PRAGMA foreign_keys = ON;")
-    conn.execute(f"PRAGMA busy_timeout = {_SQLITE_BUSY_TIMEOUT_MS};")
+    try:
+        # High-performance desktop settings. WAL keeps reads concurrent with normal
+        # writes; a short busy timeout avoids turning lock contention into a
+        # 15-second apparent application freeze.
+        conn.execute("PRAGMA journal_mode = WAL;")
+        conn.execute("PRAGMA synchronous = FULL;")
+        cache_kib = bounded_setting("PHARMA_KHAATO_CACHE_KIB", 8192, 1024, 32768)
+        conn.execute(f"PRAGMA cache_size = -{cache_kib};")
+        conn.execute("PRAGMA temp_store = MEMORY;")
+        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute(f"PRAGMA busy_timeout = {_SQLITE_BUSY_TIMEOUT_MS};")
 
-    if first_time:
-        logger.info(f"Creating fresh SQLite embedded database at: {db_path}")
-        schema_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schema_sqlite.sql")
-        if os.path.exists(schema_path):
-            with open(schema_path, "r", encoding="utf-8") as f:
-                conn.executescript(f.read())
-            conn.commit()
-            logger.info("SQLite schema initialized successfully.")
+        if first_time:
+            logger.info(f"Creating fresh SQLite embedded database at: {db_path}")
+            schema_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schema_sqlite.sql")
+            if os.path.exists(schema_path):
+                with open(schema_path, "r", encoding="utf-8") as f:
+                    conn.executescript(f.read())
+                conn.commit()
+                logger.info("SQLite schema initialized successfully.")
 
-    # Apply migrations once per database path process-wide.
-    if db_path not in _MIGRATED_PATHS:
-        with _MIGRATION_LOCK:
-            if db_path not in _MIGRATED_PATHS:
-                MigrationManager.apply_migrations(conn, is_sqlite=True, new_database=first_time)
-                _MIGRATED_PATHS.add(db_path)
+        # Apply migrations once per database path process-wide.
+        if db_path not in _MIGRATED_PATHS:
+            with _MIGRATION_LOCK:
+                if db_path not in _MIGRATED_PATHS:
+                    MigrationManager.apply_migrations(conn, is_sqlite=True, new_database=first_time)
+                    _MIGRATED_PATHS.add(db_path)
+
+    except BaseException:
+        # Failed setup is not registered yet, so global shutdown cannot find it.
+        conn.close()
+        raise
 
     _THREAD_LOCAL.sqlite_conn = conn
     _THREAD_LOCAL.sqlite_path = db_path
@@ -210,14 +236,15 @@ def get_conn():
 
 def reset_thread_connections():
     """Reset the current thread's persistent SQLite connection."""
-    if hasattr(_THREAD_LOCAL, "sqlite_conn") and _THREAD_LOCAL.sqlite_conn is not None:
-        try:
-            _THREAD_LOCAL.sqlite_conn.close()
-            _CONNECTIONS.discard(_THREAD_LOCAL.sqlite_conn)
-        except (sqlite3.Error, OSError) as e:
-            logger.warning(f"Handled non-critical error closing sqlite connection: {e}")
-        _THREAD_LOCAL.sqlite_conn = None
-        _THREAD_LOCAL.sqlite_path = None
+    with _DB_GATE:
+        if hasattr(_THREAD_LOCAL, "sqlite_conn") and _THREAD_LOCAL.sqlite_conn is not None:
+            try:
+                _THREAD_LOCAL.sqlite_conn.close()
+                _CONNECTIONS.discard(_THREAD_LOCAL.sqlite_conn)
+            except (sqlite3.Error, OSError) as e:
+                logger.warning(f"Handled non-critical error closing sqlite connection: {e}")
+            _THREAD_LOCAL.sqlite_conn = None
+            _THREAD_LOCAL.sqlite_path = None
 
 
 @contextmanager
@@ -230,22 +257,25 @@ def get_db(immediate=False):
     with _DB_GATE:
         conn = get_conn()
         cur = conn.cursor()
-        nested = conn.raw_conn.in_transaction
-        savepoint = f"pk_nested_{time.monotonic_ns()}"
-        if nested:
-            cur.execute(f"SAVEPOINT {savepoint}")
-        else:
-            cur.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
         try:
-            yield conn, cur
+            nested = conn.raw_conn.in_transaction
+            savepoint = f"pk_nested_{time.monotonic_ns()}"
             if nested:
-                cur.execute(f"RELEASE SAVEPOINT {savepoint}")
+                cur.execute(f"SAVEPOINT {savepoint}")
             else:
-                conn.commit()
-        except Exception:
-            if nested:
-                cur.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
-                cur.execute(f"RELEASE SAVEPOINT {savepoint}")
-            else:
-                conn.rollback()
-            raise
+                cur.execute("BEGIN IMMEDIATE" if immediate else "BEGIN")
+            try:
+                yield conn, cur
+                if nested:
+                    cur.execute(f"RELEASE SAVEPOINT {savepoint}")
+                else:
+                    conn.commit()
+            except Exception:
+                if nested:
+                    cur.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+                    cur.execute(f"RELEASE SAVEPOINT {savepoint}")
+                else:
+                    conn.rollback()
+                raise
+        finally:
+            cur.close()

@@ -74,12 +74,23 @@ def main():
 
     if args.functional_smoke:
         from core.installed_smoke import run
-        result = run()
+        from core.installed_smoke import _progress
+        import json
+        import traceback
+        from pathlib import Path
+        from config import ApplicationSettings
+        report = {"ok": False, "version": ApplicationSettings.APP_VERSION, "check": "functional-smoke"}
+        try:
+            result = run()
+            report["ok"] = result == 0
+            _progress('finished')
+        except Exception as exc:
+            # A windowed Windows EXE must not open a traceback dialog in CI.
+            report.update(error=str(exc), traceback=traceback.format_exc())
+            logger.exception("Installed functional check failed")
+            result = 2
         if args.smoke_report:
-            import json
-            from pathlib import Path
-            from config import ApplicationSettings
-            Path(args.smoke_report).write_text(json.dumps({"ok": result == 0, "version": ApplicationSettings.APP_VERSION, "check": "functional-smoke"}), encoding="utf-8")
+            Path(args.smoke_report).write_text(json.dumps(report), encoding="utf-8")
         return result
 
     if args.configure_network:
