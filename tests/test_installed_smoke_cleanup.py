@@ -44,11 +44,15 @@ class WindowsTemporaryDirectory(OriginalTemporaryDirectory):
         super().cleanup()
 tempfile.TemporaryDirectory = WindowsTemporaryDirectory
 from core.installed_smoke import run
-raise SystemExit(run())
+result = run()
+from PySide6.QtWidgets import QApplication
+assert not QApplication.topLevelWidgets(), 'Disposable windows survived the check'
+raise SystemExit(result)
 '''
     environment = os.environ.copy()
     environment['PHARMA_KHAATO_DATA_DIR'] = str(tmp_path / 'smoke-envelope')
     environment['QT_QPA_PLATFORM'] = 'offscreen'
+    environment['PYTHONFAULTHANDLER'] = '1'
     result = subprocess.run([sys.executable, '-c', script, str(root)], cwd=tmp_path,
                             env=environment, capture_output=True, text=True, timeout=45)
     assert result.returncode == 0, result.stderr[-8000:]

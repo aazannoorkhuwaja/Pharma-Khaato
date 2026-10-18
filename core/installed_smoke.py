@@ -25,6 +25,26 @@ def _close_temporary_log_handlers(directory):
                 handler.close()
 
 
+def _dispose_windows(app, widgets):
+    """Destroy owned windows before Qt's interpreter-exit cleanup runs.
+
+    close() only hides a QWidget. Python signal callbacks can retain hidden
+    windows until interpreter shutdown, when native Qt teardown order is unsafe.
+    """
+    from PySide6.QtCore import QCoreApplication, QEvent, QThreadPool
+    from shiboken6 import isValid
+    # Finish workers before disposing their result receivers.
+    if not QThreadPool.globalInstance().waitForDone(15000):
+        raise RuntimeError("Background screen checks did not finish before window cleanup.")
+    app.processEvents()
+    for widget in widgets:
+        if isValid(widget):
+            widget.close()
+            widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    widgets.clear()
+
+
 def run():
     import os
     import tempfile
@@ -42,6 +62,8 @@ def run():
         # Explicit environment-based counter routing must not reach a real shop.
         os.environ['PHARMA_KHAATO_SHOP_SERVER'] = '1'
         PathManager._BASE_DATA_DIR = None
+        app = None
+        widgets = []
         try:
             _progress('imports')
             from core.auth_service import register_initial_admin, login_user
@@ -95,7 +117,6 @@ def run():
                 ('cash_session_screen', 'CashSessionScreen'), ('reports_screen', 'ReportsScreen'),
                 ('returns_screen', 'ReturnsScreen'), ('settings_screen', 'SettingsScreen'),
             ]
-            widgets = []
             for module, name in screens:
                 _progress('screen:' + module)
                 widget = getattr(importlib.import_module('ui.screens.' + module), name)(show_message_box=False)
@@ -110,9 +131,11 @@ def run():
             from ui.dialogs.update_dialog import UpdateDialog
             _progress('about_and_update_dialogs')
             about = AboutDialog(SimpleNamespace(poll=lambda **kwargs: None))
+            widgets.append(about)
             notice = UpdateDialog({'latest_version': '99.0.0', 'current_version': ApplicationSettings.APP_VERSION,
                                   'release_notes': 'Installed dialog verification only.',
                                   'download_url': 'https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases'})
+            widgets.append(notice)
             for dialog in (about, notice):
                 dialog.show()
                 app.processEvents()
@@ -130,13 +153,14 @@ def run():
                         break
                 if time.monotonic() >= deadline:
                     raise RuntimeError('Background screen checks did not finish within 15 seconds.')
-            for widget in widgets:
-                widget.close()
+            _dispose_windows(app, widgets)
             SessionState.get_instance().clear_user()
             print('PASS: installed migrations, login, stock, cash, checkout/retry, receipt, TLS certificate, eight screens, credits and update dialogs')
             return 0
         finally:
             _progress('cleanup')
+            if app is not None and widgets:
+                _dispose_windows(app, widgets)
             db_engine.close_all_connections()
             _close_temporary_log_handlers(directory)
             PathManager._BASE_DATA_DIR = None

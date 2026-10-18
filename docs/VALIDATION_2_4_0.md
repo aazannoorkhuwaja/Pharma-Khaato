@@ -51,3 +51,12 @@ The next supplied Windows log reports **242 passed, 1 failed**, with `WinError 3
 The strict cleanup regression now tracks **all SQLite connections**, not just log files. It reproduced the open-database error on Linux before the fix. Shutdown and the disposable check now use a shared, guarded `close_all_connections()` operation. It waits for managed transactions and rejects unfinished legacy transactions instead of discarding work. Cursors close when their transaction context ends; failed connection initialisation closes its unregistered handle. Tests also verify that the same worker thread can reconnect after shutdown and that a committed write survives.
 
 All **247 tests** pass locally on Linux (31.76 seconds), plus the GUI and fresh PyInstaller functional checks. No cleanup errors were ignored, no garbage-collection workaround was added, and no timeout was increased. Native Windows CI must still confirm the fix on its own runner.
+
+
+## Python 3.14 native shutdown crash
+
+Both supplied PR logs show the same disposable-check subprocess failing with a native crash (Linux SIGSEGV; Windows access violation), while the other 246 tests pass. Reproduced locally with Python 3.14.8 / PySide6 6.12.0, including a full-suite failure. Python faulthandler identifies `QWidget::destroy` inside `PySide::destroyQCoreApplication` at interpreter exit. Closing the test windows only hid them; retained window objects reached native shutdown cleanup.
+
+The check now tracks its screens and dialogs, waits for workers, schedules their destruction and flushes deferred-delete events while QApplication is alive, including failure cleanup. The subprocess regression additionally asserts no top-level windows survive and enables native fault diagnostics. Existing strict log-file and SQLite-handle assertions remain intact.
+
+After the fix: **247 passed** on Linux Python 3.12 (34.57 seconds), **247 passed** on Linux Python 3.14.8 / Qt 6.12.0 (35.03 seconds), and **15 consecutive runs** of the three cleanup checks passed. A fresh PyInstaller executable and the eight-screen GUI check also passed. Windows CI must confirm the updated branch; these local results do not establish a native Windows result or a published release.
