@@ -1,94 +1,52 @@
-# Deployment & Packaging Guide
+# Build and install Pharma Khaato
 
-## Supported Targets
+For normal use, install the Windows Setup or Linux package from [Releases](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases). Python and Git are not needed on the shop computer. Until an official release is published, the owner can download test installers from the [build workflow](https://github.com/aazannoorkhuwaja/Pharma-Khaato/actions/workflows/release-build.yml).
 
-- Windows 10/11 x64
-- Mainstream x86_64 Linux distributions with a compatible glibc/desktop environment
-- Python source development on Python 3.11+
+## Native builds
 
-PyInstaller is a native packager, not a cross-compiler. Build the Windows package on Windows and the Linux package on Linux. The included GitHub Actions workflow does both automatically.
-
-## One-file UI acceptance launcher
-
-For reviewers who only want to exercise the GUI, use `PharmaKhaato-v2.3.1-Universal-Test.py`. The same file runs on Windows and Linux with Python 3.10+. It contains the application payload, creates a version-isolated virtual environment, installs `requirements.txt` on first launch, stores test data separately, and then starts the desktop application.
-
-```powershell
-# Windows
-py PharmaKhaato-v2.3.1-Universal-Test.py
-```
+Build Windows on Windows and Linux on Linux; PyInstaller does not cross-compile. Install `requirements.txt` and `requirements-dev.txt` into a development virtual environment. Run:
 
 ```bash
-# Linux
-python3 PharmaKhaato-v2.3.1-Universal-Test.py
-```
-
-First launch requires internet access to download the native PySide6 wheel. Subsequent launches reuse that runtime. `--reset-data` resets only the launcher's isolated business data; `--reinstall-runtime` rebuilds only its private virtual environment.
-
-A single native Windows/Linux executable is not technically portable because Qt/PyInstaller bundles OS-specific binaries; production builds therefore remain native per target OS.
-
-## Run From Source
-
-```bash
-python -m pip install -r requirements.txt
-python main.py
-```
-
-For headless verification:
-
-```bash
-python main.py --headless
-```
-
-## Automated Native Release Build
-
-```bash
+python -m pytest -q
 python scripts/build_release.py
 ```
 
-Outputs are written to `release/`:
-
-- Windows: `Pharma-Khaato-<version>-windows-x64.zip`
-- Linux: `Pharma-Khaato-<version>-linux-x86_64.tar.gz`
-
-The workflow `.github/workflows/release-build.yml` runs tests and creates both native artifacts whenever a `v*` tag is pushed, or when run manually.
-
-## Windows Installer
-
-1. Install Python dependencies including PyInstaller.
-2. Install Inno Setup 6 and make `iscc.exe` available on `PATH`.
-3. Run:
+Windows also needs Inno Setup 6:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File packaging/windows/build-installer.ps1
+./packaging/windows/build-installer.ps1 -UseExistingBuild
+./packaging/windows/smoke-installer.ps1
 ```
 
-The script first creates the portable Windows release. If Inno Setup is available it also compiles `installer.iss` into `dist_installer/PharmaKhaato_Setup_v<version>.exe`.
-
-## Linux Install
-
-Extract the generated tarball and run:
+Linux packaging needs `dpkg-deb`; archive verification needs `desktop-file-validate` from `desktop-file-utils`:
 
 ```bash
-./install.sh
+python scripts/smoke_linux_installer.py
 ```
 
-This installs application binaries into the user's XDG data area, creates a `~/.local/bin/pharma-khaato` launcher, and adds a desktop-menu entry. Root access is not required.
+The workflow uses Windows runners and Ubuntu 22.04 Linux runners with Python 3.12 for packaging. Python 3.14 source compatibility is tested separately. The application runtime is included in each native build. See [RELEASING.md](RELEASING.md) for tagging, signing and draft publication.
 
-To remove the application binaries while preserving business data/backups:
+## Downloads
 
-```bash
-./uninstall.sh
-```
+| File | Purpose |
+| --- | --- |
+| `Pharma-Khaato-<version>-Setup-Windows-x64.exe` | Windows installation |
+| `Pharma-Khaato-<version>-linux-amd64.deb` | Ubuntu/Linux Mint software installation |
+| `Pharma-Khaato-<version>-linux-x86_64.tar.gz` | Linux per-user installation using the included `install.sh` |
+| `*.sha256` / `SHA256SUMS` | Verify the downloaded package |
+| `release.json` | Exact source revision, package sizes and hashes |
 
-## Data Safety
+Linux tar installation creates `~/.local/bin/pharma-khaato` and an applications-menu entry. Close the app before upgrading. Run the included `uninstall.sh` to remove application files and shortcuts; shop data is preserved. Use the same installation method when upgrading. The `.deb` installs app binaries under `/opt/pharma-khaato` with a system menu entry; removal uses the system software manager.
 
-Application data is never written into Program Files or the extracted application directory. Backups are created using SQLite's online backup API. Before distributing a release, smoke-test the packaged application on a clean target machine.
+## Shop records and backups
 
-## Release Checklist
+Application files and shop data are separate:
 
-```bash
-QT_QPA_PLATFORM=offscreen python -m pytest -q
-python scripts/build_release.py
-```
+- Windows: `%LOCALAPPDATA%\Pharma-Khaato`
+- Linux: `${XDG_DATA_HOME:-~/.local/share}/pharma-khaato`
 
-Then verify login, POS checkout, inventory, khatoo, reporting, backup/restore, theme switching, and clean shutdown on each target OS.
+The `data` folder contains the SQLite database; `backups`, `receipts`, `exports`, `config` and `logs` are beside it. Updates and uninstall must preserve these folders. Never place the live database on a shared drive.
+
+Use **Settings → Backup** to create a consistent backup while the app is running. Copy the completed backup to another device and verify recovery on a spare machine. Do not copy the live SQLite file while the app is running; active WAL records can be missed. Do not store records inside the executable or source-download folder.
+
+[Real-device acceptance checklist](REAL_WORLD_READINESS.md) · [Simple first test](TRY_IT.md)

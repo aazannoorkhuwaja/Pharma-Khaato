@@ -1,25 +1,28 @@
 # Pharma Khaato
 
-**A pharmacy billing app for Windows. It works without internet.**
+**A pharmacy billing app for Windows and Linux. It works without internet.**
+
+[**Download**](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/latest) · [First-use guide](docs/TRY_IT.md) · [Get help](https://github.com/aazannoorkhuwaja/Pharma-Khaato/issues/new/choose)
 
 Make bills, check stock and expiry, record customer dues, and count the cash in your drawer.
 
 Built and led by **Azaan Noor Khuwaja**, with contributions from **Atif Khan**.
 
-## How do I try it?
+## Install the app
 
-You do not need a public release to get a test installer.
+Open the [release downloads](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases). Choose the file for your computer:
 
-1. Open [Build Windows installer](https://github.com/aazannoorkhuwaja/Pharma-Khaato/actions/workflows/release-build.yml).
-2. Click **Run workflow**, choose **main**, then click **Run workflow** again.
-3. Wait for the build to finish with a green tick.
-4. Open that run. Under **Artifacts**, download **Windows-installer**.
-5. Extract the ZIP and double-click the file ending in **Setup-Windows-x64.exe**.
-6. Open **Pharma Khaato** from your desktop. The included **START-HERE.html** explains what to do next.
+| Computer | File to download | What to do |
+| --- | --- | --- |
+| Windows 10 or 11, 64-bit Intel/AMD | Ends in **Setup-Windows-x64.exe** | Double-click it, finish Setup, then open Pharma Khaato from your desktop. |
+| Ubuntu or Linux Mint, 64-bit Intel/AMD | Ends in **linux-amd64.deb** | Open it with your software installer, install, then open Pharma Khaato from the applications menu. |
+| Other compatible Linux desktops | Ends in **linux-x86_64.tar.gz** | Extract it and follow **START-HERE.html** inside. |
 
-Once these changes reach `main`, a test installer will also be built after each merge. It stays in Actions for 30 days. This does not publish a public release.
+**Python and Git are not needed.** Use the app download, not GitHub's “Source code” ZIP.
 
-The owner downloads the installer and sends it to the tester. Your friend does not need GitHub, Python or any commands to use the app. If a build fails, get it fixed before sharing the installer.
+If no stable release is listed yet, it is still being prepared. The owner can get a test build from [Build Windows and Linux installers](https://github.com/aazannoorkhuwaja/Pharma-Khaato/actions/workflows/release-build.yml): choose **Run workflow**, select **main**, and wait for every job to pass. Download **Windows-installer** or **Linux-installers** under **Artifacts**. Extract that ZIP, then use the Setup or Linux package inside. These test downloads last 30 days and do not publish a release.
+
+Your friend only needs the installer and its **START-HERE** guide. Use practice records until the pharmacy checks below are complete.
 
 ## What can I do?
 
@@ -40,7 +43,7 @@ Use a spare computer and practice records first. Keep the pharmacy's current bil
 
 Follow [this short test](docs/TRY_IT.md). It gives you an example medicine, exact amounts to enter, and the stock and cash totals you should see.
 
-Use Windows 10 version 1809 or later, or Windows 11, on a 64-bit Intel/AMD computer. Windows checks passing does not replace testing your own printer and scanner.
+Use Windows 10 version 1809 or later, Windows 11, or Ubuntu 22.04/24.04 and compatible Linux desktops, on a 64-bit Intel/AMD computer. Test your own printer and scanner before real sales. ARM is not supported.
 
 ## Does it need internet?
 
@@ -61,6 +64,6 @@ Tell us what you were trying to do, what happened, and the app version. Do not s
 
 ## For developers
 
-[Setup and code checks](docs/DEVELOPER_WORKFLOW.md) · [Windows builds](docs/WINDOWS_DELIVERY.md) · [Update publishing](docs/UPDATES.md) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Test record](docs/VALIDATION_2_4_0.md)
+[Setup and code checks](docs/DEVELOPER_WORKFLOW.md) · [Native builds](docs/DEPLOYMENT.md) · [Prepare a release](docs/RELEASING.md) · [Update publishing](docs/UPDATES.md) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Test record](docs/VALIDATION_2_4_0.md)
 
 [Credits](CREDITS.md) · [MIT License](LICENSE)

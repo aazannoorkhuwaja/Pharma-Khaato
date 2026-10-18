@@ -1,4 +1,4 @@
-name: Build Windows installer
+name: Build Windows and Linux installers
 
 on:
   workflow_dispatch:
@@ -6,6 +6,9 @@ on:
     branches: [main, "pharmacy-pilot-*"]
     tags:
       - "v*"
+
+permissions:
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,11 +20,15 @@ env:
 
 jobs:
   build:
+    name: Windows installer
     runs-on: windows-latest
+    env:
+      WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+      WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
         with:
           python-version: "3.12"
           cache: pip
@@ -57,6 +64,11 @@ jobs:
       - name: Build native package and checksum
         run: python scripts/build_release.py
 
+      - name: Sign the application before creating Setup
+        if: env.WINDOWS_CERT_BASE64 != ''
+        shell: powershell
+        run: ./packaging/windows/sign-release.ps1 -Target dist/pharma_khaato/pharma_khaato.exe
+
       - name: Smoke-test packaged executable
         run: python scripts/smoke_packaged.py
 
@@ -68,13 +80,29 @@ jobs:
         shell: powershell
         run: ./packaging/windows/build-installer.ps1 -UseExistingBuild
 
+      - name: Sign Setup before its checksum and install test
+        if: env.WINDOWS_CERT_BASE64 != ''
+        shell: powershell
+        run: |
+          $version = (python -c "from config import ApplicationSettings as A; print(A.APP_VERSION)").Trim()
+          ./packaging/windows/sign-release.ps1 -Target "release/Pharma-Khaato-$version-Setup-Windows-x64.exe"
+
+      - name: Record signing status
+        shell: powershell
+        run: |
+          if ($env:WINDOWS_CERT_BASE64) {
+            Set-Content release/Windows-SIGNING.txt 'App and Setup signatures were validated by the Windows build. See the file properties for the certificate publisher.'
+          } else {
+            Set-Content release/Windows-SIGNING.txt 'UNSIGNED PILOT BUILD. Arrange trusted Windows code signing before broad public distribution. Do not disable Windows protection.'
+          }
+
       - name: Verify Windows install, reinstall and data retention
         shell: powershell
         run: ./packaging/windows/smoke-installer.ps1
 
       - name: Keep installer failure details
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: Windows-build-details
           path: |
@@ -90,12 +118,134 @@ jobs:
         run: Copy-Item packaging/windows/START-HERE.html release/START-HERE.html
 
       - name: Downloadable Windows installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: Windows-installer
           path: |
             release/*Setup-Windows-x64.exe
             release/*Setup-Windows-x64.exe.sha256
             release/START-HERE.html
+            release/Windows-SIGNING.txt
           if-no-files-found: error
           retention-days: 30
+
+  linux:
+    name: Linux installers
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+      - name: Install desktop and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xinerama0 desktop-file-utils xvfb
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Validate version tag
+        run: python -c "import os; from config import ApplicationSettings as A; tag=os.getenv('GITHUB_REF_NAME',''); assert not tag.startswith('v') or tag == 'v' + A.APP_VERSION"
+      - name: Source and business checks
+        env:
+          PHARMA_KHAATO_DATA_DIR: ${{ runner.temp }}/pharma-linux-source-check
+        run: |
+          python -m compileall -q main.py controllers core models ui scripts
+          python scripts/ui_audit.py
+          python -m pytest -q
+          python main.py --self-check --headless
+          python scripts/demo_mode.py --no-launch
+          python scripts/test_flow.py
+      - name: Build Linux archive and Debian installer
+        run: python scripts/build_release.py
+      - name: Verify archive installation, upgrade and data retention
+        run: python scripts/smoke_linux_installer.py
+      - name: Verify Debian install, X11 runtime, reinstall and data retention
+        run: python scripts/smoke_debian_installer.py
+      - name: Keep Linux failure details
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: Linux-build-details
+          path: |
+            .release-smoke-data/functional-result.json
+            .release-smoke-data/progress.jsonl
+            .release-smoke-data/logs/app.log*
+            build/pharma_khaato/warn-pharma_khaato.txt
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Include Linux guide
+        run: cp packaging/linux/START-HERE.html release/START-HERE-LINUX.html
+      - name: Downloadable Linux installers
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: Linux-installers
+          path: |
+            release/*-linux-x86_64.tar.gz
+            release/*-linux-x86_64.tar.gz.sha256
+            release/*-linux-amd64.deb
+            release/*-linux-amd64.deb.sha256
+            release/START-HERE-LINUX.html
+          if-no-files-found: error
+          retention-days: 30
+
+  runtime-compatibility:
+    name: Python 3.14 compatibility (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.14"
+      - name: Install Linux desktop dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
+      - name: Source runtime checks
+        run: |
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+          python -m pytest -q
+          python scripts/test_gui_auto.py
+
+  release-draft:
+    name: Prepare reviewed release draft
+    needs: [build, linux, runtime-compatibility]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: "*-installer*"
+          path: release
+          merge-multiple: true
+      - name: Verify both platforms and record exact source revision
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/prepare_release.py --directory release --version "${RELEASE_TAG#v}" --revision "$(git rev-parse HEAD)"
+      - name: Create draft with verified downloads and plain-language notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          test -s "docs/releases/${RELEASE_TAG#v}.md"
+          # A rerun must not overwrite an already-published release.
+          if gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' > /tmp/is-draft 2>/dev/null; then
+            test "$(cat /tmp/is-draft)" = true
+            gh release upload "$RELEASE_TAG" release/* --clobber
+            gh release edit "$RELEASE_TAG" --notes-file "docs/releases/${RELEASE_TAG#v}.md"
+          else
+            gh release create "$RELEASE_TAG" release/* --verify-tag --draft --title "Pharma Khaato ${RELEASE_TAG#v}" --notes-file "docs/releases/${RELEASE_TAG#v}.md"
+          fi

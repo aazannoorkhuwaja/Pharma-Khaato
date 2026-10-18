@@ -23,7 +23,7 @@ class UpdateDialog(QDialog):
         self.notes.setOpenExternalLinks(False)
         self.notes.setPlainText(info['release_notes'])
         layout.addWidget(self.notes, 1)
-        notice = QLabel('You can update later. Before running Setup, finish or hold your bills and make a backup. If the shop has several counters, ask the owner to stop work on all of them first. Choose Later to keep using the app.')
+        notice = QLabel('You can update later. Before installing the update, finish or hold your bills and make a backup. If the shop has several counters, ask the owner to stop work on all of them first. Choose Later to keep using the app.')
         notice.setWordWrap(True)
         layout.addWidget(notice)
         buttons = QDialogButtonBox()
@@ -79,7 +79,7 @@ class UpdateNotifier(QObject):
                 self.pending = info
                 self.offer()
         elif manual:
-            message = ('You have the latest available Windows release.' if result.get('status') == 'current'
+            message = ('You have the latest available release for this computer.' if result.get('status') == 'current'
                        else 'Update information is unavailable. Check again when internet access is available. You can keep using the app without internet.')
             QMessageBox.information(self.window, 'Check for Updates', message)
 

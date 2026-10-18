@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import platform
 import re
 import time
 import urllib.request
@@ -50,13 +51,19 @@ def _release_info(data):
     if latest is None or current is None or latest <= current:
         return None
     version = '.'.join(map(str, latest))
-    expected = f'Pharma-Khaato-{version}-Setup-Windows-x64.exe'
+    system = platform.system()
+    if system == 'Windows':
+        expected = f'Pharma-Khaato-{version}-Setup-Windows-x64.exe'
+    elif system == 'Linux':
+        expected = f'Pharma-Khaato-{version}-linux-x86_64.tar.gz'
+    else:
+        return None
     assets = data.get('assets')
     if not isinstance(assets, list):
         return None
     names = {asset.get('name') for asset in assets if isinstance(asset, dict)}
     if not {expected, expected + '.sha256'} <= names:
-        return None  # Do not offer a release before its Windows installer is ready.
+        return None  # Do not offer a release before its platform package is ready.
     tag = str(data['tag_name'])
     return {'has_update': True, 'current_version': ApplicationSettings.APP_VERSION,
             'latest_version': version, 'release_notes': str(data.get('body') or 'See the release page for the changes in this version.')[:20000],

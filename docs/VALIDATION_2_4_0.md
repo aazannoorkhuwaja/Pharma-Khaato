@@ -60,3 +60,13 @@ Both supplied PR logs show the same disposable-check subprocess failing with a n
 The check now tracks its screens and dialogs, waits for workers, schedules their destruction and flushes deferred-delete events while QApplication is alive, including failure cleanup. The subprocess regression additionally asserts no top-level windows survive and enables native fault diagnostics. Existing strict log-file and SQLite-handle assertions remain intact.
 
 After the fix: **247 passed** on Linux Python 3.12 (34.57 seconds), **247 passed** on Linux Python 3.14.8 / Qt 6.12.0 (35.03 seconds), and **15 consecutive runs** of the three cleanup checks passed. A fresh PyInstaller executable and the eight-screen GUI check also passed. Windows CI must confirm the updated branch; these local results do not establish a native Windows result or a published release.
+
+## Windows and Linux release preparation
+
+Reference review used `aazannoorkhuwaja/FlashYT`: its download-first README, short install steps and native-artifact collection informed the release structure. Pharma Khaato builds a self-contained Linux application, adds verified checksums and source identity, and keeps publication as a reviewed draft because pharmacy hardware and opening balances need acceptance.
+
+On the release-preparation branch, all **255 tests** passed locally on Linux Python 3.12 (32.69 seconds) and Python 3.14 (32.67 seconds). New checks reject incomplete/tampered release assets and ensure Linux update notices require Linux downloads. Both GitHub workflow files pass GitHub Actions schema validation; updated documentation links, shell syntax, compilation and the UI source audit pass.
+
+A fresh native build produced the Linux archive and Debian package with matching SHA-256 files. The archive passed actual per-user install, installed functional verification, missing-source failure safety, reinstall and uninstall checks, preserving a real migrated synthetic shop database byte-for-byte. Paths contained spaces. The Debian package passed root-ownership/launcher/desktop-entry inspection, extraction and functional verification of its extracted executable. The eight-screen GUI check also passed.
+
+These runs used Debian 13 in the cloud, not an Ubuntu 22.04 release machine. CI builds the distributed Linux packages on Ubuntu 22.04 and additionally performs real Debian-package installation/reinstallation/removal plus X11/xcb verification under Xvfb. Those native CI checks, the Windows installer/signing checks and the physical pharmacy acceptance record remain pending on this revision. No stable release, signing result or real-device acceptance is claimed from these local tests.

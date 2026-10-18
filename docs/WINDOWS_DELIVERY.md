@@ -4,9 +4,7 @@ The main customer target is Windows 10 version 1809 or later and Windows 11, on 
 
 ## Getting a test installer
 
-Open **Actions → Build Windows installer → Run workflow**, choose `main`, and run it. After the green result, download **Windows-installer** from the run's **Artifacts** section. Extract the ZIP. It contains the Setup EXE, its checksum and the getting-started guide. Merges into `main` also start this build automatically. No tag or public release is needed for a private test.
-
-On the earlier merged version, the workflow is named **Windows-first release build** and the download is **pharma-khaato-Windows**. Those names change when this simplification is merged.
+Open **Actions → Build Windows and Linux installers → Run workflow**, choose `main`, and run it. After the green result, download **Windows-installer** from the run's **Artifacts** section. Extract the ZIP. It contains the Setup EXE, its checksum and the getting-started guide. Merges into `main` also start this build automatically. No tag or public release is needed for a private test.
 
 ## What the tester receives
 
@@ -16,7 +14,7 @@ The installer uses a per-user folder under `%LOCALAPPDATA%\Programs`, needs no a
 
 The installer does not remove shop data during reinstall/uninstall. Back up before upgrades anyway. Windows reinstallation, disk failure and deleting the Windows account are separate risks. Never uninstall or reset data merely to diagnose a sign-in or printer issue.
 
-For the first pilot, use test stock and transactions. Before live sales, verify real opening stock, customer dues, supplier balances and tax settings. Complete the [shop acceptance checklist](REAL_WORLD_READINESS.md). Install the printer manufacturer's Windows driver and test the scanner on the actual machine. Keep Windows security enabled; an unsigned test build may need the supplier to verify the download before proceeding. Code signing is still a release task requiring a publisher certificate.
+For the first pilot, use test stock and transactions. Before live sales, verify real opening stock, customer dues, supplier balances and tax settings. Complete the [shop acceptance checklist](REAL_WORLD_READINESS.md). Install the printer manufacturer's Windows driver and test the scanner on the actual machine. Keep Windows security enabled; an unsigned test build may need the supplier to verify the download before proceeding. The workflow supports code signing when a trusted publisher certificate is configured; see [RELEASING.md](RELEASING.md).
 
 ## Engineering build
 
