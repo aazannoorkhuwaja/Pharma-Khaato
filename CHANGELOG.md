@@ -4,6 +4,10 @@ All notable product changes are recorded here. Dates refer to the engineering/re
 
 ## 2.4.0 — Engineering build, shop acceptance pending
 
+- Added sign-in help explaining existing accounts, preserved records and the absence of a default password.
+- Release verification now completes the real owner-setup form and signs in through the real sign-in screen before exercising shop operations. Startup regressions cover setup cancellation, successful first use and existing-account preservation.
+- Added instructions for testing a separate Linux practice shop without replacing old shop records.
+
 - Added native Windows/Linux release preparation: Windows Setup, an Ubuntu-compatible Debian installer and a Linux per-user archive, each with checksums. Tag builds prepare a draft only after both platforms and runtime compatibility checks pass.
 - Added Linux installation/reinstallation/data-retention checks, explicit package permissions, failed-copy protection, and optional validated Windows app/installer signing before final checksums.
 - Made download and first-use instructions platform-specific; corrected obsolete deployment and live-database-copy guidance. Linux update notices now require a Linux package instead of a Windows installer.

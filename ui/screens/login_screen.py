@@ -1,7 +1,7 @@
 """Pharma Khaato sign-in dialog."""
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QWidget
+    QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QWidget, QMessageBox
 )
 from PySide6.QtCore import Qt
 
@@ -69,7 +69,7 @@ class LoginDialog(QDialog):
         product_line.setAlignment(Qt.AlignCenter)
         product_line.setWordWrap(True)
 
-        subtitle = QLabel("Sign in to start your counter session")
+        subtitle = QLabel("Use the owner or staff account created for this shop")
         subtitle.setObjectName("caption")
         subtitle.setWordWrap(True)
         subtitle.setAlignment(Qt.AlignCenter)
@@ -118,6 +118,9 @@ class LoginDialog(QDialog):
         btn_submit.setCursor(Qt.PointingHandCursor)
         btn_submit.clicked.connect(self.handle_login)
         login_layout.addWidget(btn_submit)
+        self.btn_sign_in_help = QPushButton("First time here or can’t sign in?")
+        self.btn_sign_in_help.clicked.connect(self.show_sign_in_help)
+        login_layout.addWidget(self.btn_sign_in_help)
         login_layout.addStretch()
 
         card_layout.addWidget(login_container)
@@ -133,6 +136,15 @@ class LoginDialog(QDialog):
         card_layout.addWidget(footer)
 
         layout.addWidget(card)
+
+    def show_sign_in_help(self):
+        QMessageBox.information(self, "Help signing in",
+            "Use the username and password created for this shop. There is no default password.\n\n"
+            "An older installation may already have an account on this computer. "
+            "Reinstalling keeps that account and the shop records.\n\n"
+            "If you are a staff member, ask the owner to reset your password in Settings → Staff Access. "
+            "If the owner cannot sign in, contact support before changing any files.\n\n"
+            "Do not delete the shop data folder to fix a sign-in problem.")
 
     def handle_login(self):
         if self._signing_in:
