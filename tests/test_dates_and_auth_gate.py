@@ -20,7 +20,7 @@ class TestExpiryDates:
         ok, msg = inventory_service.add_batch(1, 1, 10, "2020-01-01")
         assert not ok
 
-    def test_fefo_uses_earliest_real_expiry(self, seeded_shop, admin_emp_id):
+    def test_fefo_uses_earliest_real_expiry(self, seeded_shop, admin_emp_id, cash_shift):
         """Regression: non-padded dates ('2027-1-5') broke FEFO ordering."""
         from core import pos_service, inventory_service, db_engine
         # batch 2: real expiry 2098 (padded), batch 3: 2097 via loose input
@@ -56,10 +56,10 @@ class TestManagerAuth:
         ok, msg = enforce_discount_policy(20.0, 100.0, "admin", "secret123")
         assert ok
 
-    def test_non_manager_rejected(self, seeded_shop):
+    def test_non_manager_rejected(self, seeded_shop, admin_emp_id):
         from core import auth_service
         from core.manager_auth_service import enforce_discount_policy
-        auth_service.create_employee("clerk", "clerkpw", "C", "K", occupation="Salesman")
+        auth_service.create_employee("clerk", "clerkpw", "C", "K", occupation="Salesman", actor_id=admin_emp_id)
         ok, msg = enforce_discount_policy(20.0, 100.0, "clerk", "clerkpw")
         assert not ok
 

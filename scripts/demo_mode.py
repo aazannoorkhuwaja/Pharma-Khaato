@@ -126,7 +126,10 @@ def seed_demo_database() -> dict:
     conn.cursor().execute("SELECT 1")
 
     _must(register_initial_admin(DEMO_ADMIN_USER, DEMO_ADMIN_PASSWORD, "Ahsan", "Malik"), "Admin setup")
-    _must(create_employee(DEMO_CASHIER_USER, DEMO_CASHIER_PASSWORD, "Sara", "Khan", "Salesman"), "Cashier setup")
+    admin_cur = conn.cursor()
+    admin_cur.execute("SELECT Employee_id FROM Employee WHERE username=%s", (DEMO_ADMIN_USER,))
+    setup_admin = int(admin_cur.fetchone()[0])
+    _must(create_employee(DEMO_CASHIER_USER, DEMO_CASHIER_PASSWORD, "Sara", "Khan", "Salesman", actor_id=setup_admin), "Cashier setup")
 
     if not SettingsService.update_settings({
         "pharmacy_name": "CityCare Pharmacy & Surgical",
@@ -141,7 +144,7 @@ def seed_demo_database() -> dict:
         "near_expiry_days": "30",
         "max_customer_credit_limit": "25000.00",
         "receipt_template": "professional_80",
-    }):
+    }, actor_id=setup_admin):
         raise RuntimeError("Could not save demo pharmacy settings.")
 
     customers = [

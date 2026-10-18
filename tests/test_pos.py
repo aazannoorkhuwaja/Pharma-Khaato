@@ -2,7 +2,7 @@
 
 
 class TestPOS:
-    def test_cash_sale_deducts_stock(self, seeded_shop, admin_emp_id):
+    def test_cash_sale_deducts_stock(self, seeded_shop, admin_emp_id, cash_shift):
         from core import pos_service
         ok, msg = pos_service.confirm_sale(
             None, admin_emp_id,
@@ -30,7 +30,7 @@ class TestPOS:
             [{"prod_id": 1, "name": "TestMed", "batch_id": 2, "price": 15.0, "qty": 5}],
             payment_method="Cash",
         )
-        assert not ok and "EXPIRED" in msg
+        assert not ok and "expired" in msg.lower()
 
     def test_oversell_rejected(self, seeded_shop, admin_emp_id):
         from core import pos_service
@@ -59,6 +59,7 @@ class TestPOS:
             "INSERT INTO Customers (id_card_number, first_name, last_name, registration_date) "
             "VALUES ('1234567890123', 'Ali', 'Khan', '2026-01-01')"
         )
+        cur.execute("UPDATE Products SET price=100 WHERE id=1")
         conn.commit()
         ok, msg = pos_service.confirm_sale(
             "12345-6789012-3", admin_emp_id,
@@ -85,9 +86,9 @@ class TestPOS:
             [{"prod_id": 1, "name": "TestMed", "price": 15.0, "qty": 1}],
             payment_method="Cash",
         )
-        assert not ok and "Invalid Customer" in msg
+        assert not ok and "customer" in msg.lower()
 
-    def test_walkin_defaults(self, seeded_shop, admin_emp_id):
+    def test_walkin_defaults(self, seeded_shop, admin_emp_id, cash_shift):
         from core import pos_service
         ok, msg = pos_service.confirm_sale(
             None, admin_emp_id,
@@ -108,6 +109,8 @@ class TestCreditLimit:
             "VALUES ('1234567890123', 'Ali', 'Khan', '2026-01-01')"
         )
         conn.commit()
+        cur.execute("UPDATE Products SET price=1000 WHERE id=1")
+        conn.commit()
         # Rs 4,000 credit sale succeeds
         ok, _ = pos_service.confirm_sale(
             "12345-6789012-3", admin_emp_id,
@@ -115,13 +118,15 @@ class TestCreditLimit:
             payment_method="Khatoo Credit",
         )
         assert ok
+        cur.execute("UPDATE Products SET price=5500 WHERE id=1")
+        conn.commit()
         # Rs 22,000 more would exceed the default Rs 25,000 cap — must block
         ok2, msg2 = pos_service.confirm_sale(
             "12345-6789012-3", admin_emp_id,
             [{"prod_id": 1, "name": "TestMed", "price": 5500.0, "qty": 4}],
             payment_method="Khatoo Credit",
         )
-        assert not ok2 and "Credit Limit Exceeded" in msg2
+        assert not ok2 and "credit limit" in msg2.lower()
 
 
 def test_khatoo_payment_method_aliases_are_normalized():

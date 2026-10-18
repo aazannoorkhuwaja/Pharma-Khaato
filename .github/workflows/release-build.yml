@@ -1,4 +1,4 @@
-name: Cross-platform release build
+name: Windows-first release build
 
 on:
   workflow_dispatch:
@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -77,7 +77,12 @@ jobs:
       - name: Build Windows customer installer
         if: runner.os == 'Windows'
         shell: powershell
-        run: ./packaging/windows/build-installer.ps1
+        run: ./packaging/windows/build-installer.ps1 -UseExistingBuild
+
+      - name: Verify Windows install, reinstall and data retention
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./packaging/windows/smoke-installer.ps1
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v4

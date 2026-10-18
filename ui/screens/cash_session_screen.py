@@ -3,7 +3,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QDialog, QFormLayout,
-    QDoubleSpinBox, QComboBox, QMessageBox,
+    QDoubleSpinBox, QComboBox, QMessageBox, QCheckBox,
 )
 
 from ui.theme.tokens import ThemeTokens
@@ -21,7 +21,19 @@ from ui.ux_copy import CASH_MOVEMENT_OPTIONS, CASH_MOVEMENT_LABELS
 _CASH_CONTROLLER = CashSessionController()
 
 
-class OpenSessionDialog(QDialog):
+class CashOperationDialog(QDialog):
+    def reject(self):
+        if not getattr(self,'_saving',False):
+            super().reject()
+
+    def closeEvent(self,event):
+        if getattr(self,'_saving',False):
+            event.ignore()
+        else:
+            super().closeEvent(event)
+
+
+class OpenSessionDialog(CashOperationDialog):
     def __init__(self, employee_id: int, parent=None):
         super().__init__(parent)
         self.employee_id = employee_id
@@ -44,7 +56,7 @@ class OpenSessionDialog(QDialog):
         form = QFormLayout()
         self.spn_opening = QDoubleSpinBox()
         self.spn_opening.setRange(0.0, 500000.0)
-        self.spn_opening.setValue(5000.0)
+        self.spn_opening.setValue(0.0)
         self.spn_opening.setPrefix("Rs. ")
         self.spn_opening.setDecimals(2)
         form.addRow("Starting cash:", self.spn_opening)
@@ -95,7 +107,7 @@ class OpenSessionDialog(QDialog):
         QMessageBox.critical(self, "Could Not Start Shift", "The shift could not be started. Try again.")
 
 
-class RecordMovementDialog(QDialog):
+class RecordMovementDialog(CashOperationDialog):
     def __init__(self, session_id: int, employee_id: int, parent=None):
         super().__init__(parent)
         self.session_id = session_id
@@ -190,7 +202,7 @@ class RecordMovementDialog(QDialog):
         QMessageBox.critical(self, "Could Not Save Cash Entry", "The cash entry could not be saved. Try again.")
 
 
-class CloseSessionDialog(QDialog):
+class CloseSessionDialog(CashOperationDialog):
     def __init__(self, session_id: int, expected_cash: float, parent=None):
         super().__init__(parent)
         self.session_id = session_id
@@ -213,7 +225,7 @@ class CloseSessionDialog(QDialog):
         form = QFormLayout()
         self.spn_actual = QDoubleSpinBox()
         self.spn_actual.setRange(0.0, 2000000.0)
-        self.spn_actual.setValue(float(expected_cash))
+        self.spn_actual.setValue(0.0)
         self.spn_actual.setPrefix("Rs. ")
         self.spn_actual.setDecimals(2)
         self.spn_actual.valueChanged.connect(self.update_discrepancy_label)
@@ -226,6 +238,8 @@ class CloseSessionDialog(QDialog):
         self.lbl_disc = QLabel("Difference: Rs. 0.00 (Balanced)")
         layout.addWidget(self.lbl_disc)
         self.update_discrepancy_label(self.spn_actual.value())
+        self.confirm_count = QCheckBox('I have counted the physical cash in the drawer')
+        layout.addWidget(self.confirm_count)
 
         row = QHBoxLayout()
         self.btn_cancel = QPushButton("Cancel")
@@ -252,6 +266,9 @@ class CloseSessionDialog(QDialog):
 
     def on_close(self):
         if self._saving:
+            return
+        if not self.confirm_count.isChecked():
+            QMessageBox.information(self,'Count Cash First','Count the money in the drawer, enter that amount, and confirm the count.')
             return
         actual = self.spn_actual.value()
         notes = self.txt_notes.text().strip() or "Standard shift close"
@@ -325,6 +342,9 @@ class CashSessionScreen(QWidget):
         buttons.addWidget(self.btn_open_session)
         buttons.addWidget(self.btn_add_movement)
         buttons.addWidget(self.btn_close_session)
+        self.btn_pending = QPushButton('Confirm Pending Cash Entry')
+        self.btn_pending.clicked.connect(self.recover_pending_entry)
+        buttons.addWidget(self.btn_pending)
         buttons.addStretch()
         control_layout.addLayout(buttons)
         layout.addWidget(control)
@@ -351,6 +371,22 @@ class CashSessionScreen(QWidget):
 
     def on_screen_show(self):
         self.refresh_all_data()
+
+    def recover_pending_entry(self):
+        self.btn_pending.setEnabled(False)
+        def complete(result):
+            self.btn_pending.setEnabled(True)
+            if not result[0]:
+                QMessageBox.warning(self,'Cash Entry Not Saved',str(result[1]))
+            else:
+                show_toast(self,'The previous cash entry has been checked. Refresh the drawer totals.',ToastType.SUCCESS)
+            self.refresh_all_data()
+        self._tasks.run(lambda:_CASH_CONTROLLER.recover_pending(self.get_current_employee_id()),complete,
+                        lambda _details:self._pending_failed())
+
+    def _pending_failed(self):
+        self.btn_pending.setEnabled(True)
+        QMessageBox.warning(self,'Cash Entry Unconfirmed','Keep this entry pending. Check the shop connection and try Confirm Pending Cash Entry again.')
 
     def refresh_all_data(self):
         emp_id = self.get_current_employee_id()

@@ -2,10 +2,11 @@
 
 import os
 import sys
+from datetime import datetime
 
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtCore import Qt, QLockFile
+from PySide6.QtCore import Qt, QLockFile, QTimer, QThreadPool
 
 from config import ApplicationSettings
 from controllers.application_controller import ApplicationController
@@ -87,8 +88,6 @@ def _acquire_single_instance(app: QApplication, app_controller: ApplicationContr
 
 def run_app():
     app_controller = ApplicationController()
-    app_controller.initialize()
-    ThemeManager.load_preferences()
 
     app = QApplication.instance()
     if not app:
@@ -104,7 +103,7 @@ def run_app():
     app.setOrganizationDomain(ApplicationSettings.APP_ID)
     app.aboutToQuit.connect(app_controller.shutdown)
     app.setStyle("Fusion")
-    ThemeManager.apply_theme()
+    QThreadPool.globalInstance().setMaxThreadCount(app_controller.worker_thread_limit())
 
     instance_lock = _acquire_single_instance(app, app_controller)
     if instance_lock is False:
@@ -112,6 +111,28 @@ def run_app():
         return 0
     # Keep the lock object alive for the whole QApplication lifetime.
     app._pharma_khaato_instance_lock = instance_lock
+
+    while True:
+        try:
+            app_controller.initialize()
+            break
+        except Exception as exc:
+            if app_controller.is_remote():
+                logger.warning("The shop counter cannot connect: %s", exc)
+                reply = QMessageBox.warning(None, "Shop Connection Unavailable",
+                    "This counter cannot reach the shop computer. Check that the shop computer and router are on, then retry. No local copy of the stock or customer balance will be used.",
+                    QMessageBox.StandardButton.Retry | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Retry)
+                if reply == QMessageBox.StandardButton.Retry:
+                    continue
+                return 1
+            logger.exception("Database startup needs recovery: %s", exc)
+            from ui.screens.recovery_screen import RecoveryDialog
+            RecoveryDialog().exec()
+            return 1
+
+    ThemeManager.load_preferences()
+    ThemeManager.apply_theme()
 
     try:
         needs_setup = app_controller.needs_first_run_setup()
@@ -128,6 +149,13 @@ def run_app():
         wizard = FirstRunWizardDialog()
         if wizard.exec() != FirstRunWizardDialog.Accepted:
             return 0
+
+    try:
+        app._pharma_shop_server = app_controller.start_shop_service()
+    except Exception as exc:
+        logger.exception("The configured shop service could not start: %s", exc)
+        QMessageBox.critical(None, "Shop Connection Unavailable", "The shop service could not start. Other counters cannot connect. Check Settings or contact support before continuing.")
+        return 1
 
     login_dialog = LoginDialog()
     if login_dialog.exec() != QDialog.Accepted or not SessionState.get_instance().current_user:
@@ -202,13 +230,18 @@ def run_app():
     startup_tasks = AsyncTaskRunner(window)
     window._startup_tasks = startup_tasks
 
+    window._health_issue = ""
+    window._backup_issue = ""
+    def show_runtime_status():
+        issue = window._health_issue or window._backup_issue
+        user = window.current_user or {}
+        window.status_bar.showMessage(f"Signed in: {user.get('username', '')} • " + (issue or "Ready"))
+
     def apply_health(health):
-        if health.get("db_connected") and health.get("db_integrity_ok"):
-            window.status_bar.showMessage(f"Signed in: {current_user.get('username')} • Ready")
-        else:
-            window.status_bar.showMessage(
-                f"Signed in: {current_user.get('username')} • System needs attention"
-            )
+        issues = health.get("issues") or []
+        healthy = health.get("db_connected") and health.get("db_integrity_ok") and not issues
+        window._health_issue = "" if healthy else (str(issues[0]) if issues else "System needs attention. Open Settings → System & Recovery.")
+        show_runtime_status()
 
     startup_tasks.run(
         app_controller.health,
@@ -219,14 +252,33 @@ def run_app():
     )
 
     def backup_finished(result):
+        window._backup_in_progress = False
         ok, detail = result
         if not ok:
             logger.warning("Automatic daily backup was not created: %s", detail)
+            window._backup_issue = "Backup needs attention: " + str(detail)
+        else:
+            window._backup_issue = ""
+        show_runtime_status()
 
-    startup_tasks.run(
-        lambda: app_controller.ensure_daily_backup(retention=14),
-        backup_finished,
-        lambda details: logger.warning("Automatic daily backup task failed: %s", details),
-    )
+    window._backup_in_progress = False
+    def check_backup():
+        if window._backup_in_progress:
+            return
+        window._backup_in_progress = True
+        startup_tasks.run(
+            lambda: app_controller.ensure_daily_backup(retention=14),
+            backup_finished,
+            lambda details: backup_finished((False, "The backup check failed. Open Settings → System & Recovery.")),
+        )
+    check_backup()
+    window._backup_timer = QTimer(window)
+    window._backup_timer.setInterval(60_000)
+    window._backup_timer.timeout.connect(check_backup)
+    window._backup_timer.start()
+    window._health_timer = QTimer(window)
+    window._health_timer.setInterval(300_000)
+    window._health_timer.timeout.connect(lambda: startup_tasks.run(app_controller.health, apply_health))
+    window._health_timer.start()
 
     return app.exec()

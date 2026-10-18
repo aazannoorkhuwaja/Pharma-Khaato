@@ -160,12 +160,12 @@ def test_credit_return_reduces_due_then_refunds_actual_collection_tender(seeded_
     assert float(due) == 0.0 and float(paid) == 0.0
 
 
-def test_cashier_cannot_process_returns_even_if_service_called_directly(seeded_shop, admin_emp_id):
+def test_cashier_cannot_process_returns_even_if_service_called_directly(seeded_shop, admin_emp_id, cash_shift):
     from core import auth_service, return_service
 
     purchase_id = _cash_sale(admin_emp_id, qty=1)
     ok, msg = auth_service.create_employee(
-        "cashier", "cashier123", "Counter", "Staff", occupation="Salesman"
+        "cashier", "cashier123", "Counter", "Staff", occupation="Salesman", actor_id=admin_emp_id
     )
     assert ok, msg
     cur = seeded_shop.get_conn().cursor()

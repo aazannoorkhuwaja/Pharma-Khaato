@@ -1,6 +1,11 @@
 # Qt runtime selected by Python version so the same source tree works across
 # currently supported Windows/Linux Python installations.
-PySide6==6.7.2; python_version < "3.13"
-PySide6==6.9.3; python_version >= "3.13" and python_version < "3.14"
-PySide6>=6.10.1,<6.13; python_version >= "3.14"
+PySide6-Essentials==6.7.2; python_version < "3.13"
+PySide6-Essentials==6.9.3; python_version >= "3.13" and python_version < "3.14"
+PySide6-Essentials>=6.10.1,<6.13; python_version >= "3.14"
 python-dotenv==1.0.1
+# Generate shop TLS certificates inside the installed app, including Windows.
+cryptography>=46.0.3,<47
+
+# Shop dates must work on Windows and minimal Linux installations.
+tzdata>=2025.2

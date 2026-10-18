@@ -358,22 +358,14 @@ class FirstRunWizardDialog(QDialog):
             "license_number": self.txt_license.text().strip(),
             "default_tax_rate": str(self.spn_tax.value()),
         }
-        if not _SETTINGS_CONTROLLER.update(settings):
-            if self.show_message_box:
-                QMessageBox.critical(
-                    self,
-                    "Could not save pharmacy details",
-                    "The pharmacy settings could not be saved. Please try again.",
-                )
-            return
-
-        ok, msg = _AUTH_CONTROLLER.register_initial_admin(
+        ok, msg = _AUTH_CONTROLLER.complete_initial_setup(
             username,
             password,
             fname,
             self.txt_lname.text().strip(),
+            settings,
         )
-        if not ok and "already in use" not in msg:
+        if not ok:
             if self.show_message_box:
                 QMessageBox.critical(self, "Could not create administrator", msg)
             return

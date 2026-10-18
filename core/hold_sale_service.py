@@ -1,3 +1,4 @@
+from core.business_time import business_date, business_now
 """Crash-safe held-sale lifecycle for the POS counter."""
 
 import json
@@ -13,29 +14,41 @@ logger = get_logger("PharmaKhaatoHoldSale")
 # process dies before checkout/re-hold, that state is stale. Recover those rows
 # once per fresh process so a crash cannot permanently hide a held sale.
 _RECOVERED_STALE_RESUMES = False
+_RECOVERED_PATHS = set()
 
 
 def _now() -> str:
-    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    return business_now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _recover_stale_resumes_once() -> None:
     global _RECOVERED_STALE_RESUMES
-    if _RECOVERED_STALE_RESUMES:
+    from core.path_manager import PathManager
+    path = PathManager.get_db_path()
+    if _RECOVERED_STALE_RESUMES and path in _RECOVERED_PATHS:
         return
     try:
-        with get_db() as (_conn, cur):
+        with get_db(immediate=True) as (_conn, cur):
             cur.execute(
                 "UPDATE Hold_Sales SET status = 'HELD', updated_at = %s "
-                "WHERE status = 'RESUMED'",
+                "WHERE status = 'RESUMED' AND purchase_id IS NULL",
                 (_now(),),
             )
         _RECOVERED_STALE_RESUMES = True
+        _RECOVERED_PATHS.add(path)
     except Exception as exc:
         logger.warning("Held-sale recovery could not run: %s", exc)
 
 
-def hold_sale(customer_id, employee_id, cart, note=""):
+def _draft_payload(customer_id, cart, draft=None):
+    payload = dict(draft or {})
+    payload.update(customer_id=str(customer_id or "WALKIN"), cart=cart)
+    return json.dumps({key: payload[key] for key in (
+        "customer_id", "cart", "selected_customer", "customer", "discount", "payment_method", "cash_received"
+    ) if key in payload}, separators=(",", ":"), allow_nan=False)
+
+
+def hold_sale(customer_id, employee_id, cart, note="", *, draft=None):
     """Persist a new held sale without reserving inventory."""
     if not cart:
         return False, "Add at least one item before holding the sale."
@@ -51,11 +64,12 @@ def hold_sale(customer_id, employee_id, cart, note=""):
     try:
         now_str = _now()
         cart_json = json.dumps(cart, separators=(",", ":"))
-        with get_db() as (_conn, cur):
+        draft_json = _draft_payload(customer_id, cart, draft)
+        with get_db(immediate=True) as (_conn, cur):
             cur.execute(
                 "INSERT INTO Hold_Sales "
-                "(hold_time, customer_id, employee_id, cart_json, note, status, updated_at) "
-                "VALUES (%s, %s, %s, %s, %s, 'HELD', %s)",
+                "(hold_time, customer_id, employee_id, cart_json, note, status, updated_at, draft_json) "
+                "VALUES (%s, %s, %s, %s, %s, 'HELD', %s, %s)",
                 (
                     now_str,
                     str(customer_id or "WALKIN"),
@@ -63,6 +77,7 @@ def hold_sale(customer_id, employee_id, cart, note=""):
                     cart_json,
                     str(note or "").strip()[:250],
                     now_str,
+                    draft_json,
                 ),
             )
             hold_id = cur.lastrowid
@@ -88,7 +103,7 @@ def get_held_sales(employee_id=None, limit=100):
             return []
 
     try:
-        with get_db() as (_conn, cur):
+        with get_db(immediate=True) as (_conn, cur):
             if employee_id is None:
                 cur.execute(
                     "SELECT id, hold_time, customer_id, employee_id, cart_json, note "
@@ -121,22 +136,23 @@ def recall_sale(hold_id, employee_id):
         return False, reason
 
     try:
-        with get_db() as (_conn, cur):
+        with get_db(immediate=True) as (_conn, cur):
             cur.execute(
-                "SELECT customer_id, cart_json, note, employee_id, status "
+                "SELECT customer_id, cart_json, note, employee_id, status, draft_json "
                 "FROM Hold_Sales WHERE id = %s",
                 (hold_id,),
             )
             row = cur.fetchone()
             if not row:
                 raise ValueError("This held sale no longer exists.")
-            customer_id, cart_json, note, owner_id, status = row
+            customer_id, cart_json, note, owner_id, status, draft_json = row
             if int(owner_id) != employee_id:
                 raise ValueError("This held sale belongs to another staff member.")
             if status != "HELD":
                 raise ValueError("This held sale is already being resumed or has been completed.")
 
             cart = json.loads(cart_json)
+            draft = json.loads(draft_json) if draft_json else {"cart": cart, "customer_id": customer_id}
             now_str = _now()
             cur.execute(
                 "UPDATE Hold_Sales SET status = 'RESUMED', resumed_at = %s, updated_at = %s "
@@ -151,6 +167,7 @@ def recall_sale(hold_id, employee_id):
             "customer_id": customer_id,
             "cart": cart,
             "note": note,
+            "draft": draft,
         }
     except (ValueError, json.JSONDecodeError) as exc:
         return False, str(exc)
@@ -159,7 +176,7 @@ def recall_sale(hold_id, employee_id):
         return False, "The held sale could not be resumed. Please try again."
 
 
-def rehold_sale(hold_id, customer_id, employee_id, cart, note=""):
+def rehold_sale(hold_id, customer_id, employee_id, cart, note="", *, draft=None):
     """Put a resumed cart back into the held queue without creating a duplicate."""
     if not cart:
         return False, "Cannot hold an empty sale."
@@ -175,11 +192,12 @@ def rehold_sale(hold_id, customer_id, employee_id, cart, note=""):
 
     try:
         cart_json = json.dumps(cart, separators=(",", ":"))
+        draft_json = _draft_payload(customer_id, cart, draft)
         now_str = _now()
-        with get_db() as (_conn, cur):
+        with get_db(immediate=True) as (_conn, cur):
             cur.execute(
                 "UPDATE Hold_Sales SET customer_id = %s, employee_id = %s, cart_json = %s, "
-                "note = %s, status = 'HELD', resumed_at = NULL, updated_at = %s "
+                "note = %s, status = 'HELD', resumed_at = NULL, updated_at = %s, draft_json = %s "
                 "WHERE id = %s AND status = 'RESUMED' AND employee_id = %s",
                 (
                     str(customer_id or "WALKIN"),
@@ -187,6 +205,7 @@ def rehold_sale(hold_id, customer_id, employee_id, cart, note=""):
                     cart_json,
                     str(note or "").strip()[:250],
                     now_str,
+                    draft_json,
                     hold_id,
                     employee_id,
                 ),

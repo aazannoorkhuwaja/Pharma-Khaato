@@ -2,7 +2,7 @@ name: CI Quality Gate
 
 on:
   push:
-    branches: [ main, master, develop-ui ]
+    branches: [ main, master, develop-ui, "pharmacy-pilot-*" ]
   pull_request:
     branches: [ main, master, develop-ui ]
 
@@ -19,11 +19,16 @@ jobs:
   # completed the same isolated business/UI flow used for the live demo.
   develop-fast:
     if: github.event_name == 'push' && github.ref == 'refs/heads/develop-ui'
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Qt runtime libraries
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
@@ -117,6 +122,6 @@ jobs:
           python scripts/demo_mode.py --no-launch
           python scripts/test_flow.py
 
-      - name: Smoke-test major GUI screens on Linux current runtime
-        if: runner.os == 'Linux' && matrix.python-version == '3.14'
+      - name: Smoke-test major GUI screens on current runtime
+        if: matrix.python-version == '3.14'
         run: python scripts/test_gui_auto.py

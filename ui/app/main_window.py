@@ -109,12 +109,18 @@ class MainWindow(QMainWindow):
         self.btn_printer_setup.setToolTip("Choose and test the thermal receipt printer")
         self.btn_printer_setup.clicked.connect(self.show_printer_setup)
         sidebar_layout.addWidget(self.btn_printer_setup)
+        self.btn_shop_computers = QPushButton('Shop Computers')
+        self.btn_shop_computers.setObjectName('sidebarUtilityButton')
+        self.btn_shop_computers.clicked.connect(self.configure_shop_computers)
+        sidebar_layout.addWidget(self.btn_shop_computers)
 
         self.btn_about = QPushButton("About Pharma Khaato")
         self.btn_about.setObjectName("sidebarUtilityButton")
         self.btn_about.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_about.clicked.connect(self.show_about)
         sidebar_layout.addWidget(self.btn_about)
+        from ui.dialogs.update_dialog import UpdateNotifier
+        self._updates = UpdateNotifier(self)
 
         self.btn_theme_toggle = QPushButton()
         self.btn_theme_toggle.setObjectName("sidebarUtilityButton")
@@ -225,22 +231,22 @@ class MainWindow(QMainWindow):
 
         PrinterSetupDialog(self).exec()
 
+    def configure_shop_computers(self):
+        if 'settings' not in self.get_allowed_screens():
+            self.status_bar.showMessage('Ask the owner to set up shop computers.')
+            return
+        from ui.app.state.session_state import SessionState
+        if SessionState.get_instance().active_cart or SessionState.get_instance().checkout_token:
+            QMessageBox.information(self,'Finish This Sale','Finish or hold this sale before changing shop computers.')
+            return
+        from ui.dialogs.counter_connection_dialog import configure_shop_connection
+        if configure_shop_connection(self):
+            QMessageBox.information(self,'Restart Pharma Khaato','The connection is saved. Close and reopen Pharma Khaato to use it.')
+            self.close()
+
     def show_about(self):
-        support_line = (
-            f"Support: {ApplicationSettings.SUPPORT_EMAIL}"
-            if ApplicationSettings.SUPPORT_EMAIL
-            else "Support: contact your system administrator or deployment partner"
-        )
-        QMessageBox.about(
-            self,
-            f"About {ApplicationSettings.DISPLAY_NAME}",
-            f"<b>{ApplicationSettings.DISPLAY_NAME}</b><br>"
-            f"{ApplicationSettings.PRODUCT_TAGLINE}<br><br>"
-            f"Version {ApplicationSettings.APP_VERSION}<br>"
-            f"{ApplicationSettings.PRODUCT_DESCRIPTION}<br><br>"
-            f"{ApplicationSettings.DATA_NOTICE}<br><br>"
-            f"{support_line}",
-        )
+        from ui.dialogs.about_dialog import AboutDialog
+        AboutDialog(self._updates, self).exec()
 
     def on_toggle_theme(self):
         ThemeManager.toggle_theme(save=True)
@@ -276,12 +282,16 @@ class MainWindow(QMainWindow):
         for key, btn in self.nav_buttons.items():
             btn.setVisible(key in allowed)
         self.btn_printer_setup.setVisible("settings" in allowed)
+        self.btn_shop_computers.setVisible("settings" in allowed)
         if "pos" in allowed:
             self.on_nav_clicked("pos")
         self.status_bar.showMessage(f"Signed in: {uname} • Ready")
 
     def on_logout(self, confirm_fn=None):
         uname = self.current_user.get("username", "") if isinstance(self.current_user, dict) else ""
+        if SessionState.get_instance().pending_checkout:
+            QMessageBox.warning(self, "Check Pending Bill", "Confirm the pending bill on the sale screen before signing out. This prevents a bill being submitted under another cashier.")
+            return
         cart = SessionState.get_instance().active_cart
         cart_warning = (
             f"\n\nWarning: there are {len(cart)} unsaved item(s) in the active cart. They will be lost unless you hold the sale first."
@@ -304,6 +314,8 @@ class MainWindow(QMainWindow):
             )
         if reply != QMessageBox.StandardButton.Yes:
             return
+        from controllers.application_controller import ApplicationController
+        ApplicationController.sign_out()
         SessionState.get_instance().clear_user()
         self.current_user = None
         self.user_badge.setText("User: Signed Out")

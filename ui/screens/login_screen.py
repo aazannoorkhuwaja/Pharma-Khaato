@@ -10,6 +10,7 @@ from controllers.auth_controller import AuthController
 from ui.theme.tokens import ThemeTokens
 from ui.app.state.session_state import SessionState
 from ui.widgets.responsive import configure_dialog
+from ui.app.async_tasks import AsyncTaskRunner
 
 _AUTH_CONTROLLER = AuthController()
 
@@ -23,6 +24,8 @@ class LoginDialog(QDialog):
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
         self.user_data = None
+        self._tasks = AsyncTaskRunner(self)
+        self._signing_in = False
 
         self.setStyleSheet(f"""
             QDialog {{
@@ -110,6 +113,7 @@ class LoginDialog(QDialog):
         login_layout.addWidget(self.lbl_error)
 
         btn_submit = QPushButton("Sign In")
+        self.btn_submit = btn_submit
         btn_submit.setObjectName("primaryButton")
         btn_submit.setCursor(Qt.PointingHandCursor)
         btn_submit.clicked.connect(self.handle_login)
@@ -131,6 +135,8 @@ class LoginDialog(QDialog):
         layout.addWidget(card)
 
     def handle_login(self):
+        if self._signing_in:
+            return
         username = self.txt_username.text().strip()
         password = self.txt_password.text()
 
@@ -138,8 +144,24 @@ class LoginDialog(QDialog):
             self.lbl_error.setText("Enter your username and password.")
             return
 
-        try:
-            res = _AUTH_CONTROLLER.login(username, password)
+        self._signing_in = True
+        self.btn_submit.setEnabled(False)
+        self.btn_submit.setText('Signing in…')
+        self.lbl_error.setText('')
+        self.txt_username.setEnabled(False)
+        self.txt_password.setEnabled(False)
+        def authenticate():
+            try:
+                return _AUTH_CONTROLLER.login(username,password),None
+            except PermissionError as exc:
+                return None,str(exc)
+        def complete(result):
+            self._signing_in = False
+            self.btn_submit.setEnabled(True)
+            self.btn_submit.setText('Sign In')
+            self.txt_username.setEnabled(True)
+            self.txt_password.setEnabled(True)
+            res,error = result
             if res:
                 emp_id, fname, lname, occupation = res
                 self.user_data = {
@@ -153,9 +175,13 @@ class LoginDialog(QDialog):
                 SessionState.get_instance().set_user(self.user_data)
                 self.accept()
             else:
-                self.lbl_error.setText("Username or password is incorrect.")
+                self.lbl_error.setText(error or "Username or password is incorrect.")
                 self.txt_password.clear()
                 self.txt_password.setFocus()
-        except PermissionError as pe:
-            self.lbl_error.setText(str(pe))
-            self.txt_password.clear()
+        def failed(_details):
+            complete((None,'The shop could not be reached. Check the connection and sign in again.'))
+        self._tasks.run(authenticate,complete,failed)
+
+    def reject(self):
+        if not self._signing_in:
+            super().reject()

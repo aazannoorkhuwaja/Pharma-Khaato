@@ -47,7 +47,7 @@ class TestCloseSession:
         ok, sid = css.open_session(admin_emp_id, 200)
         assert ok
         # Count Rs.190 — Rs.10 shortage must be accepted and session closed.
-        ok_c, result = css.close_session(sid, 190.0, notes="short test")
+        ok_c, result = css.close_session(sid, 190.0, notes="short test", employee_id=admin_emp_id)
         assert ok_c, result
         assert css.get_active_session(admin_emp_id) is None
 

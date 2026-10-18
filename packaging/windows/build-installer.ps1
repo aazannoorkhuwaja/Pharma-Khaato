@@ -1,3 +1,5 @@
+param([switch]$UseExistingBuild)
+
 $ErrorActionPreference = "Stop"
 Set-Location (Resolve-Path "$PSScriptRoot\..\..")
 
@@ -7,15 +9,19 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($version)) {
 }
 $version = $version.Trim()
 
-# Build only when the packaged folder is not already present. This keeps the
-# release workflow from doing the expensive PyInstaller step twice while still
-# making this script convenient for a local one-command Windows build.
-if (-not (Test-Path "dist\pharma_khaato\pharma_khaato.exe")) {
+# Fresh builds are the default. CI explicitly reuses its freshly verified package.
+if (-not $UseExistingBuild) {
     python scripts/build_release.py
     if ($LASTEXITCODE -ne 0) {
         throw "Native application build failed."
     }
 }
+
+if (-not (Test-Path "dist\pharma_khaato\pharma_khaato.exe")) {
+    throw "The packaged Windows executable is missing. Build the application first."
+}
+python scripts/smoke_packaged.py
+if ($LASTEXITCODE -ne 0) { throw "Packaged Windows application verification failed." }
 
 $isccPath = $null
 $isccCommand = Get-Command iscc.exe -ErrorAction SilentlyContinue
@@ -25,7 +31,7 @@ if ($null -ne $isccCommand) {
 
 if ([string]::IsNullOrWhiteSpace($isccPath)) {
     $candidates = @(
-        "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe",
+        "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
         "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
         "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
     )
@@ -38,9 +44,7 @@ if ([string]::IsNullOrWhiteSpace($isccPath)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($isccPath)) {
-    Write-Warning "Inno Setup compiler (ISCC.exe) not found. The portable release can still be used, but the customer Setup EXE was not built."
-    Write-Host "Install Inno Setup 6 and rerun this script to produce the Windows installer."
-    exit 0
+    throw "Inno Setup 6 is required to create the customer Windows Setup EXE. Install it and rerun this script."
 }
 
 New-Item -ItemType Directory -Force -Path "release" | Out-Null

@@ -17,15 +17,17 @@ class ApplicationSettings:
 
     APP_NAME = "Pharma-Khaato"
     DISPLAY_NAME = "Pharma Khaato"
-    APP_VERSION = "2.3.1"
+    APP_VERSION = "2.4.0"
     APP_ID = "com.pharmakhaato.desktop"
     ORGANIZATION = "Pharma Khaato"
+    BUILDERS = ("Azaan Noor Khuwaja", "Atif Khan")
+    CREDITS = "Lead developer: Azaan Noor Khuwaja\nContributor: Atif Khan"
     PRODUCT_TAGLINE = "Pharmacy POS & Inventory Management"
     PRODUCT_DESCRIPTION = (
         "Offline-first pharmacy billing, batch inventory, customer credit, "
         "cash shifts, returns, reports and recovery."
     )
-    DATA_NOTICE = "Business data is stored locally on this computer unless you export or back it up."
+    DATA_NOTICE = "Shop records stay on your shop computer unless you export or back them up. Optional update checks contact GitHub for release information and do not send shop records."
     SUPPORT_EMAIL = os.getenv("PHARMA_KHAATO_SUPPORT_EMAIL", "").strip()
 
     @classmethod

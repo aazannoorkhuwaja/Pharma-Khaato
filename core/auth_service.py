@@ -46,7 +46,7 @@ def _lockout_get(cur, username: str):
 def _record_failed_attempt(username: str) -> None:
     now = time.time()
     try:
-        with get_db() as (conn, cur):
+        with get_db(immediate=True) as (conn, cur):
             row = _lockout_get(cur, username)
             if row is None:
                 attempts = 1
@@ -67,6 +67,24 @@ def _record_failed_attempt(username: str) -> None:
                 )
     except sqlite3.Error as exc:
         logger.warning(f"Handled lockout persistence failure: {exc}")
+
+
+def check_login_lockout(username: str) -> None:
+    """Shared gate for sign-in and sensitive-action reauthentication."""
+    with get_db(immediate=True) as (_conn, cur):
+        row = _lockout_get(cur, username)
+        if row and int(row[0]) >= _MAX_ATTEMPTS:
+            remaining = float(row[1]) - time.time()
+            if remaining > 0:
+                raise PermissionError(f"Too many failed sign-in attempts. Try again in {max(1, int(remaining))} seconds.")
+            _clear_failed_attempt(cur, username)
+
+
+def _admin_actor(actor_id):
+    from core.permission_service import require_permission
+    if actor_id is None:
+        return False, "Administrator sign-in is required."
+    return require_permission(actor_id, "staff.manage")
 
 
 def _clear_failed_attempt(cur, username: str) -> None:
@@ -258,6 +276,7 @@ def register_initial_admin(
     password: str,
     first_name: str,
     last_name: str,
+    settings: dict = None,
 ):
     """Register the first Administrator during initial setup."""
     username = str(username).strip()
@@ -271,7 +290,10 @@ def register_initial_admin(
         return False, message
 
     try:
-        with get_db() as (conn, cur):
+        with get_db(immediate=True) as (conn, cur):
+            cur.execute("SELECT COUNT(*) FROM Employee")
+            if cur.fetchone()[0]:
+                return False, "Initial setup is already complete. Ask an administrator to create staff accounts."
             cur.execute(
                 "SELECT Employee_id FROM Employee WHERE username = %s",
                 (username,),
@@ -283,6 +305,10 @@ def register_initial_admin(
                 "VALUES (%s, %s, %s, %s, 'Admin')",
                 (username, _hash_password(password), first_name, last_name or "Admin"),
             )
+            if settings:
+                from core.settings_service import SettingsService
+                if not SettingsService.update_settings(settings, actor_id=cur.lastrowid):
+                    raise ValueError("The pharmacy profile could not be saved.")
         return True, "Administrator account created."
     except Exception as exc:
         logger.error(f"Initial administrator creation failed: {exc}")
@@ -295,12 +321,21 @@ def create_employee(
     first_name: str,
     last_name: str,
     occupation: str = "Salesman",
+    actor_id: int = None,
 ):
     """Register a new staff account."""
     username = str(username).strip()
     first_name = str(first_name).strip()
     last_name = str(last_name).strip()
     occupation = str(occupation).strip() or "Salesman"
+
+    allowed, message = _admin_actor(actor_id)
+    if not allowed:
+        return False, message
+    roles = {"salesman": "Salesman", "cashier": "Cashier", "pharmacist": "Pharmacist", "manager": "Manager", "admin": "Admin"}
+    if occupation.lower() not in roles:
+        return False, "Choose a supported staff role."
+    occupation = roles[occupation.lower()]
 
     if not username or not first_name:
         return False, "Enter a username and first name."
@@ -392,8 +427,11 @@ def get_all_employees() -> list:
         return []
 
 
-def update_employee_password(employee_id: int, new_password: str) -> tuple[bool, str]:
+def update_employee_password(employee_id: int, new_password: str, actor_id: int = None) -> tuple[bool, str]:
     """Administrator-level password reset without current-password verification."""
+    allowed, message = _admin_actor(actor_id)
+    if not allowed:
+        return False, message
     valid, message = validate_new_password(new_password)
     if not valid:
         return False, message
@@ -415,7 +453,7 @@ def update_employee_password(employee_id: int, new_password: str) -> tuple[bool,
 
         from core.audit_service import log_audit_event
         log_audit_event(
-            employee_id,
+            actor_id,
             "PASSWORD_ADMIN_RESET",
             f"Administrator reset password for employee '{username}'.",
         )

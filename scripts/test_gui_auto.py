@@ -65,6 +65,11 @@ def run_gui_verification() -> int:
     login.txt_password.setText(DEMO_ADMIN_PASSWORD)
     _capture(app, login, "01_login_screen.png", 100)
     login.handle_login()
+    for _attempt in range(100):
+        if not login._signing_in:
+            break
+        QTest.qWait(50)
+        app.processEvents()
     if not SessionState.get_instance().current_user:
         raise RuntimeError("Demo administrator login failed in GUI smoke test")
 

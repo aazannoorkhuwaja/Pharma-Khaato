@@ -2,6 +2,23 @@
 
 All notable product changes are recorded here. Dates refer to the engineering/release line; a build is not a production release until its launch-candidate gates and manual hardware acceptance are complete.
 
+## 2.4.0 — Engineering build, shop acceptance pending
+
+- Fixed Windows backup restoration failing with `Bad file descriptor`: staged databases now use a writable, non-truncating handle for the required durable flush. Restore still aborts safely if that flush fails.
+
+- Added visible builder credits matching the MIT license and optional background update checks with plain-language release notes, Later/download choices, and a workstation opt-out. Billing remains available offline.
+
+- Made Windows the primary delivery target: per-user installer, default desktop shortcut, installed getting-started guide, Windows development CI, and native install/reinstall/data-retention gates.
+- Require a positive functional-check report for windowed executables; installer builds fail if the Setup compiler is unavailable and rebuild packages by default.
+
+- Enforced atomic, durable checkout and return replay; saved original receipt content and exact historical line amounts.
+- Added explicit tax review, cash tender validation, scoped manager approvals and counter-specific cash shifts.
+- Added tablet/strip/box stock units, pack barcodes, lot prices, counted/block stock, supplier invoices, payments and return credits.
+- Simplified customer accounts to name-first identity with optional phone/CNIC, account repayments and auditable corrections.
+- Added authenticated TLS local counters with terminal-bound permissions, durable pending operations and local printing.
+- Hardened backup, restore, corruption recovery, startup locking and legacy migration safety; aligned financial dates to Pakistan shop time.
+- Added recovery-first cashier workflows, focused regression coverage and installed functional smoke. See operator and readiness guides for limitations and physical acceptance steps.
+
 ## 2.3.1 — Launch candidate
 
 ### Product experience

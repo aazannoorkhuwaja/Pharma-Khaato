@@ -37,7 +37,14 @@ def create_support_bundle() -> tuple[bool, str]:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         out = exports / f"Pharma-Khaato-Support-{stamp}.zip"
 
-        readiness = run_readiness_checks()
+        from core.lan_config import load_counter_config, enabled_counter_client
+        if load_counter_config():
+            try:
+                readiness = {"mode": "counter", "shop_status": enabled_counter_client().public_status()}
+            except Exception:
+                readiness = {"mode": "counter", "ok": False, "message": "Main shop computer unavailable"}
+        else:
+            readiness = run_readiness_checks()
         manifest = {
             "product": ApplicationSettings.DISPLAY_NAME,
             "version": ApplicationSettings.APP_VERSION,

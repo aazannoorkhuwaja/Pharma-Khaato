@@ -1,4 +1,5 @@
 import uuid
+import copy
 
 from models import CustomerModel, InventoryModel, POSModel
 from core.data_revision import current, touch
@@ -43,14 +44,32 @@ class POSController:
             self._tax_settings_revision = revision
         return self._tax_rate_cache
 
-    def hold_sale(self, customer_id, employee_id, cart):
-        return self.pos.hold_sale(customer_id, employee_id, cart)
+    def hold_sale(self, customer_id, employee_id, cart, draft=None):
+        return self.pos.hold_sale(customer_id, employee_id, cart, draft=draft)
 
-    def held_sales(self):
-        return self.pos.held_sales(self._current_employee_id())
+    def sell_units(self, product_id):
+        return self.pos.sell_units(product_id)
 
-    def recall_sale(self, hold_id):
-        employee_id = self._current_employee_id()
+    def reprint_receipt(self, purchase_id):
+        return self.pos.reprint_receipt(purchase_id)
+
+    def receipt_for_sale(self, purchase_id):
+        return self.pos.receipt_for_sale(purchase_id)
+
+    def lookup_checkout_result(self, token, employee_id):
+        return self.pos.lookup_checkout_result(token, employee_id=employee_id)
+
+    @staticmethod
+    def pending_checkout_path(employee_id):
+        from core.path_manager import PathManager
+        from pathlib import Path
+        return Path(PathManager.get_config_dir()) / f"pending-checkout-{int(employee_id)}.json"
+
+    def held_sales(self, employee_id=None):
+        return self.pos.held_sales(employee_id if employee_id is not None else self._current_employee_id())
+
+    def recall_sale(self, hold_id, employee_id=None):
+        employee_id = employee_id if employee_id is not None else self._current_employee_id()
         if employee_id is None:
             return False, "Sign in again before resuming a held sale."
         return self.pos.recall_sale(hold_id, employee_id)
@@ -63,10 +82,9 @@ class POSController:
         from ui.app.state.session_state import SessionState
 
         session = SessionState.get_instance()
-        if not session.checkout_token:
-            session.checkout_token = uuid.uuid4().hex
-        request = self.pos.checkout_request(**kwargs)
-        request.checkout_token = session.checkout_token
+        token = kwargs.pop("checkout_token", None) or session.checkout_token or uuid.uuid4().hex
+        request = self.pos.checkout_request(**copy.deepcopy(kwargs), checkout_token=token)
+        session.checkout_token = token
         return request
 
     def process_checkout(self, request):
@@ -74,9 +92,6 @@ class POSController:
 
         result = process_checkout_idempotently(request, self.pos.process_checkout)
         if getattr(result, "success", False):
-            from ui.app.state.session_state import SessionState
-            SessionState.get_instance().checkout_token = None
-
             # Stock totals changed inside the checkout transaction. Clear the
             # inventory read cache before any other screen can render stale data.
             from core.inventory_service import clear_inventory_cache

@@ -2,7 +2,7 @@
 
 
 class TestCheckoutLock:
-    def test_lock_released_after_failed_checkout(self, seeded_shop, admin_emp_id):
+    def test_lock_released_after_failed_checkout(self, seeded_shop, admin_emp_id, cash_shift):
         from core import pos_service
         # Fail once (invalid CNIC — early return before the old try/finally)
         ok1, _ = pos_service.confirm_sale(
@@ -19,7 +19,7 @@ class TestCheckoutLock:
         )
         assert ok2, f"Checkout deadlocked after prior failure: {msg2}"
 
-    def test_lock_released_after_exception(self, seeded_shop, admin_emp_id):
+    def test_lock_released_after_exception(self, seeded_shop, admin_emp_id, cash_shift):
         from core import pos_service
         pos_service.confirm_sale(
             None, admin_emp_id,
