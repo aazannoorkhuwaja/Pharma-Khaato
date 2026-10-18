@@ -4,6 +4,8 @@ All notable product changes are recorded here. Dates refer to the engineering/re
 
 ## 2.4.0 — Engineering build, shop acceptance pending
 
+- Fixed Windows cleanup retaining the SQLite database through background-thread connections. Shutdown now drains active work and closes every managed connection; transaction cursors and failed database initialisation also release their handles.
+
 - Fixed disposable installed-app checks leaving temporary log handles open on Windows. Failed windowed checks now return an error report instead of opening an exception dialog; build failures retain stage/error details.
 
 - Shortened the README and daily-use guide; added an exact practice-bill exercise. Replaced technical setup and recovery wording with owner, bill and cash-entry instructions.

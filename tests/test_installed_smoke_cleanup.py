@@ -5,13 +5,28 @@ import sys
 from pathlib import Path
 
 
-def test_smoke_closes_temporary_log_handles_before_cleanup(tmp_path):
+def test_smoke_closes_all_temporary_handles_before_cleanup(tmp_path):
     root = Path(__file__).resolve().parents[1]
     script = r'''
 import logging
 import tempfile
+import sqlite3
 import sys
 from pathlib import Path
+connections = []
+OriginalConnect = sqlite3.connect
+class TrackedConnection(sqlite3.Connection):
+    def close(self):
+        super().close()
+        self.check_closed = True
+def tracked_connect(*args, **kwargs):
+    kwargs['factory'] = TrackedConnection
+    conn = OriginalConnect(*args, **kwargs)
+    conn.check_closed = False
+    conn.check_path = conn.execute('PRAGMA database_list').fetchone()[2]
+    connections.append(conn)
+    return conn
+sqlite3.connect = tracked_connect
 sys.path.insert(0, sys.argv[1])
 OriginalTemporaryDirectory = tempfile.TemporaryDirectory
 class WindowsTemporaryDirectory(OriginalTemporaryDirectory):
@@ -23,6 +38,9 @@ class WindowsTemporaryDirectory(OriginalTemporaryDirectory):
                 if isinstance(handler, logging.FileHandler) and handler.stream is not None:
                     if Path(handler.baseFilename).resolve().is_relative_to(directory):
                         raise PermissionError('Windows cannot delete an open log file: ' + handler.baseFilename)
+        for connection in connections:
+            if not connection.check_closed and Path(connection.check_path).resolve().is_relative_to(directory):
+                raise PermissionError('Windows cannot delete an open SQLite database: ' + connection.check_path)
         super().cleanup()
 tempfile.TemporaryDirectory = WindowsTemporaryDirectory
 from core.installed_smoke import run

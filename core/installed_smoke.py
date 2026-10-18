@@ -36,7 +36,7 @@ def run():
     previous = os.environ.get('PHARMA_KHAATO_DATA_DIR')
     previous_server = os.environ.get('PHARMA_KHAATO_SHOP_SERVER')
     with tempfile.TemporaryDirectory(prefix='pharma-installed-check-') as directory:
-        db_engine.reset_thread_connections()
+        db_engine.close_all_connections()
         os.environ['PHARMA_KHAATO_DATA_DIR'] = directory
         os.environ['QT_QPA_PLATFORM'] = 'offscreen'
         # Explicit environment-based counter routing must not reach a real shop.
@@ -137,7 +137,7 @@ def run():
             return 0
         finally:
             _progress('cleanup')
-            db_engine.reset_thread_connections()
+            db_engine.close_all_connections()
             _close_temporary_log_handlers(directory)
             PathManager._BASE_DATA_DIR = None
             if previous_server is None:
