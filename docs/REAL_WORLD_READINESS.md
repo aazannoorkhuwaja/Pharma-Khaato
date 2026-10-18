@@ -51,3 +51,23 @@ Record the build/checksum, Windows version, CPU/RAM, scanner and printer models,
 - Main-computer operation requires stable LAN addressing, trusted certificate distribution and appropriate local firewall setup. A technician should perform initial multi-counter setup.
 - Prescription flags identify products; qualified staff must check prescription and dispensing requirements. Tax rates and operational policies require owner review.
 - No quantitative performance claim for low-end shop hardware is made from the cloud machine. Measure launch and common actions on the actual computer before rollout.
+
+## Acceptance record for the release owner
+
+Complete this on the actual pharmacy computers before publishing a stable release. Leave untested items marked **Pending**.
+
+| Item | Result / evidence |
+| --- | --- |
+| App version, exact revision and package SHA-256 | Pending |
+| Tester, pharmacy and date | Pending |
+| Windows/Linux version, CPU and RAM | Pending |
+| Fresh installation and upgrade from the previous shop build | Pending |
+| Scanner model and rapid/pack barcode checks | Pending |
+| Receipt printer model, paper width and reprint/reconnect checks | Pending |
+| Ten bills by a new cashier without coaching | Pending |
+| Cash, digital tender, credit, returns and drawer reconciliation | Pending |
+| Stock, expiry, supplier invoice and opening balances checked | Pending |
+| Backup copied to another device and restored on a spare computer | Pending |
+| App termination / controlled interruption and pending-operation recovery | Pending |
+| Shared counters and disconnection recovery, if used | Pending / not used |
+| Owner approval for real sales | Pending |

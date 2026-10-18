@@ -60,6 +60,8 @@ def package_linux(version: str) -> Path:
     shutil.copy2(ROOT / "packaging" / "linux" / "pharma-khaato.desktop", stage)
     shutil.copy2(ROOT / "packaging" / "linux" / "install.sh", stage)
     shutil.copy2(ROOT / "packaging" / "linux" / "uninstall.sh", stage)
+    shutil.copy2(ROOT / "packaging" / "linux" / "START-HERE.html", stage)
+    shutil.copy2(ROOT / "LICENSE", stage)
     for script in (stage / "install.sh", stage / "uninstall.sh", app_stage / "pharma_khaato"):
         if script.exists():
             script.chmod(script.stat().st_mode | 0o111)
@@ -67,6 +69,47 @@ def package_linux(version: str) -> Path:
     out = RELEASE / f"Pharma-Khaato-{version}-linux-x86_64.tar.gz"
     with tarfile.open(out, "w:gz") as tf:
         tf.add(stage, arcname=stage.name)
+    shutil.rmtree(stage)
+    return out
+
+
+def package_debian(version: str) -> Path:
+    """A standard desktop installer; never owns/removes the user's shop data."""
+    stage = RELEASE / "debian-stage"
+    shutil.rmtree(stage, ignore_errors=True)
+    shutil.copytree(APP_DIR, stage / "opt" / "pharma-khaato")
+    control = stage / "DEBIAN"
+    control.mkdir()
+    size_kib = sum(p.stat().st_size for p in APP_DIR.rglob("*") if p.is_file()) // 1024 + 1
+    (control / "control").write_text(
+        f"Package: pharma-khaato\nVersion: {version}\nArchitecture: amd64\n"
+        "Maintainer: Azaan Noor Khuwaja <aazannoorkhuwaja@gmail.com>\n"
+        "Section: office\nPriority: optional\n"
+        f"Installed-Size: {size_kib}\n"
+        "Depends: libc6 (>= 2.35), libgl1, libegl1, libfontconfig1, libdbus-1-3, libcups2, "
+        "libx11-6, libx11-xcb1, libxcb1, libxext6, libxrender1, libxi6, libsm6, libice6, "
+        "libxkbcommon0, libxkbcommon-x11-0, "
+        "libxcb-cursor0, libxcb-icccm4, libxcb-image0, libxcb-keysyms1, libxcb-randr0, "
+        "libxcb-render-util0, libxcb-shape0, libxcb-xfixes0, libxcb-xinerama0\n"
+        "Description: Offline pharmacy billing and stock management\n"
+        " Bills, stock, customer dues, cash shifts and local backups.\n", encoding="utf-8")
+    binary = stage / "usr" / "bin"
+    binary.mkdir(parents=True)
+    (binary / "pharma-khaato").symlink_to("/opt/pharma-khaato/pharma_khaato")
+    desktop = stage / "usr" / "share" / "applications"
+    desktop.mkdir(parents=True)
+    shutil.copy2(ROOT / "packaging/linux/pharma-khaato.desktop", desktop)
+    docs = stage / "usr" / "share" / "doc" / "pharma-khaato"
+    docs.mkdir(parents=True)
+    shutil.copy2(ROOT / "LICENSE", docs / "copyright")
+    shutil.copy2(ROOT / "packaging/linux/START-HERE.html", docs)
+    # Do not inherit the build machine's restrictive umask into a system package.
+    # Installed files must be readable by ordinary pharmacy users.
+    for path in [stage, *stage.rglob("*")]:
+        if not path.is_symlink():
+            path.chmod(0o755 if path.is_dir() or path.stat().st_mode & 0o111 else 0o644)
+    out = RELEASE / f"Pharma-Khaato-{version}-linux-amd64.deb"
+    run("dpkg-deb", "--root-owner-group", "--build", str(stage), str(out))
     shutil.rmtree(stage)
     return out
 
@@ -87,20 +130,18 @@ def main() -> int:
     version = ApplicationSettings.APP_VERSION
     system = platform.system()
     if system == "Windows":
-        artifact = package_windows(version)
+        artifacts = [package_windows(version)]
     elif system == "Linux":
-        artifact = package_linux(version)
+        artifacts = [package_linux(version), package_debian(version)]
     else:
         raise RuntimeError(f"Unsupported release target: {system}. Supported: Windows, Linux")
 
-    checksum = write_sha256(artifact)
-    if not artifact.exists() or artifact.stat().st_size <= 0:
-        raise RuntimeError(f"Release artifact is empty: {artifact}")
-    if not checksum.exists():
-        raise RuntimeError("Release checksum was not created.")
-
-    print(f"Release artifact: {artifact}")
-    print(f"SHA-256 file:    {checksum}")
+    for artifact in artifacts:
+        if not artifact.is_file() or artifact.stat().st_size <= 0:
+            raise RuntimeError(f"Release artifact is empty: {artifact}")
+        checksum = write_sha256(artifact)
+        print(f"Release artifact: {artifact}")
+        print(f"SHA-256 file:    {checksum}")
     return 0
 
 

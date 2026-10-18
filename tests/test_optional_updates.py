@@ -6,6 +6,12 @@ from unittest.mock import Mock
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def windows_release_platform(monkeypatch):
+    from core import version_service
+    monkeypatch.setattr(version_service.platform, 'system', lambda: 'Windows')
+
+
 def release(version='99.0.0', **changes):
     tag = 'v' + version
     name = f'Pharma-Khaato-{version}-Setup-Windows-x64.exe'
@@ -164,3 +170,12 @@ def test_about_dialog_names_match_license(qapp, fresh_db):
     for builder in ApplicationSettings.BUILDERS:
         assert builder in license_text and builder in text
     dialog.close()
+
+
+def test_linux_updates_require_linux_download_and_checksum(monkeypatch):
+    from core import version_service as service
+    monkeypatch.setattr(service.platform, 'system', lambda: 'Linux')
+    assert service._release_info(release()) is None
+    name = 'Pharma-Khaato-99.0.0-linux-x86_64.tar.gz'
+    assert service._release_info(release(assets=[{'name':name}])) is None
+    assert service._release_info(release(assets=[{'name':name}, {'name':name+'.sha256'}]))['latest_version'] == '99.0.0'
