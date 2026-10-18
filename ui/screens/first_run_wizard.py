@@ -51,7 +51,7 @@ class FirstRunWizardDialog(QDialog):
         title.setProperty("uiTone", "accent")
 
         subtitle = QLabel(
-            "Add the details shown on receipts, then create the administrator account. "
+            "Add the details shown on receipts, then create your owner account. "
             "You can change pharmacy details later in Settings."
         )
         subtitle.setObjectName("subtitle")
@@ -136,8 +136,8 @@ class FirstRunWizardDialog(QDialog):
 
         admin_card, admin_body = self._section_card(
             "2",
-            "Administrator account",
-            "Use this account to manage staff, settings, and reports.",
+            "Owner account",
+            "Use this account to add staff and change shop settings.",
         )
         self.admin_grid = QGridLayout()
         self.admin_grid.setContentsMargins(0, 0, 0, 0)
@@ -147,20 +147,20 @@ class FirstRunWizardDialog(QDialog):
 
         self.txt_fname = QLineEdit()
         self.txt_fname.setPlaceholderText("First name")
-        self.txt_fname.setAccessibleName("Administrator First Name")
+        self.txt_fname.setAccessibleName("Owner First Name")
 
         self.txt_lname = QLineEdit()
         self.txt_lname.setPlaceholderText("Optional")
-        self.txt_lname.setAccessibleName("Administrator Last Name")
+        self.txt_lname.setAccessibleName("Owner Last Name")
 
         self.txt_user = QLineEdit()
         self.txt_user.setPlaceholderText("e.g. admin")
-        self.txt_user.setAccessibleName("Administrator Username")
+        self.txt_user.setAccessibleName("Owner Username")
 
         self.txt_pass = QLineEdit()
         self.txt_pass.setEchoMode(QLineEdit.EchoMode.Password)
         self.txt_pass.setPlaceholderText("At least 8 characters")
-        self.txt_pass.setAccessibleName("Administrator Password")
+        self.txt_pass.setAccessibleName("Owner Password")
 
         self._admin_fields = [
             self._field("First name", self.txt_fname, required=True),
@@ -188,7 +188,7 @@ class FirstRunWizardDialog(QDialog):
         footer_layout.setContentsMargins(0, 4, 0, 0)
         footer_layout.setSpacing(12)
 
-        footer_note = QLabel("Next: sign in with the administrator account you create here.")
+        footer_note = QLabel("Next: sign in with the owner account you create here.")
         footer_note.setObjectName("caption")
         footer_note.setWordWrap(True)
         footer_layout.addWidget(footer_note, 1)

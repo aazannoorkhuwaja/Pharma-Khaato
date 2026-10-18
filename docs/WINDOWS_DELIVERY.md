@@ -2,7 +2,13 @@
 
 The main customer target is Windows 10 version 1809 or later and Windows 11, on 64-bit Intel/AMD PCs. This excludes Windows 7/8, 32-bit Windows and an untested native ARM build. Windows 10 compatibility does not replace Microsoft's OS security-support requirements.
 
-## What your pharmacy friend receives
+## Getting a test installer
+
+Open **Actions → Build Windows installer → Run workflow**, choose `main`, and run it. After the green result, download **Windows-installer** from the run's **Artifacts** section. Extract the ZIP. It contains the Setup EXE, its checksum and the getting-started guide. Merges into `main` also start this build automatically. No tag or public release is needed for a private test.
+
+On the earlier merged version, the workflow is named **Windows-first release build** and the download is **pharma-khaato-Windows**. Those names change when this simplification is merged.
+
+## What the tester receives
 
 Give the tester `Pharma-Khaato-2.4.0-Setup-Windows-x64.exe`, its SHA-256 sidecar and the installed Getting Started guide. Do not ask the tester to install Python, Git or run terminal commands. Keep Urdu/Sindhi translation deferred until the English workflows have been reviewed.
 
@@ -32,4 +38,4 @@ Development CI now runs on both Windows and Linux. The full matrix also checks P
 
 ## Verification status
 
-The current workspace is Linux. Source tests and the updated reporting/build logic can be checked here; PowerShell, Inno Setup, native Windows installation and Windows printer drivers cannot be executed here. The Windows workflow must pass on the exact proposed source revision before handing an installer to the pharmacy tester. No Windows EXE has been produced or validated in this cloud Linux workspace, and no workflow run has been triggered remotely as part of these changes.
+The current workspace is Linux. Source tests and the updated reporting/build logic can be checked here; PowerShell, Inno Setup, native Windows installation and Windows printer drivers cannot be executed here. The Windows workflow must pass on the exact proposed source revision before handing an installer to the pharmacy tester. The owner reported that both Windows Python checks passed before merging the previous fixes. That confirms the reported source-test result, not a successful installer build. The installer build and real printer/scanner checks still need their own passing results.

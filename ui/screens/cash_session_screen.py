@@ -48,7 +48,7 @@ class OpenSessionDialog(CashOperationDialog):
         title = QLabel("Start Shift")
         title.setObjectName("h2")
         layout.addWidget(title)
-        help_text = QLabel("Enter the physical cash already in the drawer before taking payments.")
+        help_text = QLabel("Count the cash in the drawer and enter that amount.")
         help_text.setWordWrap(True)
         help_text.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
         layout.addWidget(help_text)
@@ -123,7 +123,7 @@ class RecordMovementDialog(CashOperationDialog):
         title = QLabel("Add / Remove Cash")
         title.setObjectName("h2")
         layout.addWidget(title)
-        helper = QLabel("Use this only for physical drawer cash that is not a normal sale or credit repayment.")
+        helper = QLabel("Record cash added to or taken from the drawer. Do not enter sales or customer payments here.")
         helper.setWordWrap(True)
         helper.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
         layout.addWidget(helper)
@@ -142,7 +142,7 @@ class RecordMovementDialog(CashOperationDialog):
         form.addRow("Amount:", self.spn_amount)
 
         self.txt_reason = QLineEdit()
-        self.txt_reason.setPlaceholderText("e.g. Petty cash, supplier payment, added change")
+        self.txt_reason.setPlaceholderText("e.g. Cash added for change, or cash taken for shop expenses")
         self.txt_reason.setMaxLength(250)
         form.addRow("Note *:", self.txt_reason)
         layout.addLayout(form)
@@ -218,7 +218,7 @@ class CloseSessionDialog(CashOperationDialog):
         title = QLabel("Count Cash & Close Shift")
         title.setObjectName("h2")
         layout.addWidget(title)
-        expected = QLabel(f"Expected physical cash: Rs. {expected_cash:.2f}")
+        expected = QLabel(f"Cash expected in drawer: Rs. {expected_cash:.2f}")
         expected.setStyleSheet(f"font-weight: 700; color: {ThemeTokens.SUCCESS};")
         layout.addWidget(expected)
 
@@ -342,7 +342,7 @@ class CashSessionScreen(QWidget):
         buttons.addWidget(self.btn_open_session)
         buttons.addWidget(self.btn_add_movement)
         buttons.addWidget(self.btn_close_session)
-        self.btn_pending = QPushButton('Confirm Pending Cash Entry')
+        self.btn_pending = QPushButton('Check Last Cash Entry')
         self.btn_pending.clicked.connect(self.recover_pending_entry)
         buttons.addWidget(self.btn_pending)
         buttons.addStretch()
@@ -386,7 +386,7 @@ class CashSessionScreen(QWidget):
 
     def _pending_failed(self):
         self.btn_pending.setEnabled(True)
-        QMessageBox.warning(self,'Cash Entry Unconfirmed','Keep this entry pending. Check the shop connection and try Confirm Pending Cash Entry again.')
+        QMessageBox.warning(self,'Cash Entry Unconfirmed','We could not confirm the last cash entry. Check the shop connection, then choose Check Last Cash Entry. Do not enter it again.')
 
     def refresh_all_data(self):
         emp_id = self.get_current_employee_id()

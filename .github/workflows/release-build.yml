@@ -1,8 +1,9 @@
-name: Windows-first release build
+name: Build Windows installer
 
 on:
   workflow_dispatch:
   push:
+    branches: [main, "pharmacy-pilot-*"]
     tags:
       - "v*"
 
@@ -16,19 +17,9 @@ env:
 
 jobs:
   build:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Linux Qt runtime libraries
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
 
       - uses: actions/setup-python@v5
         with:
@@ -70,24 +61,28 @@ jobs:
         run: python scripts/smoke_packaged.py
 
       - name: Install Inno Setup
-        if: runner.os == 'Windows'
         shell: powershell
         run: choco install innosetup --yes --no-progress
 
       - name: Build Windows customer installer
-        if: runner.os == 'Windows'
         shell: powershell
         run: ./packaging/windows/build-installer.ps1 -UseExistingBuild
 
       - name: Verify Windows install, reinstall and data retention
-        if: runner.os == 'Windows'
         shell: powershell
         run: ./packaging/windows/smoke-installer.ps1
 
-      - name: Upload release artifact
+      - name: Include the getting-started guide
+        shell: powershell
+        run: Copy-Item packaging/windows/START-HERE.html release/START-HERE.html
+
+      - name: Downloadable Windows installer
         uses: actions/upload-artifact@v4
         with:
-          name: pharma-khaato-${{ runner.os }}
-          path: release/*
+          name: Windows-installer
+          path: |
+            release/*Setup-Windows-x64.exe
+            release/*Setup-Windows-x64.exe.sha256
+            release/START-HERE.html
           if-no-files-found: error
           retention-days: 30

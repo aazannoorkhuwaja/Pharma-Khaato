@@ -29,7 +29,7 @@ def test_friendly_cash_and_role_labels_keep_stable_domain_values():
     assert dict(CASH_MOVEMENT_OPTIONS)["Cash In"] == "CASH_IN"
     assert dict(CASH_MOVEMENT_OPTIONS)["Cash Out"] == "CASH_OUT"
     assert dict(ROLE_OPTIONS)["Cashier"] == "Salesman"
-    assert dict(ROLE_OPTIONS)["Administrator"] == "Admin"
+    assert dict(ROLE_OPTIONS)["Owner"] == "Admin"
 
 
 def test_old_jargon_does_not_return_to_primary_ui_copy():
