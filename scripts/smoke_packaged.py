@@ -27,6 +27,21 @@ def executable_path() -> Path:
     raise RuntimeError(f"Unsupported smoke-test platform: {system}")
 
 
+def show_failure_details(report_path):
+    """The GUI executable has no console on Windows; read explicit diagnostics."""
+    progress = SMOKE_DATA / 'progress.jsonl'
+    if progress.exists():
+        print('Completed stages:', file=sys.stderr)
+        print(progress.read_text(encoding='utf-8')[-8000:], file=sys.stderr)
+    if report_path.exists():
+        print('Functional result:', file=sys.stderr)
+        print(report_path.read_text(encoding='utf-8')[-16000:], file=sys.stderr)
+    log = SMOKE_DATA / 'logs' / 'app.log'
+    if log.exists():
+        print('Functional check log:', file=sys.stderr)
+        print(log.read_text(encoding='utf-8', errors='replace')[-16000:], file=sys.stderr)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--executable", type=Path, help="Verify an installed executable instead of dist")
@@ -43,6 +58,7 @@ def main() -> int:
     env["PHARMA_KHAATO_DATA_DIR"] = str(SMOKE_DATA)
     env["QT_QPA_PLATFORM"] = "offscreen"
     env["PYTHONUTF8"] = "1"
+    env["PHARMA_KHAATO_SMOKE_PROGRESS"] = str(SMOKE_DATA / "progress.jsonl")
 
     try:
         completed = subprocess.run(
@@ -55,6 +71,7 @@ def main() -> int:
             check=False,
         )
     except subprocess.TimeoutExpired:
+        show_failure_details(report_path)
         print("Packaged functional check timed out after 60 seconds.", file=sys.stderr)
         return 3
 
@@ -63,6 +80,7 @@ def main() -> int:
     if completed.stderr:
         print(completed.stderr.rstrip(), file=sys.stderr)
     if completed.returncode != 0:
+        show_failure_details(report_path)
         print(f"Packaged functional check failed with exit code {completed.returncode}.", file=sys.stderr)
         return completed.returncode
 

@@ -37,3 +37,9 @@ A regression reproducing the Windows descriptor restriction failed before the fi
 ## Simpler first-use follow-up
 
 Based on merged main `61f39ab`, all **240 tests** pass locally (28.92 seconds), along with the eight-screen GUI check, disposable functional check, layout audit, compilation and documentation-link checks. Wording-only test expectations were updated to match Owner and Check This Bill; backend role and payment values remain unchanged. The owner reports that both Windows source CI jobs passed before the earlier merge. The simplified installer workflow still needs its own native Windows build result; source CI alone does not produce or validate a Setup EXE.
+
+## Packaged-check timeout follow-up
+
+The supplied Windows build log shows that PyInstaller completed the EXE successfully, followed by a 60-second timeout in the packaged functional check. A Windows-style file-lock regression reproduced an unhandled cleanup error: log handlers still held files inside the disposable check folder. The check now closes only its own temporary log handlers before folder deletion, drains background screen work, and records progress stages. Functional-check exceptions return a structured failure report rather than escaping to the windowed executable's exception dialog. Failed installer runs retain diagnostic files without including test databases or private keys.
+
+The regression fails before the fix and passes afterwards. All **243 tests** pass locally on Linux (29.68 seconds), and a fresh PyInstaller executable passes the functional check. Native Windows must rerun to confirm the timeout is resolved there; installer publication remains gated by that result.

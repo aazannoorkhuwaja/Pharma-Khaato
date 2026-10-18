@@ -72,6 +72,19 @@ jobs:
         shell: powershell
         run: ./packaging/windows/smoke-installer.ps1
 
+      - name: Keep installer failure details
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-build-details
+          path: |
+            .release-smoke-data/functional-result.json
+            .release-smoke-data/progress.jsonl
+            .release-smoke-data/logs/app.log*
+            build/pharma_khaato/warn-pharma_khaato.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Include the getting-started guide
         shell: powershell
         run: Copy-Item packaging/windows/START-HERE.html release/START-HERE.html
