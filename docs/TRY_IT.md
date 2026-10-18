@@ -51,3 +51,17 @@ Ask your friend to do the tasks without coaching. For each problem, write:
 A screenshot helps, but hide customer details and never share passwords.
 
 Do not delete the shop data folder to remove practice records. Agree on a clean setup with the owner before switching to real sales. Real opening stock, customer dues and supplier balances must be checked first.
+
+## It asks me to sign in before setup
+
+An older installation may already have created an account on this computer. Reinstalling keeps its shop records and password. Use that account; `admin / demo1234` works only in the separately prepared developer demo, not in a normal installation.
+
+On Linux, you can open a separate practice shop without changing the old records. Close the app, then run this command if you installed the Linux package:
+
+```bash
+PHARMA_KHAATO_DATA_DIR="$HOME/.local/share/pharma-khaato-practice" pharma-khaato
+```
+
+The first time, create your own practice username and password. Use the same command and those credentials to reopen this practice shop. The normal applications-menu shortcut still opens the original shop. This is for testing; keep practice records separate from real sales.
+
+For a staff password, ask the owner to use **Settings → Staff Access**. If the owner cannot sign in, contact support before changing files. Do not delete the data folder or overwrite the old database to get past sign-in.

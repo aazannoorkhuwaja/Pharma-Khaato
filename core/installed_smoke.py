@@ -66,14 +66,13 @@ def run():
         widgets = []
         try:
             _progress('imports')
-            from core.auth_service import register_initial_admin, login_user
             from core.inventory_service import register_supplier, register_product, add_batch, search_products
             from core.cash_session_service import open_session
             from core.pos_service import CheckoutRequest, POSTransactionEngine
             from core.settings_service import SettingsService
             from core.receipt_service import receipt_for_sale
             from core.lan_service import ensure_shop_certificate
-            from PySide6.QtWidgets import QApplication
+            from PySide6.QtWidgets import QApplication, QDialog
             from PySide6.QtTest import QTest
             from ui.app.state.session_state import SessionState
 
@@ -83,13 +82,40 @@ def run():
                 return result[1]
 
             _progress('owner_setup')
-            require(register_initial_admin('installed-check', 'CheckOnly-8472', 'Installed', 'Check'))
+            from controllers.application_controller import ApplicationController
+            from ui.screens.first_run_wizard import FirstRunWizardDialog
+            app = QApplication.instance() or QApplication([])
+            startup = ApplicationController()
+            if not startup.needs_first_run_setup():
+                raise RuntimeError('A fresh shop unexpectedly contains an account before setup.')
+            setup = FirstRunWizardDialog(show_message_box=False)
+            widgets.append(setup)
+            for name, value in [('txt_name', 'Installed Check Pharmacy'), ('txt_address', 'Check Street'),
+                                ('txt_phone', '03000000000'), ('txt_fname', 'Installed'),
+                                ('txt_lname', 'Check'), ('txt_user', 'installed-check'),
+                                ('txt_pass', 'CheckOnly-8472')]:
+                getattr(setup, name).setText(value)
+            setup.show()
+            app.processEvents()
+            setup.on_submit()
+            if setup.result() != QDialog.Accepted or startup.needs_first_run_setup():
+                raise RuntimeError('The owner setup screen did not create the first account.')
             _progress('login')
-            result = login_user('installed-check', 'CheckOnly-8472')
-            if not result:
-                raise RuntimeError('Installed sign-in failed')
-            employee, first, last, role = result
-            user = {'id': employee, 'username': 'installed-check', 'first_name': first, 'last_name': last, 'occupation': role}
+            from ui.screens.login_screen import LoginDialog
+            import time
+            sign_in = LoginDialog()
+            widgets.append(sign_in)
+            sign_in.txt_username.setText('installed-check')
+            sign_in.txt_password.setText('CheckOnly-8472')
+            sign_in.show()
+            sign_in.handle_login()
+            deadline = time.monotonic() + 15
+            while sign_in._signing_in and time.monotonic() < deadline:
+                QTest.qWait(25)
+            if sign_in.result() != QDialog.Accepted or not sign_in.user_data:
+                raise RuntimeError('The sign-in screen could not use the newly created owner account.')
+            user = sign_in.user_data
+            employee = user['id']
             assert SettingsService.update_settings({'default_tax_rate': '0', 'receipt_auto_print': '0'}, actor_id=employee)
             _progress('stock_and_cash')
             require(register_supplier('Check Supplier', '03000000000'))
@@ -155,7 +181,7 @@ def run():
                     raise RuntimeError('Background screen checks did not finish within 15 seconds.')
             _dispose_windows(app, widgets)
             SessionState.get_instance().clear_user()
-            print('PASS: installed migrations, login, stock, cash, checkout/retry, receipt, TLS certificate, eight screens, credits and update dialogs')
+            print('PASS: installed migrations, first-use owner setup, login, stock, cash, checkout/retry, receipt, TLS certificate, eight screens, credits and update dialogs')
             return 0
         finally:
             _progress('cleanup')
