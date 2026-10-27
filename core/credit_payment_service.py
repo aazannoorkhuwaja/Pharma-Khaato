@@ -5,6 +5,7 @@ import re
 import uuid
 
 from core.db_engine import get_db
+from core.money import CENT
 from core.customer_service import resolve_customer_ref
 from core.logger import get_logger
 from core.permission_service import require_permission
@@ -15,7 +16,7 @@ _ALLOWED_METHODS={'cash':'Cash','card':'Credit Card','credit card':'Credit Card'
 
 
 def _money(value):
-    amount=Decimal(str(value)).quantize(Decimal('0.01'),rounding=ROUND_HALF_UP)
+    amount=Decimal(str(value)).quantize(CENT,rounding=ROUND_HALF_UP)
     if not amount.is_finite():
         raise ValueError('Enter a valid amount.')
     return amount

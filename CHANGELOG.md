@@ -2,6 +2,17 @@
 
 All notable product changes are recorded here. Dates refer to the engineering/release line; a build is not a production release until its launch-candidate gates and manual hardware acceptance are complete.
 
+## 2.4.1 — Launch candidate, physical acceptance pending
+
+- Added a read-only accounting reconciliation that re-derives stock totals, saved sale arithmetic, customer credit balances, refund limits, closed-shift cash and orphaned rows from the records themselves, and reports as a failure in the launch self-check when any identity no longer holds. It stays silent on healthy data and is covered in both directions.
+- Unified money quantization in `core/money.py`; reports, drawer reconciliation, receipts and ledgers now share one quantum. Added a regression that proves a 3,000-line float drift case collapses back to the exact total, and one that proves no two money helpers can disagree by a cent.
+- Audit rows are now stamped in shop time like the cash-shift events in the same table, so an audit trail can be ordered against the shift it belongs to whatever the workstation clock says. Receipt and print timestamps fall back to shop time too.
+- A fresh installation whose base schema file is missing now stops with an operator-facing message instead of silently creating a database with no tables.
+- A migration that collides with an existing column or object is tolerated only while upgrading an existing shop, and is now reported at warning level; on a fresh database it is raised. Added schema-parity checks covering every applied migration, the seeded walk-in customers and default settings, and fresh-versus-upgraded schema equality.
+- Removed the legacy MySQL statement rewrites and bounded the statement cache; dropped unused imports left over from that era.
+- Removed obsolete MySQL/XAMPP-era artifacts and the superseded audit and migration-plan documents; corrected the database documentation to describe the money representation and schema ordering that actually ship.
+- Repaired the migration and security verification scripts, which were failing on the committed branch: the security suite no longer runs against a real application-data folder or performs a backup/restore there. Full evidence, including the live shared-counter check, is recorded in [docs/LAUNCH_CANDIDATE.md](docs/LAUNCH_CANDIDATE.md).
+
 ## 2.4.0 — Engineering build, shop acceptance pending
 
 - Added sign-in help explaining existing accounts, preserved records and the absence of a default password.

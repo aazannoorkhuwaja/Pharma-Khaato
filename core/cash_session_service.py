@@ -1,12 +1,12 @@
 from core.business_time import business_date, business_now
-from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
+from decimal import Decimal, InvalidOperation
 import json
 import hashlib
 import re
 
 from core.db_engine import get_db
 from core.logger import get_logger
+from core.money import checked_money
 from core.audit_service import log_audit_event
 from core.permission_service import require_permission
 
@@ -14,10 +14,7 @@ logger = get_logger("PharmaKhaatoCashSession")
 
 
 def _money(value) -> Decimal:
-    amount = Decimal(str(value or 0))
-    if not amount.is_finite() or abs(amount) > Decimal("1000000000"):
-        raise ValueError("Enter a valid finite amount.")
-    return amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return checked_money(value)
 
 
 def open_session(employee_id, opening_cash=0.0, terminal_id=None, operation_id=None):

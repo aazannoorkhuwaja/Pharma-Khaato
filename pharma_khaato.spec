@@ -55,6 +55,7 @@ hiddenimports = [
     'core.logger',
     'core.manager_auth_service',
     'core.migration_manager',
+    'core.money',
     'core.path_manager',
     'core.permission_service',
     'core.pos_service',

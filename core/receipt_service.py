@@ -1,7 +1,8 @@
 import os
-from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
+from core.business_time import business_now
+from core.money import to_money
 from core.path_manager import PathManager
 from core.settings_service import SettingsService
 from core.logger import get_logger
@@ -56,7 +57,7 @@ def _is_valid_setting(val):
 
 
 def _money(value) -> Decimal:
-    return Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return to_money(value)
 
 
 def _rate(value):
@@ -179,7 +180,7 @@ def generate_invoice_text(
     width = _template_width(key)
     sep = "-" * width
     strong = "=" * width
-    now = sale_datetime or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = sale_datetime or business_now().strftime("%Y-%m-%d %H:%M:%S")
     # A database reference is not useful customer-facing receipt information.
     identity = str(customer_id or "Walk-in Customer").strip()
     if identity.upper() in {"WALKIN", "GUEST_WALKIN"} or identity.startswith("CUST_"):
@@ -403,7 +404,7 @@ def create_receipt_snapshot(
     customer_label = customer_label or "Walk-in Customer"
     cur.execute("SELECT printing_date, time FROM Receipt WHERE purchase_id = %s", (purchase_id,))
     receipt = cur.fetchone()
-    stamp = " ".join(str(part) for part in receipt) if receipt else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    stamp = " ".join(str(part) for part in receipt) if receipt else business_now().strftime("%Y-%m-%d %H:%M:%S")
     template = _template_key(settings=_receipt_settings())
     text = generate_invoice_text(
         purchase_id, customer_label, items, total, tax, discount,
@@ -456,7 +457,7 @@ def _update_print_status(purchase_id, printed):
         cur.execute(
             "UPDATE Receipt_Snapshot SET print_status=%s,print_attempts=print_attempts+1, "
             "last_printed_at=CASE WHEN %s THEN %s ELSE last_printed_at END WHERE purchase_id=%s",
-            ("SENT_TO_PRINTER" if printed else "PRINT_PENDING", bool(printed), datetime.now().isoformat(), int(purchase_id)),
+            ("SENT_TO_PRINTER" if printed else "PRINT_PENDING", bool(printed), business_now().isoformat(), int(purchase_id)),
         )
 
 

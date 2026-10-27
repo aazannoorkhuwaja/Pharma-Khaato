@@ -2,8 +2,8 @@ import os
 import glob
 import re
 import sqlite3
-from datetime import datetime
 
+from core.business_time import business_now
 from core.logger import get_logger
 from core.path_manager import PathManager
 
@@ -42,7 +42,7 @@ class MigrationManager:
         try:
             backup_dir = PathManager.get_backups_dir()
             os.makedirs(backup_dir, exist_ok=True)
-            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            stamp = business_now().strftime("%Y%m%d_%H%M%S")
             safe_name = os.path.splitext(next_filename)[0]
             path = os.path.join(backup_dir, f"pre_migration_{stamp}_{safe_name}.sqlite")
             target = sqlite3.connect(path)
@@ -58,6 +58,19 @@ class MigrationManager:
         except Exception as exc:
             # An upgrade must not proceed if its recovery point cannot be made.
             raise RuntimeError(f"Could not create pre-migration safety backup: {exc}") from exc
+
+    @staticmethod
+    def _is_tolerated_additive_error(message: str) -> bool:
+        """True when a statement only re-declares an object that already exists.
+
+        ``schema_sqlite.sql`` is a snapshot of the current schema and the
+        catalog is replayed on top of it for version tracking, so an additive
+        statement colliding with the base file is expected on a new install as
+        well as on an upgrade. Anything that is not a duplicate column or an
+        already-existing object is a real failure and stops the migration.
+        """
+        lowered = message.lower()
+        return "duplicate column" in lowered or "already exists" in lowered
 
     @staticmethod
     def _split_statements(exec_sql: str) -> list[str]:
@@ -86,7 +99,11 @@ class MigrationManager:
 
     @classmethod
     def apply_migrations(cls, raw_conn, is_sqlite=True, new_database=False):
-        """Apply pending migrations transactionally in unambiguous version order."""
+        """Apply pending migrations transactionally in unambiguous version order.
+
+        Returns the filenames applied in this call, so startup logging and the
+        schema-parity test can assert the fresh and upgrade paths agree.
+        """
         if not is_sqlite:
             raise RuntimeError("Pharma-Khaato migrations currently support SQLite only.")
 
@@ -112,13 +129,15 @@ class MigrationManager:
         mig_files = cls._migration_catalog(mig_dir)
         pending = [path for path in mig_files if os.path.basename(path) not in applied]
         if not pending:
-            return
+            return []
 
-        # Fresh databases are already initialized by schema_sqlite.sql. Existing
-        # installations get a recovery point before the first pending upgrade.
+        # A fresh database is initialized from schema_sqlite.sql, which the
+        # migration catalog builds on. Only a real upgrade needs a recovery
+        # point before its first pending change.
         if not new_database:
             cls._create_pre_migration_backup(raw_conn, os.path.basename(pending[0]))
 
+        tolerated_statements = 0
         for filepath in pending:
             filename = os.path.basename(filepath)
             logger.info("Applying database migration script: %s", filename)
@@ -132,21 +151,23 @@ class MigrationManager:
                     try:
                         cur.execute(stmt)
                     except sqlite3.Error as stmt_err:
-                        err_str = str(stmt_err).lower()
-                        if "duplicate column" in err_str or "already exists" in err_str:
-                            # Older installations may already contain additive
-                            # schema objects created before migration tracking.
-                            logger.debug(
-                                "Ignored idempotent migration notice in %s: %s",
-                                filename,
-                                stmt_err,
-                            )
-                        else:
+                        if not cls._is_tolerated_additive_error(str(stmt_err)):
                             raise
+                        tolerated_statements += 1
+                        # Deliberately visible. This used to be hidden at debug
+                        # level, which meant a genuinely broken migration looked
+                        # exactly like a healthy replay.
+                        logger.warning(
+                            "Migration %s re-declared an existing object (%s). "
+                            "Expected while replaying the catalog over the shipped "
+                            "base schema; confirm it is a no-op on an older shop.",
+                            filename,
+                            stmt_err,
+                        )
 
                 cur.execute(
                     "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-                    (filename, datetime.now().isoformat()),
+                    (filename, business_now().isoformat()),
                 )
                 raw_conn.commit()
                 logger.info("Successfully applied migration: %s", filename)
@@ -154,3 +175,10 @@ class MigrationManager:
                 raw_conn.rollback()
                 logger.error("Failed applying migration %s: %s", filename, exc)
                 raise RuntimeError(f"Database migration failure on {filename}: {exc}") from exc
+
+        if tolerated_statements:
+            logger.info(
+                "Replayed %d migration statement(s) already present in the base schema.",
+                tolerated_statements,
+            )
+        return [os.path.basename(path) for path in pending]

@@ -101,6 +101,32 @@ def run_readiness_checks() -> dict:
             )
         )
 
+        # Re-derive the money and stock facts a pharmacy has to be able to
+        # trust. Drift here means real damage (a partial restore or a file that
+        # changed outside the application), so it is a failure, not a warning.
+        from core.integrity_service import reconcile
+
+        reconciliation = reconcile()
+        if reconciliation["ok"]:
+            checks.append(
+                ReadinessCheck(
+                    "Business data reconciliation",
+                    True,
+                    f"{reconciliation['checks_run']} accounting identities match",
+                )
+            )
+        else:
+            drift = ", ".join(
+                f"{item['check']} ({item['count']})" for item in reconciliation["findings"]
+            )
+            checks.append(
+                ReadinessCheck(
+                    "Business data reconciliation",
+                    False,
+                    "drift detected; restore a verified backup and contact support: " + drift,
+                )
+            )
+
         cur.execute("SELECT COUNT(*) FROM Employee")
         employee_count = int((cur.fetchone() or [0])[0] or 0)
         checks.append(

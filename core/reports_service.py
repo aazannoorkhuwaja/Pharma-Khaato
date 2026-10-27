@@ -1,14 +1,14 @@
 from core.business_time import business_date
-from decimal import Decimal, ROUND_HALF_UP
 
 from core.db_engine import get_db
+from core.money import to_money_float
 from core.logger import get_logger
 
 logger = get_logger("PharmaKhaatoReports")
 
 
 def _money(value) -> float:
-    return float(Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    return to_money_float(value)
 
 
 def get_daily_sales_report(target_date=None):

@@ -1,9 +1,6 @@
 import os
-import sys
 import time
-import logging
 import sqlite3
-import platform
 import threading
 from decimal import Decimal
 from contextlib import contextmanager
@@ -11,7 +8,6 @@ from contextlib import contextmanager
 from core.logger import get_logger
 from core.path_manager import PathManager
 from core.migration_manager import MigrationManager
-from config import ApplicationSettings
 
 logger = get_logger("PharmaKhaatoDB")
 
@@ -20,6 +16,9 @@ sqlite3.register_adapter(Decimal, lambda d: str(d))
 sqlite3.register_converter("DECIMAL", lambda s: Decimal(s.decode("utf-8")))
 
 _TRANSLATION_CACHE = {}
+# Statement text is a small, stable set per service; the cap only exists so a
+# caller that interpolates values into SQL cannot grow the cache unbounded.
+_MAX_TRANSLATION_CACHE = 2048
 _THREAD_LOCAL = threading.local()
 _MIGRATED_PATHS = set()
 _MIGRATION_LOCK = threading.Lock()
@@ -88,13 +87,7 @@ class UnifiedCursor:
     def _execute(self, sql, params=None):
         if self.is_sqlite:
             sql = self._translate_sql(sql)
-            if params is None:
-                return self._cursor.execute(sql)
-            return self._cursor.execute(sql, params)
-        else:
-            if params is None:
-                return self._cursor.execute(sql)
-            return self._cursor.execute(sql, params)
+        return self._cursor.execute(sql) if params is None else self._cursor.execute(sql, params)
 
     def close(self):
         self._cursor.close()
@@ -114,16 +107,20 @@ class UnifiedCursor:
         return getattr(self._cursor, "rowcount", -1)
 
     def _translate_sql(self, sql):
-        if sql in _TRANSLATION_CACHE:
-            return _TRANSLATION_CACHE[sql]
+        """Bind-style translation only.
 
-        translated = sql.replace("%s", "?")
-        translated = translated.replace("CURDATE()", "DATE('now')")
-        translated = translated.replace("DATE_ADD(DATE('now'), INTERVAL ? DAY)", "DATE('now', '+' || ? || ' days')")
-        translated = translated.replace("DATE_ADD(CURDATE(), INTERVAL ? DAY)", "DATE('now', '+' || ? || ' days')")
-        translated = translated.replace("FOR UPDATE", "")
-
-        _TRANSLATION_CACHE[sql] = translated
+        Services write ``%s`` placeholders because the database layer is reached
+        through a thin DB-API wrapper; ``?`` is SQLite's native form. Nothing
+        else is rewritten: the legacy MySQL date and ``FOR UPDATE`` rewrites
+        were removed once every statement had been migrated, because a silent
+        text substitution on a money or expiry query is not worth the risk.
+        """
+        translated = _TRANSLATION_CACHE.get(sql)
+        if translated is None:
+            translated = sql.replace("%s", "?")
+            if len(_TRANSLATION_CACHE) > _MAX_TRANSLATION_CACHE:
+                _TRANSLATION_CACHE.clear()
+            _TRANSLATION_CACHE[sql] = translated
         return translated
 
 
@@ -201,11 +198,18 @@ def _get_sqlite_connection():
         if first_time:
             logger.info(f"Creating fresh SQLite embedded database at: {db_path}")
             schema_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schema_sqlite.sql")
-            if os.path.exists(schema_path):
-                with open(schema_path, "r", encoding="utf-8") as f:
-                    conn.executescript(f.read())
-                conn.commit()
-                logger.info("SQLite schema initialized successfully.")
+            if not os.path.exists(schema_path):
+                # Migrations build on this file and cannot create a database on
+                # their own. A packaging miss must fail loudly here rather than
+                # leaving the shop with an installation that has no tables.
+                raise RuntimeError(
+                    "The database schema file is missing from this installation. "
+                    "Reinstall Pharma Khaato before entering shop records."
+                )
+            with open(schema_path, "r", encoding="utf-8") as f:
+                conn.executescript(f.read())
+            conn.commit()
+            logger.info("SQLite schema initialized successfully.")
 
         # Apply migrations once per database path process-wide.
         if db_path not in _MIGRATED_PATHS:
