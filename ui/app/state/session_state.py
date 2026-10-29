@@ -12,10 +12,15 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 
 
-class SessionState:
+from PySide6.QtCore import QObject, Signal
+
+
+class SessionState(QObject):
+    cash_session_changed = Signal(object)
     _instance = None
 
     def __init__(self):
+        super().__init__()
         self.current_user: Optional[Dict[str, Any]] = None
         self.active_cash_session: Optional[Dict[str, Any]] = None
         self.active_cart: List[Dict[str, Any]] = []
@@ -46,6 +51,7 @@ class SessionState:
 
     def set_cash_session(self, session_dict: Optional[Dict[str, Any]]):
         self.active_cash_session = session_dict
+        self.cash_session_changed.emit(session_dict)
 
     def add_to_cart(self, product_item: Dict[str, Any], qty: int = 1):
         p_id = product_item.get("id") or product_item.get("prod_id")

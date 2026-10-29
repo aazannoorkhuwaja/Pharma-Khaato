@@ -12,6 +12,7 @@ from PySide6.QtGui import QShortcut, QKeySequence
 
 from config import ApplicationSettings
 from ui.app.router import AppRouter
+from ui.app.async_tasks import AsyncTaskRunner
 from ui.theme.tokens import ThemeTokens
 from ui.theme.theme_manager import ThemeManager
 from ui.theme.layout import LayoutMetrics
@@ -114,6 +115,11 @@ class MainWindow(QMainWindow):
         self.btn_shop_computers.clicked.connect(self.configure_shop_computers)
         sidebar_layout.addWidget(self.btn_shop_computers)
 
+        self.btn_getting_started = QPushButton("Prepare Your Shop")
+        self.btn_getting_started.setObjectName("sidebarUtilityButton")
+        self.btn_getting_started.clicked.connect(self.show_getting_started)
+        sidebar_layout.addWidget(self.btn_getting_started)
+
         self.btn_about = QPushButton("About Pharma Khaato")
         self.btn_about.setObjectName("sidebarUtilityButton")
         self.btn_about.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -151,6 +157,8 @@ class MainWindow(QMainWindow):
         self.hint_label.setVisible(False)
         self.status_bar.addPermanentWidget(self.hint_label)
 
+        self._shift_tasks = AsyncTaskRunner(self)
+        SessionState.get_instance().cash_session_changed.connect(self._show_shift_status)
         if self.current_user:
             self.set_active_user(self.current_user)
         else:
@@ -181,6 +189,7 @@ class MainWindow(QMainWindow):
         self.lbl_version.setVisible(mode != "mini")
         self.btn_printer_setup.setText("Printer" if mode == "mini" else "Printer Setup")
         self.btn_about.setText("About" if mode == "mini" else "About Pharma Khaato")
+        self.btn_getting_started.setText("Prepare" if mode == "mini" else "Prepare Your Shop")
         if mode == "mini":
             self.btn_theme_toggle.setText("Theme")
             self.btn_logout.setText("Sign Out")
@@ -244,6 +253,11 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self,'Restart Pharma Khaato','The connection is saved. Close and reopen Pharma Khaato to use it.')
             self.close()
 
+    def show_getting_started(self):
+        if 'inventory' in self.get_allowed_screens():
+            from ui.dialogs.getting_started import GettingStartedDialog
+            GettingStartedDialog(self).exec()
+
     def show_about(self):
         from ui.dialogs.about_dialog import AboutDialog
         AboutDialog(self._updates, self).exec()
@@ -261,26 +275,26 @@ class MainWindow(QMainWindow):
         if update_density:
             self._apply_sidebar_density(self.width(), force=True)
 
+    def _show_shift_status(self, session):
+        self._shift_tasks.invalidate("shift")
+        self.lbl_shift_status.setText("Shift Open" if session else "Shift Closed")
+        color = ThemeTokens.SUCCESS if session else ThemeTokens.WARNING
+        self.lbl_shift_status.setStyleSheet(f"color: {color}; font-weight: 700; padding: 0 8px;")
+
     def set_active_user(self, user_dict):
         self.current_user = user_dict
         uname = user_dict.get("username", "Cashier") if isinstance(user_dict, dict) else str(user_dict)
         role = role_label(user_dict.get("occupation", "Staff")) if isinstance(user_dict, dict) else "Staff"
         emp_id = user_dict.get("id", 1) if isinstance(user_dict, dict) else 1
         self.user_badge.setText(f"{uname}\n{role}")
-        try:
-            active_sess = _CASH_CONTROLLER.active_session(emp_id)
-            if active_sess:
-                self.lbl_shift_status.setText("Shift Open")
-                self.lbl_shift_status.setStyleSheet(f"color: {ThemeTokens.SUCCESS}; font-weight: 700; padding: 0 8px;")
-            else:
-                self.lbl_shift_status.setText("Shift Closed")
-                self.lbl_shift_status.setStyleSheet(f"color: {ThemeTokens.WARNING}; font-weight: 700; padding: 0 8px;")
-        except Exception:
-            self.lbl_shift_status.setText("Ready")
-            self.lbl_shift_status.setStyleSheet(f"color: {ThemeTokens.SUCCESS}; font-weight: 700; padding: 0 8px;")
+        self.lbl_shift_status.setText("Checking Shift")
+        self._shift_tasks.run_latest("shift", lambda: _CASH_CONTROLLER.active_session(emp_id),
+                                    self._show_shift_status,
+                                    lambda _e: self.lbl_shift_status.setText("Shift unavailable"))
         allowed = self.get_allowed_screens()
         for key, btn in self.nav_buttons.items():
             btn.setVisible(key in allowed)
+        self.btn_getting_started.setVisible("inventory" in allowed)
         self.btn_printer_setup.setVisible("settings" in allowed)
         self.btn_shop_computers.setVisible("settings" in allowed)
         if "pos" in allowed:

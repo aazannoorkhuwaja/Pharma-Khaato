@@ -164,11 +164,22 @@ class SupplierAccountsDialog(QDialog):
         for label,method in [('Receive Invoice',self.receive),('Pay Supplier',self.pay),('Return Stock',self.return_stock),('History',self.history),('Confirm Pending Entry',self.recover)]:
             button=QPushButton(label);button.clicked.connect(method);buttons.addWidget(button)
         layout.addLayout(buttons)
+        self.btn_add_supplier = QPushButton('Add Supplier')
+        self.btn_add_supplier.clicked.connect(self.add_supplier)
+        layout.addWidget(self.btn_add_supplier)
         self.refresh()
+
+    def add_supplier(self):
+        from ui.screens.inventory_screen import AddSupplierDialog
+        if AddSupplierDialog(self).exec() == QDialog.Accepted:
+            self.refresh()
 
     def refresh(self):
         def complete(rows):
             self.accounts=rows;self.suppliers.setRowCount(len(rows))
+            self.btn_add_supplier.setText('Add Supplier' if rows else 'Add First Supplier')
+            self.status.setText('Choose a supplier. Positive balance is due; negative balance is credit with that supplier.' if rows else
+                                'No suppliers yet. Add your first supplier, then receive their invoice and stock.')
             for index,row in enumerate(rows):
                 self.suppliers.setItem(index,0,QTableWidgetItem(row['name']))
                 value=row['balance'];text=f'Due Rs. {value:,.2f}' if value>=0 else f'Credit Rs. {-value:,.2f}'

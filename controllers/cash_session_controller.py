@@ -6,6 +6,9 @@ class CashSessionController:
     def __init__(self, model: CashSessionModel | None = None):
         self.model = model or CashSessionModel()
 
+    def last_closed_session(self, employee_id):
+        return self.model.last_closed_session(employee_id)
+
     def active_session(self, employee_id):
         return self.model.active_session(employee_id)
 

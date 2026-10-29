@@ -7,7 +7,7 @@ pick it up immediately — not per-widget, not per-screen.
 
 import os
 from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QColor, QPalette
 from ui.theme.tokens import ThemeTokens
 from ui.theme.layout import LayoutMetrics
 from controllers.settings_controller import SettingsController
@@ -92,6 +92,16 @@ class ThemeManager:
         app = QApplication.instance()
         if not app:
             return
+        palette = QPalette()
+        for role, color in ((QPalette.Window, ThemeTokens.BG_DARK),
+                            (QPalette.WindowText, ThemeTokens.TEXT_PRIMARY),
+                            (QPalette.Base, ThemeTokens.SURFACE_BASE),
+                            (QPalette.AlternateBase, ThemeTokens.SURFACE_ELEVATED),
+                            (QPalette.Text, ThemeTokens.TEXT_PRIMARY),
+                            (QPalette.Button, ThemeTokens.SURFACE_ELEVATED),
+                            (QPalette.ButtonText, ThemeTokens.TEXT_PRIMARY)):
+            palette.setColor(role, QColor(color))
+        app.setPalette(palette)
         if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
             logger.debug("Offscreen test rendering detected; skipping Qt C++ stylesheet re-application.")
             return
@@ -392,6 +402,11 @@ class ThemeManager:
         QLabel[uiWeight="semibold"] {{ font-weight: 600; }}
         QLabel[uiWeight="bold"] {{ font-weight: 700; }}
         QLabel[uiWeight="heavy"] {{ font-weight: 800; }}
+        QScrollArea, QScrollArea > QWidget > QWidget {{
+            background-color: {surf};
+            color: {txt};
+            border: none;
+        }}
         QScrollArea#paymentSummaryScroll, QWidget#paymentSummaryBody {{
             background: transparent;
             border: none;

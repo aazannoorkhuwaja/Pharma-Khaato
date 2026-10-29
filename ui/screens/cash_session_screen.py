@@ -91,6 +91,7 @@ class OpenSessionDialog(CashOperationDialog):
         self._saving = False
         ok, value = result
         if ok:
+            SessionState.get_instance().set_cash_session({"id": value})
             show_toast(self.parent() or self, "Cash shift started.", ToastType.SUCCESS)
             self.accept()
             return
@@ -240,6 +241,8 @@ class CloseSessionDialog(CashOperationDialog):
         self.update_discrepancy_label(self.spn_actual.value())
         self.confirm_count = QCheckBox('I have counted the physical cash in the drawer')
         layout.addWidget(self.confirm_count)
+        self.confirm_difference = QCheckBox('I acknowledge this cash shortage or overage')
+        layout.addWidget(self.confirm_difference)
 
         row = QHBoxLayout()
         self.btn_cancel = QPushButton("Cancel")
@@ -247,10 +250,25 @@ class CloseSessionDialog(CashOperationDialog):
         self.btn_close = QPushButton("Close Shift")
         self.btn_close.setObjectName("dangerButton")
         self.btn_close.clicked.connect(self.on_close)
+        self.confirm_count.toggled.connect(self._update_close_enabled)
+        self.confirm_difference.toggled.connect(self._update_close_enabled)
+        self.spn_actual.valueChanged.connect(self._count_changed)
+        self._count_changed()
         row.addStretch()
         row.addWidget(self.btn_cancel)
         row.addWidget(self.btn_close)
         layout.addLayout(row)
+
+    def _count_changed(self, *_):
+        self.confirm_count.setChecked(False)
+        self.confirm_difference.setChecked(False)
+        self.confirm_difference.setVisible(abs(self.spn_actual.value() - self.expected_cash) >= .01)
+        self._update_close_enabled()
+
+    def _update_close_enabled(self, *_):
+        difference = abs(self.spn_actual.value() - self.expected_cash) >= .01
+        self.btn_close.setEnabled(not self._saving and self.confirm_count.isChecked()
+                                  and (not difference or self.confirm_difference.isChecked()))
 
     def update_discrepancy_label(self, value):
         difference = float(value) - self.expected_cash
@@ -270,6 +288,8 @@ class CloseSessionDialog(CashOperationDialog):
         if not self.confirm_count.isChecked():
             QMessageBox.information(self,'Count Cash First','Count the money in the drawer, enter that amount, and confirm the count.')
             return
+        if abs(self.spn_actual.value() - self.expected_cash) >= .01 and not self.confirm_difference.isChecked():
+            return
         actual = self.spn_actual.value()
         notes = self.txt_notes.text().strip() or "Standard shift close"
         self._saving = True
@@ -286,18 +306,19 @@ class CloseSessionDialog(CashOperationDialog):
         self._saving = False
         ok, value = result
         if ok:
+            SessionState.get_instance().set_cash_session(None)
             show_toast(self.parent() or self, "Cash shift closed.", ToastType.SUCCESS)
             self.accept()
             return
         self.btn_close.setText("Close Shift")
-        self.btn_close.setEnabled(True)
+        self._update_close_enabled()
         self.btn_cancel.setEnabled(True)
         QMessageBox.critical(self, "Could Not Close Shift", str(value))
 
     def _close_failed(self):
         self._saving = False
         self.btn_close.setText("Close Shift")
-        self.btn_close.setEnabled(True)
+        self._update_close_enabled()
         self.btn_cancel.setEnabled(True)
         QMessageBox.critical(self, "Could Not Close Shift", "The shift could not be closed. Try again.")
 
@@ -348,6 +369,9 @@ class CashSessionScreen(QWidget):
         buttons.addStretch()
         control_layout.addLayout(buttons)
         layout.addWidget(control)
+        self.lbl_last_close = QLabel()
+        self.lbl_last_close.setWordWrap(True)
+        layout.addWidget(self.lbl_last_close)
 
         movement_card = Card()
         movement_layout = movement_card.layout()
@@ -405,6 +429,9 @@ class CashSessionScreen(QWidget):
                 _CASH_CONTROLLER.session_movements(session_id, 50),
             )
 
+        self._tasks.run_latest("last-close", lambda: _CASH_CONTROLLER.last_closed_session(emp_id),
+                               self._show_last_close,
+                               lambda _e: self.lbl_last_close.setText("Last closing summary unavailable. Try again."))
         self._tasks.run_latest(
             "cash-snapshot",
             load,
@@ -412,9 +439,16 @@ class CashSessionScreen(QWidget):
             lambda _details: self._cash_load_failed(),
         )
 
+    def _show_last_close(self, summary):
+        self.lbl_last_close.setText(
+            f"Last shift closed: {summary['closed_at']}\n"
+            f"Expected: Rs. {summary['expected_cash']:,.2f} • Counted: Rs. {summary['actual_cash']:,.2f} • "
+            f"Difference: Rs. {summary['discrepancy']:,.2f}\n{summary['notes']}" if summary else "")
+
     def _apply_cash_snapshot(self, payload):
         session, summary, rows = payload
         self.active_session = session
+        SessionState.get_instance().set_cash_session(session)
         self._current_summary = summary or {}
         if self.active_session:
             self.pill_status.setText("Shift Open")

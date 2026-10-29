@@ -37,6 +37,8 @@ Your friend only needs the installer and its **START-HERE** guide. Use practice 
 
 Cash customers do not need to give their name, phone or CNIC. Leave them as **Walk-in**.
 
+After creating your owner account, **Prepare Your Shop** guides you through suppliers, medicines, opening stock and cash. You can reopen it from the sidebar.
+
 ## First test at the pharmacy
 
 Use a spare computer and practice records first. Keep the pharmacy's current billing system running for real customers.

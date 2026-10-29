@@ -88,7 +88,8 @@ def test_pos_keeps_shortcuts_but_removes_hotkey_wall_and_internal_batch_ids():
     assert 'QPushButton("Complete Sale")' in source
     assert 'QPushButton("Complete Sale (F10)")' not in source
     assert 'setPrefix("Rs. ")' in source
-    assert "No matching sellable stock" in source
+    assert "Medicine not found" in source
+    assert "Medicine found, but no stock is available for sale" in source
     assert "No shift open" in source
     assert 'HEADERS = ["Product", "Expiry", "In Stock", "Price", "Unit"]' in model_source
     assert "Batch #" not in model_source

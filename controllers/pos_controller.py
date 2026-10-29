@@ -27,6 +27,9 @@ class POSController:
     def search_products(self, term):
         return self.inventory.search_products(term.strip())
 
+    def catalog_matches(self, term):
+        return self.pos.catalog_matches(term.strip())
+
     def product_by_barcode(self, barcode):
         return self.inventory.product_by_barcode(barcode.strip())
 

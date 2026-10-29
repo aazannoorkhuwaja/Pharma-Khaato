@@ -310,8 +310,7 @@ class POSScreen(QWidget):
         fin_layout.addLayout(cash_row)
         fin_layout.addSpacing(8)
         fin_layout.addWidget(self.lbl_tax)
-        fin_layout.addWidget(self.lbl_total)
-        fin_layout.addWidget(self.lbl_change)
+
         summary_layout.addWidget(fin_frame)
         self.lbl_checkout_state = QLabel()
         self.lbl_checkout_state.setWordWrap(True)
@@ -351,6 +350,8 @@ class POSScreen(QWidget):
         self.btn_clear.setToolTip("Clear the sale (Ctrl+Delete)")
         self.btn_clear.clicked.connect(self.on_clear_cart_requested)
 
+        right_layout.addWidget(self.lbl_total)
+        right_layout.addWidget(self.lbl_change)
         right_layout.addWidget(self.btn_checkout)
         right_layout.addLayout(hold_row)
         right_layout.addWidget(self.btn_clear)
@@ -485,7 +486,15 @@ class POSScreen(QWidget):
         self._search_term = term
         if not results:
             self.hide_search_table()
-            self._set_search_feedback("No matching sellable stock. Check the name or barcode.", "danger")
+            self._set_search_feedback("Checking medicine list…")
+            def explain(matches):
+                if self.txt_search.text().strip() != term:
+                    return
+                self._set_search_feedback(
+                    "Medicine found, but no stock is available for sale. Check Stock & Products for stock, expiry or blocked batches."
+                    if matches else "Medicine not found. Check the spelling or barcode, or ask the owner to add it in Stock & Products.", "warning")
+            self._tasks.run_latest("product-search", lambda: _POS_CONTROLLER.catalog_matches(term), explain,
+                                   lambda _e: self._set_search_feedback("Could not check the medicine list. Try again.", "danger"))
             return
         if add_single and len(results) == 1:
             self._add_result_tuple_to_cart(results[0])
@@ -674,7 +683,7 @@ class POSScreen(QWidget):
             self.cust_table.setItem(
                 row, 0, QTableWidgetItem(f"{first_name} {last_name}".strip())
             )
-            self.cust_table.setItem(row, 1, QTableWidgetItem(str(cnic)))
+            self.cust_table.setItem(row, 1, QTableWidgetItem("—" if str(cnic).startswith("CUST_") else str(cnic)))
             self.cust_table.setItem(row, 2, QTableWidgetItem(str(city)))
 
         self.cust_table.show()
@@ -687,7 +696,7 @@ class POSScreen(QWidget):
             self.selected_customer_cnic = cnic
             self.is_customer_verified = True
             self.txt_customer.blockSignals(True)
-            self.txt_customer.setText(f"{first_name} {last_name} ({cnic})")
+            self.txt_customer.setText(f"{first_name} {last_name}".strip())
             self.txt_customer.blockSignals(False)
             self.cust_table.hide()
             self.lbl_cust_status.setText(

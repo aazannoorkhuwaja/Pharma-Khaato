@@ -77,7 +77,13 @@ def test_completed_setup_reaches_sign_in_with_the_new_owner(qapp, fresh_db, monk
         events.append('setup')
         return dialog.result()
     class Login:
+        def __init__(self):
+            from PySide6.QtWidgets import QLineEdit
+            self.txt_username = QLineEdit()
+            self.txt_password = QLineEdit()
         def exec(self):
+            assert self.txt_username.text() == 'new-owner'
+            assert self.txt_password.text() == ''
             assert AuthController().login('new-owner','ChosenPass-8472')
             events.append('sign-in')
             return QDialog.Rejected

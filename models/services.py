@@ -208,6 +208,10 @@ class InventoryModel:
 
 
 class POSModel:
+    def catalog_matches(self, term):
+        from core.inventory_query_service import search_catalog_products
+        return bool(search_catalog_products(term, 1))
+
     def __init__(self):
         self._active_recalled_hold_id: int | None = None
 
@@ -385,6 +389,10 @@ class KhatooModel:
 
 
 class CashSessionModel:
+    def last_closed_session(self, employee_id: int | None = None, terminal_id=None):
+        from core.cash_query_service import get_last_closed_session
+        return get_last_closed_session(employee_id, terminal_id)
+
     def active_session(self, employee_id: int, terminal_id=None):
         from core.cash_session_service import get_active_session
         return get_active_session(employee_id, terminal_id=terminal_id)

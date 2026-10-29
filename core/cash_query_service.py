@@ -6,6 +6,16 @@ from core.logger import get_logger
 logger = get_logger("PharmaKhaatoCashQuery")
 
 
+def get_last_closed_session(employee_id, terminal_id=None):
+    from core.cash_session_service import _terminal
+    with get_db() as (_conn, cur):
+        cur.execute("SELECT id,closed_at,expected_cash_system,closing_cash_actual,cash_discrepancy,notes "
+                    "FROM Cash_Register_Session WHERE employee_id=%s AND terminal_id=%s "
+                    "AND status='CLOSED' ORDER BY id DESC LIMIT 1", (employee_id, _terminal(terminal_id)))
+        row = cur.fetchone()
+    return dict(zip(('id','closed_at','expected_cash','actual_cash','discrepancy','notes'), row)) if row else None
+
+
 def get_session_movements(session_id: int, limit: int = 50):
     """Return recent manual cash entries for one shift using the session index."""
     try:
