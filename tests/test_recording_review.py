@@ -44,7 +44,16 @@ def test_stock_form_labels_rows_calendar_and_receiving(qapp, owner, qtbot, width
         qapp.processEvents()
         scroll = screen.cmb_intake_prod.parent().parent().parent()
         assert isinstance(scroll, QScrollArea)
-        assert scroll.horizontalScrollBar().maximum() == 0
+        controls = [(item.widget().metaObject().className(),
+                     item.widget().minimumSizeHint().width(), item.widget().width())
+                    for i in range(screen.intake_form.count())
+                    if (item := screen.intake_form.itemAt(i)).widget()]
+        assert scroll.horizontalScrollBar().maximum() == 0, (
+            scroll.viewport().width(), scroll.widget().minimumSizeHint().width(), controls)
+        for i in range(screen.intake_form.count()):
+            widget = screen.intake_form.itemAt(i).widget()
+            if widget and widget.isVisible():
+                assert widget.geometry().right() <= scroll.widget().width()
         if width == 1366:
             assert scroll.width() > 430
         label = screen.intake_form.labelForField(screen.spn_intake_qty)

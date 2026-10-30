@@ -574,9 +574,19 @@ class InventoryScreen(QWidget):
             combo.setMinimumContentsLength(12)
             combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         for row in range(form.rowCount()):
-            item = form.itemAt(row, QFormLayout.LabelRole)
-            if item and isinstance(item.widget(), QLabel):
-                item.widget().setWordWrap(True)
+            for role in (QFormLayout.LabelRole, QFormLayout.FieldRole):
+                item = form.itemAt(row, role)
+                field = item.widget() if item else None
+                if field is None:
+                    continue
+                if isinstance(field, QLabel):
+                    field.setWordWrap(True)
+                else:
+                    # Windows style metrics can otherwise make controls wider
+                    # than the viewport even with all form rows wrapped.
+                    policy = field.sizePolicy()
+                    policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+                    field.setSizePolicy(policy)
 
         intake_fields=QWidget()
         intake_fields.setLayout(form)
