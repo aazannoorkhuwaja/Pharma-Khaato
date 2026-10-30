@@ -1,3 +1,4 @@
+from ui.widgets.semantic_style import set_tone
 """Pharma Khaato sign-in dialog."""
 
 from PySide6.QtWidgets import (
@@ -132,7 +133,7 @@ class LoginDialog(QDialog):
         footer.setObjectName("caption")
         footer.setAlignment(Qt.AlignCenter)
         footer.setWordWrap(True)
-        footer.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
+        set_tone(footer, "muted")
         card_layout.addWidget(footer)
 
         layout.addWidget(card)

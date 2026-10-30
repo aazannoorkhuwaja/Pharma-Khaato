@@ -230,6 +230,8 @@ class CustomerScreen(QWidget):
         self.pill_total_custs.setText("Loading customers…")
 
         def complete(payload):
+            if self.txt_search.text().strip() != term:
+                return
             rows, total = payload
             self._selected_cnic = None
             self.populate_customers_table(rows)

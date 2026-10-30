@@ -6,6 +6,7 @@ pick it up immediately — not per-widget, not per-screen.
 """
 
 import os
+from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFont, QColor, QPalette
 from ui.theme.tokens import ThemeTokens
@@ -18,7 +19,12 @@ from core.logger import get_logger
 logger = get_logger("PharmaKhaatoTheme")
 
 
+class ThemeEvents(QObject):
+    changed = Signal()
+
+
 class ThemeManager:
+    events = ThemeEvents()
     _current_mode = "light"   # Light is the default
     _current_scale = 1.0
 
@@ -71,6 +77,7 @@ class ThemeManager:
         if save:
             cls.save_preferences()
         cls.apply_theme()
+        cls.events.changed.emit()
 
     @classmethod
     def toggle_theme(cls, save: bool = True):
@@ -85,6 +92,7 @@ class ThemeManager:
         if save:
             cls.save_preferences()
         cls.apply_theme()
+        cls.events.changed.emit()
 
     @classmethod
     def apply_theme(cls):

@@ -1,10 +1,10 @@
 """Owner receiving and supplier dues, separate from the cashier counter."""
 import copy
 from decimal import Decimal, ROUND_HALF_UP
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QPushButton,
     QLineEdit,QComboBox,QSpinBox,QDoubleSpinBox,QTableWidget,QTableWidgetItem,QHeaderView,
-    QMessageBox,QInputDialog,QScrollArea,QWidget)
+    QMessageBox,QInputDialog,QScrollArea,QWidget,QLayout,QSizePolicy)
 from controllers.inventory_controller import InventoryController
 from ui.app.async_tasks import AsyncTaskRunner
 from ui.widgets.responsive import configure_dialog
@@ -19,6 +19,8 @@ def table(headers):
     view.setSelectionBehavior(QTableWidget.SelectRows)
     view.setEditTriggers(QTableWidget.NoEditTriggers)
     view.horizontalHeader().setSectionResizeMode(0,QHeaderView.Stretch)
+    for column in range(1, len(headers)):
+        view.horizontalHeader().setSectionResizeMode(column, QHeaderView.ResizeToContents)
     polish_table(view)
     return view
 
@@ -39,13 +41,19 @@ class SupplierInvoiceDialog(QDialog):
         layout.addWidget(self.reference)
         body=QWidget()
         forms=QHBoxLayout(body)
+        forms.setSizeConstraint(QLayout.SetMinimumSize)
         left=QFormLayout()
         right=QFormLayout()
+        for form in (left, right):
+            form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+            form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         forms.addLayout(left,1)
         forms.addLayout(right,1)
         self.search=QLineEdit()
         self.search.setPlaceholderText('Find product by name or barcode')
         self.product=QComboBox()
+        self.product.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.product.setMinimumContentsLength(12)
         self.units=QComboBox()
         self.quantity=QSpinBox();self.quantity.setRange(1,1000000)
         self.bonus=QSpinBox();self.bonus.setRange(0,1000000)
@@ -58,12 +66,16 @@ class SupplierInvoiceDialog(QDialog):
         for label,field in [('Cost per selected pack/unit',self.cost),('Sell per smallest unit',self.sell),('Printed expiry month',self.expiry),('Lot / batch',self.lot)]:
             right.addRow(label,field)
         scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(body)
-        layout.addWidget(scroll,1)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.entry_scroll = scroll
+        layout.addWidget(scroll,3)
         self.add=QPushButton('Add Invoice Line');self.add.clicked.connect(self.add_line)
         layout.addWidget(self.add)
         self.rows=table(['Product','Quantity','Unit','Cost','Expiry','Lot'])
         layout.addWidget(self.rows,1)
-        remove=QPushButton('Remove Selected Line');remove.clicked.connect(self.remove_line);layout.addWidget(remove)
+        remove=QPushButton('Remove Selected Line');remove.clicked.connect(self.remove_line)
+        actions=QHBoxLayout();actions.addWidget(self.add);actions.addWidget(remove)
+        layout.removeWidget(self.add);layout.insertLayout(3,actions)
         footer=QHBoxLayout()
         self.paid=QDoubleSpinBox();self.paid.setRange(0,100000000);self.paid.setDecimals(2);self.paid.setPrefix('Paid now: Rs. ')
         self.method=QComboBox();self.method.addItems(['Bank transfer','Outside drawer','Cash from drawer'])
@@ -71,7 +83,7 @@ class SupplierInvoiceDialog(QDialog):
         footer.addWidget(self.total);footer.addWidget(self.paid);footer.addWidget(self.method)
         layout.addLayout(footer)
         self.status=QLabel('');self.status.setWordWrap(True);layout.addWidget(self.status)
-        self.save=QPushButton('Save Invoice & Stock');self.save.setObjectName('primaryButton');self.save.clicked.connect(self.save_invoice)
+        self.save=QPushButton('Save Invoice && Stock');self.save.setObjectName('primaryButton');self.save.clicked.connect(self.save_invoice)
         layout.addWidget(self.save)
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.setInterval(180)
         self.search.textChanged.connect(lambda:self.timer.start())
@@ -80,6 +92,8 @@ class SupplierInvoiceDialog(QDialog):
         self.search_products()
 
     def search_products(self):
+        self.units.clear()
+        self.add.setEnabled(False)
         term=self.search.text().strip()
         def complete(rows):
             if self.search.text().strip()!=term:return
@@ -90,6 +104,8 @@ class SupplierInvoiceDialog(QDialog):
                               lambda _e:self.status.setText('Product list unavailable. Check the connection.'))
 
     def load_units(self):
+        self.units.clear()
+        self.add.setEnabled(False)
         product=self.product.currentData()
         if product is None:return
         def complete(units):
@@ -97,6 +113,7 @@ class SupplierInvoiceDialog(QDialog):
             self.units.clear()
             for unit in units:self.units.addItem(unit['label'],unit)
             if units:self.sell.setValue(float(units[0]['price']))
+            self.add.setEnabled(bool(units) and not self._busy)
         self.tasks.run_latest('invoice-units',lambda:_INVENTORY.sell_units(product),complete,
                               lambda _e:self.status.setText('Unit sizes unavailable. Choose the product again.'))
 
@@ -156,7 +173,7 @@ class SupplierAccountsDialog(QDialog):
         self.accounts=[]
         self._busy=False
         layout=QVBoxLayout(self)
-        self.status=QLabel('Choose a supplier. Positive balance is due; negative balance is credit with that supplier.')
+        self.status=QLabel('Choose a supplier. Due is what you owe. Credit is money the supplier owes you.')
         self.status.setWordWrap(True);layout.addWidget(self.status)
         self.suppliers=table(['Supplier','Amount Due / Credit'])
         layout.addWidget(self.suppliers,1)
@@ -178,12 +195,14 @@ class SupplierAccountsDialog(QDialog):
         def complete(rows):
             self.accounts=rows;self.suppliers.setRowCount(len(rows))
             self.btn_add_supplier.setText('Add Supplier' if rows else 'Add First Supplier')
-            self.status.setText('Choose a supplier. Positive balance is due; negative balance is credit with that supplier.' if rows else
+            self.status.setText('Choose a supplier. Due is what you owe. Credit is money the supplier owes you.' if rows else
                                 'No suppliers yet. Add your first supplier, then receive their invoice and stock.')
             for index,row in enumerate(rows):
                 self.suppliers.setItem(index,0,QTableWidgetItem(row['name']))
                 value=row['balance'];text=f'Due Rs. {value:,.2f}' if value>=0 else f'Credit Rs. {-value:,.2f}'
-                self.suppliers.setItem(index,1,QTableWidgetItem(text))
+                item = QTableWidgetItem(text)
+                item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+                self.suppliers.setItem(index,1,item)
         self.tasks.run_latest('suppliers',_INVENTORY.supplier_accounts,complete,
                               lambda _e:self.status.setText('Supplier accounts unavailable. Check the connection and reopen this window.'))
 

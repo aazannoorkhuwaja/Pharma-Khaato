@@ -102,7 +102,7 @@ class ReportsScreen(QWidget):
         self.tbl_expiry.verticalHeader().setVisible(False)
         self.tbl_expiry.setEditTriggers(QTableWidget.NoEditTriggers)
         expiry_layout.addWidget(self.tbl_expiry)
-        self.tabs.addTab(expiry_tab, "Expiring Soon")
+        self.tabs.addTab(expiry_tab, "Expiry Alerts")
 
         audit_tab = QWidget()
         audit_layout = QVBoxLayout(audit_tab)
@@ -250,7 +250,7 @@ class ReportsScreen(QWidget):
                 self.tbl_expiry.setItem(row, 0, QTableWidgetItem(str(item["product_name"])))
                 self.tbl_expiry.setItem(row, 1, QTableWidgetItem(str(item["quantity"])))
                 self.tbl_expiry.setItem(row, 2, QTableWidgetItem(str(item["expiry_date"])))
-                self.tbl_expiry.setItem(row, 3, QTableWidgetItem(f"{item['days_left']} days"))
+                self.tbl_expiry.setItem(row, 3, QTableWidgetItem("Expired" if item["days_left"] < 0 else ("Expires today" if item["days_left"] == 0 else f"{item['days_left']} days left")))
                 self.tbl_expiry.setItem(row, 4, QTableWidgetItem(str(item["category"])))
         finally:
             self.tbl_expiry.setUpdatesEnabled(True)

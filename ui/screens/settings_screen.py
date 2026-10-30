@@ -1,12 +1,14 @@
 """Pharmacy settings, receipt design, staff access, backups, recovery, and system status."""
 
 from pathlib import Path
+from PySide6.QtCore import Qt
+from ui.widgets.semantic_style import set_tone
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QFormLayout,
     QDoubleSpinBox, QSpinBox, QMessageBox, QTabWidget, QTextEdit,
-    QComboBox, QInputDialog, QDialog, QApplication, QAbstractItemView, QFileDialog,
+    QScrollArea, QLayout, QComboBox, QInputDialog, QDialog, QApplication, QAbstractItemView, QFileDialog,
 )
 
 from config import ApplicationSettings
@@ -61,10 +63,27 @@ class SettingsScreen(QWidget):
         # One batched settings read only. Staff, health, backup listing and
         # integrity checks are lazy so opening Settings is immediate.
         self.load_settings()
+        ThemeManager.events.changed.connect(self._sync_display_preferences)
+
+    def _sync_display_preferences(self):
+        for combo, value in ((self.cmb_theme_mode, ThemeManager.get_theme_mode()),
+                             (self.cmb_font_scale, str(ThemeManager.get_font_scale()))):
+            index = combo.findData(value)
+            if index >= 0:
+                combo.setCurrentIndex(index)
 
     def _setup_general_tab(self):
         self.tab_general = QWidget()
-        gen_layout = QVBoxLayout(self.tab_general)
+        outer = QVBoxLayout(self.tab_general)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.general_scroll = QScrollArea()
+        self.general_scroll.setWidgetResizable(True)
+        self.general_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        body = QWidget()
+        self.general_scroll.setWidget(body)
+        outer.addWidget(self.general_scroll)
+        gen_layout = QVBoxLayout(body)
+        gen_layout.setSizeConstraint(QLayout.SetMinimumSize)
         gen_layout.setContentsMargins(16, 16, 16, 16)
         gen_layout.setSpacing(14)
 
@@ -78,11 +97,12 @@ class SettingsScreen(QWidget):
             "These details identify the pharmacy on receipts and operational records. Keep licence and tax details current."
         )
         profile_help.setWordWrap(True)
-        profile_help.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
+        set_tone(profile_help, "muted")
         profile_layout.addWidget(profile_help)
 
         profile_form = QFormLayout()
         profile_form.setSpacing(10)
+        profile_form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         self.txt_pharmacy_name = QLineEdit()
         self.txt_pharmacy_name.setPlaceholderText("Pharmacy trading name")
         self.txt_pharmacy_name.setAccessibleName("Pharmacy name")
@@ -114,6 +134,7 @@ class SettingsScreen(QWidget):
 
         form = QFormLayout()
         form.setSpacing(12)
+        form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         self.spn_tax = QDoubleSpinBox()
         self.spn_tax.setRange(0.0, 50.0)
         self.spn_tax.setSuffix(" %")
@@ -174,7 +195,7 @@ class SettingsScreen(QWidget):
             "Choose the format that matches your thermal printer and the amount of detail your pharmacy needs."
         )
         help_text.setWordWrap(True)
-        help_text.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
+        set_tone(help_text, "muted")
         settings_layout.addWidget(help_text)
 
         form = QFormLayout()
@@ -199,7 +220,7 @@ class SettingsScreen(QWidget):
 
         self.lbl_receipt_template_help = QLabel()
         self.lbl_receipt_template_help.setWordWrap(True)
-        self.lbl_receipt_template_help.setStyleSheet(f"color: {ThemeTokens.TEXT_SECONDARY};")
+        set_tone(self.lbl_receipt_template_help, "secondary")
         settings_layout.addWidget(self.lbl_receipt_template_help)
 
         button_row = QHBoxLayout()
@@ -227,7 +248,7 @@ class SettingsScreen(QWidget):
             "Compact 58mm — fastest and shortest option for narrow printers."
         )
         guide.setWordWrap(True)
-        guide.setStyleSheet(f"color: {ThemeTokens.TEXT_SECONDARY};")
+        set_tone(guide, "secondary")
         info_layout.addWidget(guide)
         info_layout.addStretch()
         layout.addWidget(info_card, 6)
@@ -276,7 +297,7 @@ class SettingsScreen(QWidget):
         status_layout.addWidget(version)
         self.lbl_health_info = QLabel("Open this tab to run the system check.")
         self.lbl_health_info.setWordWrap(True)
-        self.lbl_health_info.setStyleSheet(f"color: {ThemeTokens.TEXT_SECONDARY};")
+        set_tone(self.lbl_health_info, "secondary")
         status_layout.addWidget(self.lbl_health_info)
         self.btn_toggle_details = QPushButton("Show Diagnostics")
         self.btn_toggle_details.setToolTip("Show diagnostic information that technical support may ask for.")
@@ -317,7 +338,7 @@ class SettingsScreen(QWidget):
             "Keep a second copy on a protected USB drive or another device. Recovery preserves the previous files and requires a restart."
         )
         backup_help.setWordWrap(True)
-        backup_help.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
+        set_tone(backup_help, "muted")
         backup_layout.addWidget(backup_help)
         self.lbl_backup_destination = QLabel("Second backup copy: " + (_SETTINGS_CONTROLLER.backup_destination() or "Not configured"))
         self.lbl_backup_destination.setWordWrap(True)
@@ -472,8 +493,10 @@ class SettingsScreen(QWidget):
             QMessageBox.critical(self, "Could Not Save Settings", "Some settings could not be saved. Your previous values were kept where possible.")
             return
         self.txt_receipt_header.setText(pharmacy_name)
-        ThemeManager.set_theme(self.cmb_theme_mode.currentData(), save=True)
-        ThemeManager.set_font_scale(float(self.cmb_font_scale.currentData()), save=True)
+        mode = self.cmb_theme_mode.currentData()
+        scale = float(self.cmb_font_scale.currentData())
+        ThemeManager.set_theme(mode, save=True)
+        ThemeManager.set_font_scale(scale, save=True)
         if self.show_message_box:
             show_toast(self, "Pharmacy settings saved.", ToastType.SUCCESS)
 
@@ -693,7 +716,7 @@ class SettingsScreen(QWidget):
         create_layout.addWidget(title)
         helper = QLabel("Create a separate account for each person so activity and permissions stay traceable.")
         helper.setWordWrap(True)
-        helper.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
+        set_tone(helper, "muted")
         create_layout.addWidget(helper)
 
         form = QFormLayout()
@@ -734,7 +757,7 @@ class SettingsScreen(QWidget):
         list_layout.addWidget(title)
         staff_help = QLabel("Select a staff member to manage their account. Password reset is kept outside the table so rows stay readable at every interface size.")
         staff_help.setWordWrap(True)
-        staff_help.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
+        set_tone(staff_help, "muted")
         list_layout.addWidget(staff_help)
         self.tbl_users = QTableWidget(0, 3)
         self.tbl_users.setHorizontalHeaderLabels(["Username", "Staff Member", "Role"])

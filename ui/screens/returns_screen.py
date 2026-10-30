@@ -1,3 +1,4 @@
+from ui.widgets.semantic_style import set_tone
 """Fast, authoritative sales return and refund screen."""
 
 import copy
@@ -67,7 +68,7 @@ class ReturnsScreen(QWidget):
 
         self.lbl_sale_summary = QLabel("Enter a sale number to begin.")
         self.lbl_sale_summary.setWordWrap(True)
-        self.lbl_sale_summary.setStyleSheet(f"color: {ThemeTokens.TEXT_SECONDARY};")
+        set_tone(self.lbl_sale_summary, "secondary")
         lookup_layout.addWidget(self.lbl_sale_summary)
         layout.addWidget(lookup_card)
 
