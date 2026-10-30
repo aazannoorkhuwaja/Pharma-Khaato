@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QSpinBox,
     QDoubleSpinBox, QDateEdit, QTabWidget, QDialog, QFormLayout,
-    QCheckBox, QMessageBox, QScrollArea,
+    QCheckBox, QMessageBox, QScrollArea, QSizePolicy,
 )
 from PySide6.QtCore import QDate, QTimer, Qt
 
@@ -492,7 +492,7 @@ class InventoryScreen(QWidget):
 
         form = QFormLayout()
         form.setSpacing(12)
-        form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+        form.setRowWrapPolicy(QFormLayout.WrapAllRows)
         form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
         self.intake_form = form
 
@@ -550,7 +550,7 @@ class InventoryScreen(QWidget):
         self.dt_mfg.setCalendarPopup(True)
         self.dt_mfg.setDate(QDate.currentDate())
         self.dt_mfg.setEnabled(False)
-        self.chk_mfg_known = QCheckBox("Manufacture date is printed / known")
+        self.chk_mfg_known = QCheckBox("Manufacture date is known")
         self.chk_mfg_known.toggled.connect(self.dt_mfg.setEnabled)
         form.addRow("", self.chk_mfg_known)
         form.addRow("Manufacture date:", self.dt_mfg)
@@ -565,6 +565,18 @@ class InventoryScreen(QWidget):
             field.setToolTip("Enter prices per tablet, bottle or other smallest unit, not the full box.")
             self._intake_prices[key]=field
             form.addRow(label+":",field)
+
+        # The longest supplier or product name must not dictate the minimum
+        # width of the entire receiving form, especially with Windows fonts.
+        for combo in (self.cmb_intake_prod, self.cmb_intake_supp, self.cmb_intake_unit,
+                      self.cmb_expiry_precision):
+            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(12)
+            combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        for row in range(form.rowCount()):
+            item = form.itemAt(row, QFormLayout.LabelRole)
+            if item and isinstance(item.widget(), QLabel):
+                item.widget().setWordWrap(True)
 
         intake_fields=QWidget()
         intake_fields.setLayout(form)

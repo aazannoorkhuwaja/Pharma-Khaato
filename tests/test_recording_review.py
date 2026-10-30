@@ -33,6 +33,11 @@ def test_stock_form_labels_rows_calendar_and_receiving(qapp, owner, qtbot, width
     screen.show()
     screen.tabs.setCurrentWidget(screen.tab_intake)
     settle(qtbot, screen)
+    # Real supplier and medicine names can be much longer than placeholder
+    # text; they must not expand the form past its viewport.
+    screen.cmb_intake_prod.addItem('Very long medicine name ' * 8, -1)
+    screen.cmb_intake_supp.addItem('Very long supplier name ' * 8, -1)
+    qapp.processEvents()
     for mode in ('dark', 'light'):
         ThemeManager.set_theme(mode, save=False)
         qapp.setStyleSheet(ThemeManager.build_qss(mode))
