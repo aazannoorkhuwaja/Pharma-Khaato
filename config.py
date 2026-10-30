@@ -17,7 +17,7 @@ class ApplicationSettings:
 
     APP_NAME = "Pharma-Khaato"
     DISPLAY_NAME = "Pharma Khaato"
-    APP_VERSION = "2.4.0"
+    APP_VERSION = "2.4.1"
     APP_ID = "com.pharmakhaato.desktop"
     ORGANIZATION = "Pharma Khaato"
     BUILDERS = ("Azaan Noor Khuwaja", "Atif Khan")

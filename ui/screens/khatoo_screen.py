@@ -286,6 +286,9 @@ class KhatooScreen(QWidget):
         table_layout.addLayout(pager)
         layout.addWidget(table_card, 1)
 
+        self.lbl_empty = QLabel()
+        self.lbl_empty.setWordWrap(True)
+        layout.addWidget(self.lbl_empty)
         self.refresh_all_data()
 
     def refresh_all_data(self):
@@ -307,6 +310,11 @@ class KhatooScreen(QWidget):
     def _apply_credit_snapshot(self, payload):
         records, total_due, total_count = payload
         records = list(records or [])
+        self.lbl_empty.setText(
+            "No customers match this search. Try a different name or phone."
+            if not records and self.txt_search.text().strip() else
+            "No customer credit accounts yet. A sale paid with Customer Credit appears here; record repayments here when the customer pays."
+            if not records else "")
         self.populate_ledger_table(records)
         offset = self._page * self._page_size
         first = offset + 1 if records else 0
@@ -316,6 +324,7 @@ class KhatooScreen(QWidget):
         self.pill_total_due.setText(f"Total Due: Rs. {float(total_due):.2f}")
 
     def _credit_load_failed(self):
+        self.lbl_empty.setText("Could not load customer credit. Check the connection and refresh this screen.")
         self.pill_total_ledger.setText("Open Credits: unavailable")
         self.pill_total_due.setText("Total Due: unavailable")
         if self.show_message_box:

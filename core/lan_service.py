@@ -66,6 +66,8 @@ OPERATIONS['InventoryModel'].update({
     'supplier_invoice_lines':('inventory.manage',False),'receive_invoice':('inventory.manage',True),
     'pay_supplier':('inventory.manage',True),'return_to_supplier':('inventory.manage',True),
 })
+OPERATIONS['POSModel']['catalog_matches']=('pos.sell',False)
+OPERATIONS['CashSessionModel']['last_closed_session']=('cash.own_shift',False)
 OPERATIONS['CashSessionModel']['session_movements']=('cash.own_shift',False)
 
 REPLAY_SAFE = {

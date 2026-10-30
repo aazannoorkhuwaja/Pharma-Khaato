@@ -203,3 +203,13 @@ def test_supplier_invoice_and_cash_history_are_counter_bound(lan_shop):
          'expiry':'12/2099','lot':'LAN-LOT','sale_price':15}], actor,
         operation_id='lan-supplier-receive', paid_amount=10, payment_method='Cash from drawer')
     assert replay[2]['invoice_id'] == received[2]['invoice_id']
+
+
+def test_cashier_can_distinguish_missing_stock_and_read_only_own_close(lan_shop):
+    client = lan_shop['connect']('Counter-Review', 'till', 'counterpass')
+    assert client.call('POSModel', 'catalog_matches', 'TestMed') is True
+    assert client.call('POSModel', 'catalog_matches', 'MissingMedicine') is False
+    with pytest.raises(ShopAuthorizationError):
+        client.call('CashSessionModel', 'last_closed_session', lan_shop['admin'])
+    # The host supplies the authenticated employee and counter for this read.
+    assert client.call('CashSessionModel', 'last_closed_session') is None

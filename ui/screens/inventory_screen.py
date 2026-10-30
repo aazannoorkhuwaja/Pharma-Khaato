@@ -6,12 +6,13 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QSpinBox,
     QDoubleSpinBox, QDateEdit, QTabWidget, QDialog, QFormLayout,
-    QCheckBox, QMessageBox, QScrollArea,
+    QCheckBox, QMessageBox, QScrollArea, QSizePolicy,
 )
 from PySide6.QtCore import QDate, QTimer, Qt
 
 from ui.theme.tokens import ThemeTokens
 from ui.widgets.card import Card
+from ui.widgets.semantic_style import set_tone
 from ui.widgets.badge_pill import BadgePill
 from ui.widgets.screen_header import ScreenHeader
 from ui.widgets.toast import ToastType, show_toast
@@ -34,27 +35,12 @@ class AddProductDialog(QDialog):
         self._tasks = AsyncTaskRunner(self)
         self.setWindowTitle("Edit Product" if product else "Add Product")
         configure_dialog(self, 540, 600, minimum_width=420, minimum_height=420)
-        self.setStyleSheet(f"""
-            QDialog {{
-                background-color: {ThemeTokens.SURFACE_ELEVATED};
-                color: {ThemeTokens.TEXT_PRIMARY};
-            }}
-            QLabel {{ font-weight: 600; color: {ThemeTokens.TEXT_PRIMARY}; }}
-            QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {{
-                background-color: {ThemeTokens.SURFACE_BASE};
-                border: 1px solid {ThemeTokens.BORDER_SUBTLE};
-                border-radius: {ThemeTokens.RADIUS_SM}px;
-                padding: 4px 10px;
-                color: {ThemeTokens.TEXT_PRIMARY};
-            }}
-        """)
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(12)
 
         title = QLabel("Edit Product" if product else "Add Product")
-        title.setStyleSheet(f"font-weight: 800; color: {ThemeTokens.ACCENT};")
+        set_tone(title, "accent", "heavy")
         layout.addWidget(title)
 
         form = QFormLayout()
@@ -128,6 +114,20 @@ class AddProductDialog(QDialog):
         self.chk_prescription = QCheckBox("Prescription only (Rx)")
         form.addRow("", self.chk_prescription)
 
+        self.btn_optional = QPushButton("Show optional details")
+        self.btn_optional.setCheckable(True)
+        optional_fields = [self.spn_min_stock, self.txt_company, self.cmb_category,
+                           self.txt_formula, self.txt_barcode, self.txt_strip_barcode,
+                           self.txt_box_barcode, self.txt_rack, self.chk_prescription]
+        def toggle_optional(show):
+            for field in optional_fields:
+                form.setRowVisible(field, show)
+            self.btn_optional.setText("Hide optional details" if show else "Show optional details")
+        self.btn_optional.toggled.connect(toggle_optional)
+        toggle_optional(bool(product))
+        self.btn_optional.setChecked(bool(product))
+        layout.addWidget(self.btn_optional)
+        form.setRowWrapPolicy(QFormLayout.WrapLongRows)
         form_widget = QWidget()
         form_widget.setLayout(form)
         form_scroll = QScrollArea()
@@ -478,11 +478,11 @@ class InventoryScreen(QWidget):
         layout.setSpacing(14)
 
         form_card = Card()
-        flexible_side_panel(form_card, minimum=310, maximum=430)
+        form_card.setMinimumWidth(360)
         form_layout = form_card.layout()
 
         title = QLabel("Add Stock")
-        title.setStyleSheet(f"font-weight: 700; color: {ThemeTokens.ACCENT};")
+        set_tone(title, "accent", "heavy")
         form_layout.addWidget(title)
 
         self.lbl_intake_status = QLabel("Stock details load when this tab is opened.")
@@ -492,6 +492,9 @@ class InventoryScreen(QWidget):
 
         form = QFormLayout()
         form.setSpacing(12)
+        form.setRowWrapPolicy(QFormLayout.WrapAllRows)
+        form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+        self.intake_form = form
 
         self.cmb_intake_prod = QComboBox()
         self.cmb_intake_prod.currentIndexChanged.connect(self._intake_product_changed)
@@ -531,23 +534,23 @@ class InventoryScreen(QWidget):
         self.txt_expiry_month.setPlaceholderText("MM/YYYY, e.g. 08/2028")
         form.addRow("Expiry month *:", self.txt_expiry_month)
 
-        self.dt_expiry = QDateEdit()
-        self.dt_expiry.setCalendarPopup(True)
-        self.dt_expiry.setMinimumDate(QDate(1900,1,1))
-        self.dt_expiry.setSpecialValueText("Choose printed expiry")
-        self.dt_expiry.setDate(QDate(1900,1,1))
-        self.dt_expiry.setDisplayFormat("dd/MM/yyyy")
-        self.dt_expiry.setVisible(False)
+        from ui.widgets.expiry_date_edit import PrintedExpiryEdit
+        self.dt_expiry = PrintedExpiryEdit()
         form.addRow("Expiry date *:", self.dt_expiry)
-        self.cmb_expiry_precision.currentIndexChanged.connect(
-            lambda: (self.txt_expiry_month.setVisible(self.cmb_expiry_precision.currentData()=="MONTH"),
-                     self.dt_expiry.setVisible(self.cmb_expiry_precision.currentData()=="DAY")))
+        def update_expiry_rows():
+            month = self.cmb_expiry_precision.currentData() == "MONTH"
+            form.setRowVisible(self.txt_expiry_month, month)
+            form.setRowVisible(self.dt_expiry, not month)
+            today = QDate.currentDate()
+            self.dt_expiry.calendarWidget().setCurrentPage(today.year(), today.month())
+        self.cmb_expiry_precision.currentIndexChanged.connect(update_expiry_rows)
+        update_expiry_rows()
 
         self.dt_mfg = QDateEdit()
         self.dt_mfg.setCalendarPopup(True)
         self.dt_mfg.setDate(QDate.currentDate())
         self.dt_mfg.setEnabled(False)
-        self.chk_mfg_known = QCheckBox("Manufacture date is printed / known")
+        self.chk_mfg_known = QCheckBox("Manufacture date is known")
         self.chk_mfg_known.toggled.connect(self.dt_mfg.setEnabled)
         form.addRow("", self.chk_mfg_known)
         form.addRow("Manufacture date:", self.dt_mfg)
@@ -563,6 +566,28 @@ class InventoryScreen(QWidget):
             self._intake_prices[key]=field
             form.addRow(label+":",field)
 
+        # The longest supplier or product name must not dictate the minimum
+        # width of the entire receiving form, especially with Windows fonts.
+        for combo in (self.cmb_intake_prod, self.cmb_intake_supp, self.cmb_intake_unit,
+                      self.cmb_expiry_precision):
+            combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            combo.setMinimumContentsLength(12)
+            combo.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        for row in range(form.rowCount()):
+            for role in (QFormLayout.LabelRole, QFormLayout.FieldRole):
+                item = form.itemAt(row, role)
+                field = item.widget() if item else None
+                if field is None:
+                    continue
+                if isinstance(field, QLabel):
+                    field.setWordWrap(True)
+                else:
+                    # Windows style metrics can otherwise make controls wider
+                    # than the viewport even with all form rows wrapped.
+                    policy = field.sizePolicy()
+                    policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+                    field.setSizePolicy(policy)
+
         intake_fields=QWidget()
         intake_fields.setLayout(form)
         intake_scroll=QScrollArea()
@@ -577,12 +602,11 @@ class InventoryScreen(QWidget):
         self.btn_submit_intake.clicked.connect(self.on_submit_intake)
         self.btn_submit_intake.setEnabled(False)
         form_layout.addWidget(self.btn_submit_intake)
-        form_layout.addStretch()
 
         list_card = Card()
         list_layout = list_card.layout()
         list_title = QLabel("Current Stock by Expiry (nearest 300 batches)")
-        list_title.setStyleSheet(f"font-weight: 700; color: {ThemeTokens.TEXT_PRIMARY};")
+        set_tone(list_title, "primary", "bold")
         list_layout.addWidget(list_title)
 
         self.tbl_batches = QTableWidget(0, 4)
@@ -596,10 +620,8 @@ class InventoryScreen(QWidget):
         self.tbl_batches.setEditTriggers(QTableWidget.NoEditTriggers)
         list_layout.addWidget(self.tbl_batches, 1)
 
-        layout.addWidget(form_card, 3)
-        layout.addWidget(list_card, 7)
-        layout.setStretch(0, 3)
-        layout.setStretch(1, 7)
+        layout.addWidget(form_card, 1)
+        layout.addWidget(list_card, 1)
 
     def setup_alerts_tab(self):
         layout = QVBoxLayout(self.tab_alerts)
@@ -607,7 +629,7 @@ class InventoryScreen(QWidget):
         layout.setSpacing(14)
 
         near_label = QLabel("Expiring in the next 30 days")
-        near_label.setStyleSheet(f"font-weight: 700; color: {ThemeTokens.WARNING};")
+        set_tone(near_label, "warning", "bold")
         layout.addWidget(near_label)
 
         self.tbl_near_expiry = QTableWidget(0, 4)
@@ -623,7 +645,7 @@ class InventoryScreen(QWidget):
         layout.addWidget(self.tbl_near_expiry)
 
         low_label = QLabel("Low stock — reorder soon")
-        low_label.setStyleSheet(f"font-weight: 700; color: {ThemeTokens.DANGER};")
+        set_tone(low_label, "danger", "bold")
         layout.addWidget(low_label)
 
         self.tbl_low_stock = QTableWidget(0, 3)

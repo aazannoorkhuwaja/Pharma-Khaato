@@ -2,6 +2,15 @@
 
 All notable product changes are recorded here. Dates refer to the engineering/release line; a build is not a production release until its launch-candidate gates and manual hardware acceptance are complete.
 
+## 2.4.1 — Recording review fixes
+
+- Fixed dark-mode stock forms, expanding stock-entry layout, expiry labels and current-month calendar navigation.
+- Kept bill total and change beside Complete Sale and removed generated customer references from selection.
+- Updated shift status immediately after opening/closing and retained the saved closing summary across restarts.
+- Required confirmed physical counts and explicit shortage/overage acknowledgement before closing cash.
+- Added optional product details, prefilled sign-in username after setup, a shop preparation checklist, clearer medicine search and actionable empty account screens.
+- Added regression coverage for the recording findings, including real UI stock receiving and saved Rs.5,000 expected / Rs.500 counted reconciliation.
+
 ## 2.4.0 — Engineering build, shop acceptance pending
 
 - Added sign-in help explaining existing accounts, preserved records and the absence of a default password.

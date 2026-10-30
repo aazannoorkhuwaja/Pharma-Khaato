@@ -145,10 +145,12 @@ def run_app():
             "Run the launch self-check or contact support before continuing.",
         )
         return 1
+    setup_username = ""
     if needs_setup:
         wizard = FirstRunWizardDialog()
         if wizard.exec() != FirstRunWizardDialog.Accepted:
             return 0
+        setup_username = wizard.txt_user.text().strip()
 
     try:
         app._pharma_shop_server = app_controller.start_shop_service()
@@ -158,6 +160,9 @@ def run_app():
         return 1
 
     login_dialog = LoginDialog()
+    if setup_username and hasattr(login_dialog, "txt_username"):
+        login_dialog.txt_username.setText(setup_username)
+        login_dialog.txt_password.setFocus()
     if login_dialog.exec() != QDialog.Accepted or not SessionState.get_instance().current_user:
         return 0
 
@@ -226,6 +231,8 @@ def run_app():
             min(900, max(600, int(area.height() * 0.90))),
         )
     window.show()
+    if needs_setup:
+        QTimer.singleShot(0, window.show_getting_started)
 
     startup_tasks = AsyncTaskRunner(window)
     window._startup_tasks = startup_tasks
