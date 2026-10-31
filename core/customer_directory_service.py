@@ -15,7 +15,10 @@ def customer_filter(text='', alias='c'):
     if cnic or phone:
         value = cnic or phone
         return f'({alias}.id_card_number=%s OR {alias}.cnic=%s OR {alias}.phone=%s)', [value,value,value]
-    fields = f"lower({alias}.display_name || ' ' || {alias}.first_name || ' ' || {alias}.last_name || ' ' || {alias}.city || ' ' || {alias}.phone)"
+    fields = "lower(" + " || ' ' || ".join(
+        f"COALESCE({alias}.{column}, '')"
+        for column in ("display_name", "first_name", "last_name", "city", "phone")
+    ) + ")"
     terms = raw.split()[:8]
     return ' AND '.join(f"{fields} LIKE %s ESCAPE '\\'" for _ in terms), [f'%{escape_sql_like(t)}%' for t in terms]
 

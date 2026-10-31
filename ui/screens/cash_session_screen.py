@@ -1,3 +1,4 @@
+from ui.widgets.semantic_style import set_tone
 """Cash-shift and drawer reconciliation screen."""
 
 from PySide6.QtWidgets import (
@@ -50,7 +51,7 @@ class OpenSessionDialog(CashOperationDialog):
         layout.addWidget(title)
         help_text = QLabel("Count the cash in the drawer and enter that amount.")
         help_text.setWordWrap(True)
-        help_text.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
+        set_tone(help_text, "muted")
         layout.addWidget(help_text)
 
         form = QFormLayout()
@@ -126,7 +127,7 @@ class RecordMovementDialog(CashOperationDialog):
         layout.addWidget(title)
         helper = QLabel("Record cash added to or taken from the drawer. Do not enter sales or customer payments here.")
         helper.setWordWrap(True)
-        helper.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
+        set_tone(helper, "muted")
         layout.addWidget(helper)
 
         form = QFormLayout()

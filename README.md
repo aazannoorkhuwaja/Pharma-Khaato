@@ -69,3 +69,5 @@ Tell us what you were trying to do, what happened, and the app version. Do not s
 [Setup and code checks](docs/DEVELOPER_WORKFLOW.md) · [Native builds](docs/DEPLOYMENT.md) · [Prepare a release](docs/RELEASING.md) · [Update publishing](docs/UPDATES.md) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Test record](docs/VALIDATION_2_4_0.md)
 
 [Credits](CREDITS.md) · [MIT License](LICENSE)
+
+For the Windows / Ubuntu pharmacy trial, follow [the simple shop checklist](docs/SHOP_TRIAL.md). See [2.4.2 improvements](docs/releases/2.4.2.md).

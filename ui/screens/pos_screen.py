@@ -22,6 +22,7 @@ from ui.widgets.pos_widgets import (
     SearchLineEdit, SearchResultsTable, CartTableWidget, RecallSaleDialog,
 )
 from ui.widgets.table_polish import polish_table
+from ui.theme.theme_manager import ThemeManager
 from ui.app.state.session_state import SessionState
 from ui.app.async_tasks import AsyncTaskRunner
 from controllers.pos_controller import POSController
@@ -82,7 +83,7 @@ class POSScreen(QWidget):
 
         shortcut_hint = QLabel("F1 search  •  F2 customer  •  F10 complete")
         shortcut_hint.setObjectName("caption")
-        shortcut_hint.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
+        set_tone(shortcut_hint, "muted")
         shortcut_hint.setToolTip(
             "Keyboard shortcuts: F1 product search, F2 customer, F3 discount, "
             "F4 payment method, F5 hold, F6 held sales, F10/F12 complete sale."
@@ -222,11 +223,9 @@ class POSScreen(QWidget):
         summary_layout.addWidget(customer_label)
         summary_layout.addWidget(self.txt_customer)
 
-        self.cust_table = QTableWidget(0, 3)
-        self.cust_table.setHorizontalHeaderLabels(["Name", "CNIC", "Area"])
+        self.cust_table = QTableWidget(0, 1)
+        self.cust_table.setHorizontalHeaderLabels(["Customer · Phone / Area"])
         self.cust_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.cust_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.cust_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
         self.cust_table.verticalHeader().setVisible(False)
         self.cust_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.cust_table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -367,6 +366,15 @@ class POSScreen(QWidget):
         self._refresh_shift_state()
         self.refresh_cart_display()
         self._restore_pending_checkout()
+        ThemeManager.events.changed.connect(self._resize_cart_controls)
+
+    def _resize_cart_controls(self):
+        for row in range(self.cart_table.rowCount()):
+            combo = self.cart_table.cellWidget(row, 6)
+            if combo:
+                combo.ensurePolished()
+                self.cart_table.setRowHeight(row, combo.sizeHint().height() + 8)
+        self.cust_table.resizeRowsToContents()
 
     def on_screen_show(self):
         self._refresh_shift_state()
@@ -679,12 +687,13 @@ class POSScreen(QWidget):
         self.cust_search_data = customers
         self.cust_table.setRowCount(len(customers))
         for row, item in enumerate(customers):
-            cnic, first_name, last_name, _email, city = item
-            self.cust_table.setItem(
-                row, 0, QTableWidgetItem(f"{first_name} {last_name}".strip())
-            )
-            self.cust_table.setItem(row, 1, QTableWidgetItem("—" if str(cnic).startswith("CUST_") else str(cnic)))
-            self.cust_table.setItem(row, 2, QTableWidgetItem(str(city)))
+            _ref, first_name, last_name, phone, city = item
+            name = f"{first_name} {last_name}".strip()
+            details = " · ".join(str(value) for value in (phone, city) if value)
+            cell = QTableWidgetItem(name + ("\n" + details if details else ""))
+            cell.setToolTip(cell.text())
+            self.cust_table.setItem(row, 0, cell)
+        self.cust_table.resizeRowsToContents()
 
         self.cust_table.show()
         self.cust_table.selectRow(0)
@@ -793,6 +802,8 @@ class POSScreen(QWidget):
             combo.setEnabled(len(units) > 1 and not self.session.pending_checkout)
             combo.currentIndexChanged.connect(lambda _index, row=row, combo=combo: self._change_cart_unit(row, combo.currentData()))
             self.cart_table.setCellWidget(row, 6, combo)
+            combo.ensurePolished()
+            self.cart_table.setRowHeight(row, max(self.cart_table.rowHeight(row), combo.sizeHint().height() + 8))
 
         self.cart_table.blockSignals(False)
 

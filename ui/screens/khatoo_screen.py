@@ -1,3 +1,4 @@
+from ui.widgets.semantic_style import set_tone
 """Customer-credit ledger and repayment workflow."""
 
 import uuid
@@ -49,7 +50,7 @@ class RecordPaymentDialog(QDialog):
 
         info = QLabel(f"Customer: {cust_name}\nBalance: Rs. {current_due:.2f}")
         info.setWordWrap(True)
-        info.setStyleSheet(f"color: {ThemeTokens.TEXT_SECONDARY};")
+        set_tone(info, "secondary")
         layout.addWidget(info)
 
         form = QFormLayout()
@@ -131,7 +132,7 @@ class RecordPaymentDialog(QDialog):
             self.lbl_cash_help.setText(
                 "Digital repayments are recorded separately and do not change drawer cash."
             )
-            self.lbl_cash_help.setStyleSheet(f"color: {ThemeTokens.TEXT_MUTED};")
+            set_tone(self.lbl_cash_help, "muted")
 
     def on_confirm(self):
         if self._saving:

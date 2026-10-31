@@ -5,7 +5,7 @@ from datetime import datetime
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
-    QLabel, QFrame, QStatusBar, QMessageBox, QDialog
+    QLabel, QFrame, QStatusBar, QMessageBox, QDialog, QScrollArea, QLayout
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QShortcut, QKeySequence
@@ -51,7 +51,16 @@ class MainWindow(QMainWindow):
 
         self.sidebar = QFrame()
         self.sidebar.setObjectName("sidebarFrame")
-        sidebar_layout = QVBoxLayout(self.sidebar)
+        sidebar_outer = QVBoxLayout(self.sidebar)
+        sidebar_outer.setContentsMargins(0, 0, 0, 0)
+        self.sidebar_scroll = QScrollArea()
+        self.sidebar_scroll.setWidgetResizable(True)
+        self.sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        sidebar_body = QWidget()
+        self.sidebar_scroll.setWidget(sidebar_body)
+        sidebar_outer.addWidget(self.sidebar_scroll)
+        sidebar_layout = QVBoxLayout(sidebar_body)
+        sidebar_layout.setSizeConstraint(QLayout.SetMinimumSize)
         sidebar_layout.setContentsMargins(12, 16, 12, 16)
         sidebar_layout.setSpacing(8)
 
@@ -165,6 +174,7 @@ class MainWindow(QMainWindow):
             self.status_bar.showMessage("Ready")
         self._apply_sidebar_density(self.width(), force=True)
         self.update_clock()
+        ThemeManager.events.changed.connect(self.refresh_theme_toggle_label)
 
     def resizeEvent(self, event):
         self._apply_sidebar_density(event.size().width())
