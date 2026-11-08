@@ -62,12 +62,13 @@ class MainWindow(QMainWindow):
         self.sidebar_scroll.setWidget(sidebar_body)
         sidebar_outer.addWidget(self.sidebar_scroll)
         sidebar_layout = QVBoxLayout(sidebar_body)
-        sidebar_layout.setSizeConstraint(QLayout.SetMinimumSize)
+        sidebar_layout.setSizeConstraint(QLayout.SetDefaultConstraint)
         sidebar_layout.setContentsMargins(12, 16, 12, 16)
         sidebar_layout.setSpacing(8)
 
         self.brand_label = QLabel("PHARMA KHAATO")
         self.brand_label.setObjectName("sidebarBrand")
+        self.brand_label.setWordWrap(True)
         self.sub_brand = QLabel(ApplicationSettings.PRODUCT_TAGLINE)
         self.sub_brand.setObjectName("sidebarCaption")
         self.sub_brand.setWordWrap(True)
@@ -208,9 +209,10 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
 
     def _apply_sidebar_density(self, width: int, force: bool = False):
-        if width >= LayoutMetrics.SIDEBAR_FULL_AT:
+        scale = ThemeManager.get_font_scale()
+        if width >= LayoutMetrics.SIDEBAR_FULL_AT and scale < 1.2:
             mode, sidebar_width = "full", LayoutMetrics.SIDEBAR_FULL
-        elif width >= LayoutMetrics.SIDEBAR_COMPACT_AT:
+        elif width >= LayoutMetrics.SIDEBAR_COMPACT_AT and scale <= 1.25:
             mode, sidebar_width = "compact", LayoutMetrics.SIDEBAR_COMPACT
         else:
             mode, sidebar_width = "mini", LayoutMetrics.SIDEBAR_MINI
@@ -218,18 +220,26 @@ class MainWindow(QMainWindow):
             return
         self._sidebar_mode = mode
         self.sidebar.setFixedWidth(sidebar_width)
+        mini_labels = {
+            "pos": "POS", "customers": "Cust", "khatoo": "Credit",
+            "inventory": "Stock", "cash_session": "Cash",
+            "reports": "Rpt", "settings": "Set", "returns": "Rtn",
+        }
         for key, text, short_text, shortcut_key in self._nav_items:
-            self.nav_buttons[key].setText(_qt_button_text(text if mode != "mini" else short_text))
-        self.brand_label.setText("PHARMA KHAATO" if mode != "mini" else "PK")
+            label = text if mode == "full" else short_text if mode == "compact" else mini_labels.get(key, key)
+            self.nav_buttons[key].setText(_qt_button_text(label))
+        self.brand_label.setText("PK" if mode == "mini" else
+                                 "PHARMA\nKHAATO" if scale > 1.2 else "PHARMA KHAATO")
         self.sub_brand.setVisible(mode == "full")
+        self.lbl_clock.setVisible(mode != "mini")
         self.user_badge.setVisible(mode != "mini")
         self.lbl_version.setVisible(mode != "mini")
         self.btn_printer_setup.setText("Printer" if mode == "mini" else "Printer Setup")
         self.btn_about.setText("About" if mode == "mini" else "About Pharma Khaato")
         self.btn_getting_started.setText("Prepare" if mode == "mini" else "Prepare Your Shop")
         if mode == "mini":
-            self.btn_theme_toggle.setText("Theme")
-            self.btn_logout.setText("Sign Out")
+            self.btn_theme_toggle.setText("Thm")
+            self.btn_logout.setText("Out")
         else:
             self.refresh_theme_toggle_label(update_density=False)
             self.btn_logout.setText("Sign Out")
@@ -238,8 +248,14 @@ class MainWindow(QMainWindow):
     def update_clock(self):
         now = datetime.now()
         self.lbl_header_clock.setText(now.strftime("%d %b %Y  •  %I:%M %p"))
-        self.lbl_header_clock.setVisible(self.width() >= LayoutMetrics.SIDEBAR_FULL_AT)
-        self.lbl_workspace_user.setVisible(self.width() >= LayoutMetrics.SIDEBAR_COMPACT_AT)
+        self.lbl_header_clock.setVisible(
+            self.width() >= LayoutMetrics.SIDEBAR_FULL_AT
+            and ThemeManager.get_font_scale() < 1.3
+        )
+        self.lbl_workspace_user.setVisible(
+            self.width() >= LayoutMetrics.SIDEBAR_COMPACT_AT
+            and ThemeManager.get_font_scale() <= 1.25
+        )
         if self._sidebar_mode == "mini":
             self.lbl_clock.setText(now.strftime("%H:%M"))
             self.lbl_clock.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -313,7 +329,7 @@ class MainWindow(QMainWindow):
     def refresh_theme_toggle_label(self, update_density: bool = True):
         mode = ThemeManager.get_theme_mode()
         if self._sidebar_mode == "mini":
-            self.btn_theme_toggle.setText("Theme")
+            self.btn_theme_toggle.setText("Thm")
         else:
             self.btn_theme_toggle.setText("Use Light Mode" if mode == "dark" else "Use Dark Mode")
         if update_density:
