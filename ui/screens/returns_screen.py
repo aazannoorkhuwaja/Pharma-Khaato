@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QSpinBox, QComboBox,
-    QMessageBox, QFormLayout,
+    QMessageBox, QFormLayout, QScrollArea,
 )
 
 from controllers.return_controller import ReturnController
@@ -48,6 +48,7 @@ class ReturnsScreen(QWidget):
             "Returns & Refunds",
             "Find the original sale, select returned items, and refund the correct payment method."
         )
+        self.return_header = header
         layout.addWidget(header)
 
         lookup_card = Card()
@@ -130,8 +131,28 @@ class ReturnsScreen(QWidget):
         buttons.addWidget(self.btn_clear)
         buttons.addWidget(self.btn_process)
         action_layout.addLayout(buttons)
-        layout.addWidget(action_card)
+        # Below 900x600 the return form otherwise compresses two fields,
+        # explanatory copy and refund actions into overlapping rows. Scroll
+        # only this panel; preserve the sale lookup and item table above.
+        self.action_scroll = QScrollArea()
+        self.action_scroll.setObjectName("returnActionScroll")
+        self.action_scroll.setWidgetResizable(True)
+        self.action_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.action_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.action_scroll.setMinimumHeight(160)
+        self.action_scroll.setWidget(action_card)
+        layout.addWidget(self.action_scroll)
         self._load_pending_return()
+
+    def resizeEvent(self, event):
+        # The application shell already displays the task title. At very
+        # small heights remove this duplicate heading, not the form fields.
+        if hasattr(self, "return_header"):
+            in_shell = hasattr(self.window(), "lbl_workspace_title")
+            show_header = not (in_shell and event.size().height() < 620)
+            if self.return_header.isVisible() != show_header:
+                self.return_header.setVisible(show_header)
+        super().resizeEvent(event)
 
     @staticmethod
     def _employee_id():
