@@ -405,6 +405,31 @@ class ThemeManager:
             font-weight: 700;
         }}
 
+        /* Cashier tender choices remain keyboard-compatible with the hidden
+           selection combo; checked state is the one visible active method. */
+        QPushButton#paymentOption {{
+            padding: {max(5, int(7 * scale))}px {max(4, int(6 * scale))}px;
+            min-height: {LayoutMetrics.scaled(40, scale)}px;
+            border: 1px solid {bd_str};
+            background-color: {surf};
+            color: {txt2};
+            font-weight: 700;
+        }}
+        QPushButton#paymentOption:hover {{
+            border-color: {accent};
+            color: {txt};
+        }}
+        QPushButton#paymentOption:checked {{
+            color: {accent};
+            background-color: {acc_lt};
+            border: 2px solid {accent};
+        }}
+        QPushButton#paymentOption:disabled {{
+            color: {t.TEXT_MUTED};
+            background-color: {elevated};
+            border: 1px solid {bd_sub};
+        }}
+
         /* Danger action button */
         QPushButton#dangerButton {{
             background-color: {t.DANGER};
