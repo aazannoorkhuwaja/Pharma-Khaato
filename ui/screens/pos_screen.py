@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from decimal import Decimal, ROUND_HALF_UP
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QDoubleSpinBox,
     QFrame, QDialog, QScrollArea, QCheckBox, QMessageBox,
 )
@@ -75,13 +75,12 @@ class POSScreen(QWidget):
         search_layout.setSpacing(8)
 
         header = QHBoxLayout()
-        title = QLabel("New Sale")
-        title.setObjectName("h1")
-        title.setStyleSheet(f"color: {ThemeTokens.ACCENT}; font-weight: 800;")
+        title = QLabel("Search & Scan")
+        title.setObjectName("h2")
         header.addWidget(title)
         header.addStretch()
 
-        shortcut_hint = QLabel("F1 search  •  F2 customer  •  F10 complete")
+        shortcut_hint = QLabel("F1 Search  ·  F2 Customer  ·  F5 Hold  ·  F6 Resume  ·  F12 Complete")
         shortcut_hint.setObjectName("caption")
         set_tone(shortcut_hint, "muted")
         shortcut_hint.setToolTip(
@@ -104,6 +103,30 @@ class POSScreen(QWidget):
         self.txt_search.textChanged.connect(self.on_search_text_changed)
         self.txt_search.returnPressed.connect(self.on_search_submit)
         search_layout.addWidget(self.txt_search)
+
+        # Context actions sit beside the scan workflow, not in the payment
+        # footer. They preserve the existing shortcuts and controller methods.
+        quick_actions = QHBoxLayout()
+        quick_actions.setSpacing(6)
+        self.btn_customer_focus = QPushButton("Customer (F2)")
+        self.btn_customer_focus.setProperty("compact", True)
+        self.btn_customer_focus.setToolTip("Find or choose a customer without leaving this sale")
+        self.btn_customer_focus.clicked.connect(lambda: self.txt_customer.setFocus())
+        quick_actions.addWidget(self.btn_customer_focus)
+
+        self.btn_hold = QPushButton("Hold Sale (F5)")
+        self.btn_hold.setProperty("compact", True)
+        self.btn_hold.setToolTip("Save this sale for later")
+        self.btn_hold.clicked.connect(self.on_hold_sale)
+        quick_actions.addWidget(self.btn_hold)
+
+        self.btn_recall = QPushButton("Resume Sale (F6)")
+        self.btn_recall.setProperty("compact", True)
+        self.btn_recall.setToolTip("Resume a previously held sale")
+        self.btn_recall.clicked.connect(self.on_recall_sale)
+        quick_actions.addWidget(self.btn_recall)
+        quick_actions.addStretch(1)
+        search_layout.addLayout(quick_actions)
 
         self.lbl_search_feedback = QLabel()
         self.lbl_search_feedback.setObjectName("caption")
@@ -133,9 +156,15 @@ class POSScreen(QWidget):
         cart_card = Card()
         cart_layout = cart_card.layout()
 
+        cart_header_row = QHBoxLayout()
         cart_header = QLabel("Sale Items")
         cart_header.setObjectName("h2")
-        cart_layout.addWidget(cart_header)
+        cart_header_row.addWidget(cart_header)
+        cart_header_row.addStretch()
+        self.lbl_cart_count = QLabel("0 items")
+        self.lbl_cart_count.setObjectName("caption")
+        cart_header_row.addWidget(self.lbl_cart_count)
+        cart_layout.addLayout(cart_header_row)
 
         self.cart_table = CartTableWidget(
             on_delete_callback=self.remove_cart_row,
@@ -211,7 +240,7 @@ class POSScreen(QWidget):
         summary_layout.setSpacing(12)
         summary_scroll.setWidget(summary_body)
 
-        summary_title = QLabel("Payment")
+        summary_title = QLabel("Invoice & Payment")
         summary_title.setObjectName("h2")
         summary_layout.addWidget(summary_title)
 
@@ -248,7 +277,8 @@ class POSScreen(QWidget):
         summary_layout.addWidget(self.lbl_cust_status)
         summary_layout.addSpacing(4)
 
-        payment_label = QLabel("Pay with:")
+        payment_label = QLabel("Payment Method")
+        payment_label.setObjectName("h2")
         self.cmb_pay_method = QComboBox()
         for display_label, backend_value in PAYMENT_OPTIONS:
             self.cmb_pay_method.addItem(display_label, backend_value)
@@ -258,8 +288,32 @@ class POSScreen(QWidget):
         )
         self.cmb_pay_method.currentIndexChanged.connect(self._on_payment_method_changed)
         summary_layout.addWidget(payment_label)
+        # A hidden Qt combo remains the authoritative UI selection, preserving
+        # F4 cycling and all existing controller/checkout integrations.
         summary_layout.addWidget(self.cmb_pay_method)
-        summary_layout.addSpacing(4)
+        self.cmb_pay_method.hide()
+        self.payment_choice_buttons = []
+        choices = QGridLayout()
+        choices.setHorizontalSpacing(6)
+        choices.setVerticalSpacing(6)
+        for index, (display_label, _backend_value) in enumerate(PAYMENT_OPTIONS):
+            label = "Credit" if display_label == "Customer Credit" else display_label
+            button = QPushButton(label)
+            button.setObjectName("paymentOption")
+            button.setCheckable(True)
+            button.setAccessibleName(display_label)
+            button.setToolTip(
+                "Requires a registered credit customer" if display_label == "Customer Credit"
+                else "Pay with " + display_label
+            )
+            button.clicked.connect(
+                lambda _checked=False, choice=index:
+                    self.cmb_pay_method.setCurrentIndex(choice)
+            )
+            choices.addWidget(button, index // 3, index % 3)
+            self.payment_choice_buttons.append(button)
+        summary_layout.addLayout(choices)
+        summary_layout.addSpacing(2)
 
         fin_frame = QFrame()
         fin_frame.setObjectName("insetPanel")
@@ -335,16 +389,6 @@ class POSScreen(QWidget):
         self.btn_checkout.setMinimumHeight(44)
         self.btn_checkout.clicked.connect(self.on_checkout)
 
-        hold_row = QHBoxLayout()
-        self.btn_hold = QPushButton("Hold Sale")
-        self.btn_hold.setToolTip("Hold this sale (F5)")
-        self.btn_hold.clicked.connect(self.on_hold_sale)
-        self.btn_recall = QPushButton("Held Sales")
-        self.btn_recall.setToolTip("Resume a held sale (F6)")
-        self.btn_recall.clicked.connect(self.on_recall_sale)
-        hold_row.addWidget(self.btn_hold)
-        hold_row.addWidget(self.btn_recall)
-
         self.btn_clear = QPushButton("Clear Sale")
         self.btn_clear.setToolTip("Clear the sale (Ctrl+Delete)")
         self.btn_clear.clicked.connect(self.on_clear_cart_requested)
@@ -352,7 +396,6 @@ class POSScreen(QWidget):
         right_layout.addWidget(self.lbl_total)
         right_layout.addWidget(self.lbl_change)
         right_layout.addWidget(self.btn_checkout)
-        right_layout.addLayout(hold_row)
         right_layout.addWidget(self.btn_clear)
 
         layout.addLayout(left_col, 7)
@@ -440,6 +483,9 @@ class POSScreen(QWidget):
             self.txt_search.clearFocus()
 
     def _on_payment_method_changed(self, *_):
+        selected = self.cmb_pay_method.currentIndex()
+        for index, button in enumerate(getattr(self, "payment_choice_buttons", [])):
+            button.setChecked(index == selected)
         is_cash = (
             self.cmb_pay_method.currentData() or self.cmb_pay_method.currentText()
         ) == "Cash"
@@ -811,6 +857,7 @@ class POSScreen(QWidget):
         has_items = bool(self.session.active_cart)
         self.lbl_cart_empty.setVisible(not has_items)
         self.cart_table.setVisible(has_items)
+        self.lbl_cart_count.setText(f"{len(self.session.active_cart)} items")
         self.refresh_payment_totals()
 
     def refresh_payment_totals(self):
