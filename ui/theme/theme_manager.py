@@ -240,7 +240,7 @@ class ThemeManager:
             border-radius: {r_md}px;
         }}
         QLabel#posTotal {{
-            font-size: {max(fs_h1, int(24 * scale))}px;
+            font-size: {max(fs_h2, int(20 * scale))}px;
             font-weight: 900;
             color: {txt};
             background-color: {acc_lt};
