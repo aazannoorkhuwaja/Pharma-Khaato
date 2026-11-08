@@ -153,6 +153,9 @@ class ThemeManager:
         row_ph    = max(8, int(10 * scale))
         card_gap  = max(10, int(14 * scale))
         scroll_w  = max(8, int(10 * scale))
+        sidebar_bg = "#14243D" if not is_dark else "#0E1A2C"
+        sidebar_hover = "#243C56" if not is_dark else "#1A3047"
+        sidebar_muted = "#B9C9DA"
 
         # Aliased token values for readability below
         bg        = t.BG_DARK
@@ -220,37 +223,89 @@ class ThemeManager:
 
         /* ── Sidebar Container & Nav ──────────────────────────────────── */
         QFrame#sidebarFrame {{
-            background: {surf_grad};
-            border-right: 1px solid {bd_sub};
+            background: {sidebar_bg};
+            border-right: 1px solid {sidebar_hover};
+        }}
+        QScrollArea#sidebarScroll, QScrollArea#sidebarScroll > QWidget,
+        QWidget#sidebarBody {{
+            background: {sidebar_bg};
+            border: none;
+        }}
+        QLabel#sidebarBrand {{
+            color: #FFFFFF;
+            font-size: {fs_h2}px;
+            font-weight: 800;
+        }}
+        QLabel#sidebarCaption {{
+            color: {sidebar_muted};
+            font-size: {fs_label}px;
+        }}
+        QFrame#workspaceHeader {{
+            background: {surf};
+            border-bottom: 1px solid {bd_sub};
+            border-radius: 0px;
+        }}
+        QLabel#workspaceTitle {{
+            color: {txt};
+            font-size: {fs_h1}px;
+            font-weight: 800;
+        }}
+        QLabel#workspaceMeta {{
+            color: {txt2};
+            font-size: {fs_label}px;
+            font-weight: 600;
+        }}
+        QLabel#workspaceShift {{
+            color: {t.WARNING};
+            background-color: {elevated};
+            border: 1px solid {bd_sub};
+            border-radius: {r_sm}px;
+            padding: 4px 8px;
+            font-weight: 700;
+        }}
+        QLabel#workspaceShift[shiftOpen="true"] {{
+            color: {accent};
+            background-color: {acc_lt};
+            border-color: {accent};
         }}
         QPushButton#navButton {{
             text-align: left;
             background-color: transparent;
-            color: {txt2};
+            color: #E4EBF4;
             border: 1px solid transparent;
             padding: {max(7, int(9 * scale))}px {max(8, int(11 * scale))}px;
             font-weight: 600;
         }}
         QPushButton#navButton:hover {{
-            background-color: {elevated};
-            color: {txt};
-            border-color: {bd_sub};
+            background-color: {sidebar_hover};
+            color: #FFFFFF;
+            border-color: {sidebar_hover};
         }}
         QPushButton#navButton:checked {{
-            background-color: {acc_lt};
-            color: {accent};
-            border-color: {accent};
+            background-color: #087E5A;
+            color: #FFFFFF;
+            border-color: #15926A;
             font-weight: 800;
         }}
         QPushButton#sidebarUtilityButton {{
+            background-color: {sidebar_bg};
+            color: #E4EBF4;
+            border: 1px solid {sidebar_hover};
             font-size: {fs_label}px;
             padding: {max(5, int(6 * scale))}px {max(7, int(9 * scale))}px;
         }}
         QPushButton#sidebarLogoutButton {{
-            color: {t.DANGER};
+            background-color: {sidebar_bg};
+            color: #F8B4B4;
+            border: 1px solid {sidebar_hover};
             font-weight: 700;
             font-size: {fs_label}px;
             padding: {max(5, int(6 * scale))}px {max(7, int(9 * scale))}px;
+        }}
+        QPushButton#sidebarUtilityButton:hover {{
+            background-color: {sidebar_hover};
+            color: #FFFFFF;
+            border-color: {sidebar_hover};
         }}
         QPushButton#sidebarLogoutButton:hover {{
             background-color: {t.DANGER};
