@@ -221,9 +221,9 @@ class MainWindow(QMainWindow):
         self._sidebar_mode = mode
         self.sidebar.setFixedWidth(sidebar_width)
         mini_labels = {
-            "pos": "POS", "customers": "Cust", "khatoo": "Credit",
-            "inventory": "Stock", "cash_session": "Cash",
-            "reports": "Rpt", "settings": "Set", "returns": "Rtn",
+            "pos": "P", "customers": "CU", "khatoo": "CR",
+            "inventory": "ST", "cash_session": "CA",
+            "reports": "RP", "settings": "SE", "returns": "RT",
         }
         for key, text, short_text, shortcut_key in self._nav_items:
             label = text if mode == "full" else short_text if mode == "compact" else mini_labels.get(key, key)
