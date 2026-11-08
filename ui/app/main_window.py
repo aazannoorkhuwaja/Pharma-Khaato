@@ -234,12 +234,23 @@ class MainWindow(QMainWindow):
         self.lbl_clock.setVisible(mode != "mini")
         self.user_badge.setVisible(mode != "mini")
         self.lbl_version.setVisible(mode != "mini")
-        self.btn_printer_setup.setText("Printer" if mode == "mini" else "Printer Setup")
-        self.btn_about.setText("About" if mode == "mini" else "About Pharma Khaato")
-        self.btn_getting_started.setText("Prepare" if mode == "mini" else "Prepare Your Shop")
+        self.btn_printer_setup.setText("PRN" if mode == "mini" else "Printer Setup")
+        self.btn_shop_computers.setText("LAN" if mode == "mini" else "Shop Computers")
+        self.btn_about.setText("INF" if mode == "mini" else "About Pharma Khaato")
+        self.btn_getting_started.setText("HLP" if mode == "mini" else "Prepare Your Shop")
+        for button, help_text in (
+            (self.btn_printer_setup, "Printer Setup"),
+            (self.btn_shop_computers, "Shop Computers"),
+            (self.btn_about, "About Pharma Khaato"),
+            (self.btn_getting_started, "Prepare Your Shop"),
+            (self.btn_theme_toggle, "Toggle Light / Dark Theme"),
+            (self.btn_logout, "Sign Out"),
+        ):
+            button.setAccessibleName(help_text)
+            button.setToolTip(help_text)
         if mode == "mini":
-            self.btn_theme_toggle.setText("Thm")
-            self.btn_logout.setText("Out")
+            self.btn_theme_toggle.setText("THM")
+            self.btn_logout.setText("OUT")
         else:
             self.refresh_theme_toggle_label(update_density=False)
             self.btn_logout.setText("Sign Out")
@@ -329,7 +340,7 @@ class MainWindow(QMainWindow):
     def refresh_theme_toggle_label(self, update_density: bool = True):
         mode = ThemeManager.get_theme_mode()
         if self._sidebar_mode == "mini":
-            self.btn_theme_toggle.setText("Thm")
+            self.btn_theme_toggle.setText("THM")
         else:
             self.btn_theme_toggle.setText("Use Light Mode" if mode == "dark" else "Use Dark Mode")
         if update_density:
