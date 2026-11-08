@@ -260,6 +260,16 @@ def collect():
                         failures.append(f"{label}/pos: payment tiles not single-select")
                     if width <= 1024 and window.router.get_current_key() != "pos":
                         failures.append(f"{label}/pos: POS not active")
+                if key == "returns":
+                    returns = screens["returns"]
+                    condition_bottom = (
+                        returns.cmb_condition.mapTo(returns, QPoint(0, 0)).y()
+                        + returns.cmb_condition.height()
+                    )
+                    reason_top = returns.txt_reason.mapTo(returns, QPoint(0, 0)).y()
+                    record["return_form_gap"] = reason_top - condition_bottom
+                    if record["return_form_gap"] < 0:
+                        failures.append(f"{label}/returns: condition and reason inputs overlap")
                 checks.append(record)
 
             if not args.quick and label == "counter_1366":
