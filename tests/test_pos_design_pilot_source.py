@@ -30,6 +30,8 @@ def test_cart_shows_expiry_preview_without_exposing_internal_batch_id():
     assert 'QTableWidgetItem(str(item.get("expiry_date") or "Review"))' in POS
     assert "selected batch expiry as a preview" in POS.lower()
     assert '"batch_id": batch_id' in POS  # authoritative backend still receives it
+    assert '"expiry_date": str(product_item.get("expiry_date") or "")' in STATE
+    assert 'item["expiry_date"] = "Verify at checkout"' in STATE
 
 
 def test_payment_remains_backend_validated_and_recoverable():
