@@ -54,9 +54,11 @@ class MainWindow(QMainWindow):
         sidebar_outer = QVBoxLayout(self.sidebar)
         sidebar_outer.setContentsMargins(0, 0, 0, 0)
         self.sidebar_scroll = QScrollArea()
+        self.sidebar_scroll.setObjectName("sidebarScroll")
         self.sidebar_scroll.setWidgetResizable(True)
         self.sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         sidebar_body = QWidget()
+        sidebar_body.setObjectName("sidebarBody")
         self.sidebar_scroll.setWidget(sidebar_body)
         sidebar_outer.addWidget(self.sidebar_scroll)
         sidebar_layout = QVBoxLayout(sidebar_body)
@@ -65,17 +67,15 @@ class MainWindow(QMainWindow):
         sidebar_layout.setSpacing(8)
 
         self.brand_label = QLabel("PHARMA KHAATO")
-        self.brand_label.setObjectName("h2")
-        self.brand_label.setStyleSheet(f"color: {ThemeTokens.ACCENT}; font-weight: 800;")
+        self.brand_label.setObjectName("sidebarBrand")
         self.sub_brand = QLabel(ApplicationSettings.PRODUCT_TAGLINE)
-        self.sub_brand.setObjectName("caption")
+        self.sub_brand.setObjectName("sidebarCaption")
         self.sub_brand.setWordWrap(True)
         sidebar_layout.addWidget(self.brand_label)
         sidebar_layout.addWidget(self.sub_brand)
 
         self.lbl_clock = QLabel()
-        self.lbl_clock.setObjectName("caption")
-        self.lbl_clock.setStyleSheet("font-weight: 600;")
+        self.lbl_clock.setObjectName("sidebarCaption")
         sidebar_layout.addWidget(self.lbl_clock)
 
         self.clock_timer = QTimer(self)
@@ -103,13 +103,13 @@ class MainWindow(QMainWindow):
 
         sidebar_layout.addStretch()
         self.user_badge = QLabel("User: Signed Out")
-        self.user_badge.setObjectName("caption")
+        self.user_badge.setObjectName("sidebarCaption")
         self.user_badge.setWordWrap(True)
         self.user_badge.setStyleSheet("font-weight: 700;")
         sidebar_layout.addWidget(self.user_badge)
 
         self.lbl_version = QLabel(f"Version {ApplicationSettings.APP_VERSION}")
-        self.lbl_version.setObjectName("caption")
+        self.lbl_version.setObjectName("sidebarCaption")
         self.lbl_version.setToolTip("Installed Pharma Khaato version")
         sidebar_layout.addWidget(self.lbl_version)
 
@@ -152,9 +152,36 @@ class MainWindow(QMainWindow):
         self.btn_logout.clicked.connect(lambda _checked=False: self.on_logout())
         sidebar_layout.addWidget(self.btn_logout)
 
+        # Persistent task header. The existing lazy screen router remains intact.
         self.router = AppRouter()
+        workspace = QWidget()
+        workspace.setObjectName("workspace")
+        workspace_layout = QVBoxLayout(workspace)
+        workspace_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_layout.setSpacing(0)
+
+        self.workspace_header = QFrame()
+        self.workspace_header.setObjectName("workspaceHeader")
+        header_layout = QHBoxLayout(self.workspace_header)
+        header_layout.setContentsMargins(16, 8, 16, 8)
+        header_layout.setSpacing(12)
+        self.lbl_workspace_title = QLabel("Billing / New Sale")
+        self.lbl_workspace_title.setObjectName("workspaceTitle")
+        header_layout.addWidget(self.lbl_workspace_title)
+        header_layout.addStretch(1)
+        self.lbl_workspace_user = QLabel("")
+        self.lbl_workspace_user.setObjectName("workspaceMeta")
+        header_layout.addWidget(self.lbl_workspace_user)
+        self.lbl_workspace_shift = QLabel("Checking shift")
+        self.lbl_workspace_shift.setObjectName("workspaceShift")
+        header_layout.addWidget(self.lbl_workspace_shift)
+        self.lbl_header_clock = QLabel("")
+        self.lbl_header_clock.setObjectName("workspaceMeta")
+        header_layout.addWidget(self.lbl_header_clock)
+        workspace_layout.addWidget(self.workspace_header)
+        workspace_layout.addWidget(self.router, 1)
         main_layout.addWidget(self.sidebar)
-        main_layout.addWidget(self.router, 1)
+        main_layout.addWidget(workspace, 1)
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -210,6 +237,9 @@ class MainWindow(QMainWindow):
 
     def update_clock(self):
         now = datetime.now()
+        self.lbl_header_clock.setText(now.strftime("%d %b %Y  •  %I:%M %p"))
+        self.lbl_header_clock.setVisible(self.width() >= LayoutMetrics.SIDEBAR_FULL_AT)
+        self.lbl_workspace_user.setVisible(self.width() >= LayoutMetrics.SIDEBAR_COMPACT_AT)
         if self._sidebar_mode == "mini":
             self.lbl_clock.setText(now.strftime("%H:%M"))
             self.lbl_clock.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -229,7 +259,11 @@ class MainWindow(QMainWindow):
             return
         for key, btn in self.nav_buttons.items():
             btn.setChecked(key == screen_key)
-        self.router.navigate_to(screen_key)
+        if self.router.navigate_to(screen_key):
+            title = NAV_BY_KEY[screen_key].label
+            self.lbl_workspace_title.setText(
+                "Billing / New Sale" if screen_key == "pos" else title
+            )
 
     def get_allowed_screens(self):
         base = ["pos", "customers", "khatoo", "cash_session"]
@@ -288,6 +322,10 @@ class MainWindow(QMainWindow):
     def _show_shift_status(self, session):
         self._shift_tasks.invalidate("shift")
         self.lbl_shift_status.setText("Shift Open" if session else "Shift Closed")
+        self.lbl_workspace_shift.setText("Shift Open" if session else "Shift Closed")
+        self.lbl_workspace_shift.setProperty("shiftOpen", bool(session))
+        self.lbl_workspace_shift.style().unpolish(self.lbl_workspace_shift)
+        self.lbl_workspace_shift.style().polish(self.lbl_workspace_shift)
         color = ThemeTokens.SUCCESS if session else ThemeTokens.WARNING
         self.lbl_shift_status.setStyleSheet(f"color: {color}; font-weight: 700; padding: 0 8px;")
 
@@ -297,7 +335,10 @@ class MainWindow(QMainWindow):
         role = role_label(user_dict.get("occupation", "Staff")) if isinstance(user_dict, dict) else "Staff"
         emp_id = user_dict.get("id", 1) if isinstance(user_dict, dict) else 1
         self.user_badge.setText(f"{uname}\n{role}")
+        self.lbl_workspace_user.setText(f"{role}: {uname}")
         self.lbl_shift_status.setText("Checking Shift")
+        self.lbl_workspace_shift.setText("Checking shift")
+        self.lbl_workspace_shift.setProperty("shiftOpen", False)
         self._shift_tasks.run_latest("shift", lambda: _CASH_CONTROLLER.active_session(emp_id),
                                     self._show_shift_status,
                                     lambda _e: self.lbl_shift_status.setText("Shift unavailable"))
