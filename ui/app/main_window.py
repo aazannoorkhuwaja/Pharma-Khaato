@@ -329,6 +329,14 @@ class MainWindow(QMainWindow):
         color = ThemeTokens.SUCCESS if session else ThemeTokens.WARNING
         self.lbl_shift_status.setStyleSheet(f"color: {color}; font-weight: 700; padding: 0 8px;")
 
+    def _shift_status_unavailable(self):
+        # Unknown is never displayed as 'Closed' or 'Open'.
+        self.lbl_shift_status.setText("Shift unavailable")
+        self.lbl_workspace_shift.setText("Shift unavailable")
+        self.lbl_workspace_shift.setProperty("shiftOpen", False)
+        self.lbl_workspace_shift.style().unpolish(self.lbl_workspace_shift)
+        self.lbl_workspace_shift.style().polish(self.lbl_workspace_shift)
+
     def set_active_user(self, user_dict):
         self.current_user = user_dict
         uname = user_dict.get("username", "Cashier") if isinstance(user_dict, dict) else str(user_dict)
@@ -341,7 +349,7 @@ class MainWindow(QMainWindow):
         self.lbl_workspace_shift.setProperty("shiftOpen", False)
         self._shift_tasks.run_latest("shift", lambda: _CASH_CONTROLLER.active_session(emp_id),
                                     self._show_shift_status,
-                                    lambda _e: self.lbl_shift_status.setText("Shift unavailable"))
+                                    lambda _e: self._shift_status_unavailable())
         allowed = self.get_allowed_screens()
         for key, btn in self.nav_buttons.items():
             btn.setVisible(key in allowed)
