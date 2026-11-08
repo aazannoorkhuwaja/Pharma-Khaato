@@ -144,15 +144,23 @@ class ReturnsScreen(QWidget):
         layout.addWidget(self.action_scroll)
         self._load_pending_return()
 
+    def _update_header_density(self):
+        # The header is redundant in the main application shell on shorter
+        # screens, but must remain visible when this widget runs standalone.
+        in_shell = hasattr(self.window(), "lbl_workspace_title")
+        show_header = not (in_shell and self.height() < 620)
+        if self.return_header.isHidden() == show_header:
+            self.return_header.setVisible(show_header)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # On the first resize the screen may not yet belong to MainWindow.
+        self._update_header_density()
+
     def resizeEvent(self, event):
-        # The application shell already displays the task title. At very
-        # small heights remove this duplicate heading, not the form fields.
-        if hasattr(self, "return_header"):
-            in_shell = hasattr(self.window(), "lbl_workspace_title")
-            show_header = not (in_shell and event.size().height() < 620)
-            if self.return_header.isVisible() != show_header:
-                self.return_header.setVisible(show_header)
         super().resizeEvent(event)
+        if hasattr(self, "return_header"):
+            self._update_header_density()
 
     @staticmethod
     def _employee_id():
