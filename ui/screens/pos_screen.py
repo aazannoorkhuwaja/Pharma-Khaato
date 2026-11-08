@@ -308,7 +308,7 @@ class POSScreen(QWidget):
             )
             button.clicked.connect(
                 lambda _checked=False, choice=index:
-                    self.cmb_pay_method.setCurrentIndex(choice)
+                    self._select_payment_method(choice)
             )
             choices.addWidget(button, index // 3, index % 3)
             self.payment_choice_buttons.append(button)
@@ -411,6 +411,17 @@ class POSScreen(QWidget):
         self._restore_pending_checkout()
         ThemeManager.events.changed.connect(self._resize_cart_controls)
 
+    def resizeEvent(self, event):
+        # Do not allow shortcut labels to compress the search field on small
+        # pharmacy screens or with larger Windows text scaling.
+        compact = event.size().width() < 850
+        if hasattr(self, "btn_customer_focus"):
+            self.btn_customer_focus.setText("Customer" if compact else "Customer (F2)")
+            self.btn_hold.setText("Hold" if compact else "Hold Sale (F5)")
+            self.btn_recall.setText("Resume" if compact else "Resume Sale (F6)")
+            self.btn_customer_focus.setToolTip("Find customer (F2)")
+        super().resizeEvent(event)
+
     def _resize_cart_controls(self):
         for row in range(self.cart_table.rowCount()):
             combo = self.cart_table.cellWidget(row, 6)
@@ -481,6 +492,14 @@ class POSScreen(QWidget):
         elif self.txt_search.hasFocus():
             self.txt_search.clear()
             self.txt_search.clearFocus()
+
+    def _select_payment_method(self, index):
+        # Programmatic combo changes remain possible while it is hidden, so
+        # refuse tile changes during an unresolved financial request.
+        if self.session.pending_checkout or self._checkout_in_progress:
+            return
+        self.cmb_pay_method.setCurrentIndex(index)
+        self._on_payment_method_changed()
 
     def _on_payment_method_changed(self, *_):
         selected = self.cmb_pay_method.currentIndex()
@@ -987,7 +1006,9 @@ class POSScreen(QWidget):
     def _set_checkout_locked(self, locked):
         for control in (self.txt_search, self.txt_customer, self.cart_table,
                         self.spn_discount, self.cmb_pay_method, self.chk_exact_cash,
-                        self.btn_clear, self.btn_hold, self.btn_recall, self.btn_add_customer):
+                        self.btn_clear, self.btn_hold, self.btn_recall,
+                        self.btn_customer_focus, self.btn_add_customer,
+                        *self.payment_choice_buttons):
             control.setEnabled(not locked)
         self.spn_cash_received.setEnabled(not locked and self.cmb_pay_method.currentData() == "Cash"
                                           and not self.chk_exact_cash.isChecked())
