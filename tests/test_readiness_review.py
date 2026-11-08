@@ -68,7 +68,15 @@ def test_sidebar_controls_never_overlap(owner, qtbot, qapp, styled):
     qapp.setStyleSheet(styled.build_qss('dark', 1.5))
     window = MainWindow(); qtbot.addWidget(window); window.resize(1100, 650); window.show()
     qapp.processEvents()
-    assert window.nav_buttons['returns'].geometry().bottom() < window.user_badge.geometry().top()
+    # At 150% interface scale the new mini sidebar intentionally hides
+    # secondary badges. If visible, badge must remain below all nav buttons;
+    # otherwise the accessible signed-in state is retained in the status bar.
+    if window.user_badge.isVisible():
+        assert window.nav_buttons['returns'].geometry().bottom() < window.user_badge.geometry().top()
+    else:
+        assert window._sidebar_mode == "mini"
+        assert "Signed in" in window.status_bar.currentMessage()
+        assert window.lbl_workspace_title.isVisible()
     assert window.sidebar_scroll.verticalScrollBar().maximum() > 0
     window.hide()
     qtbot.waitUntil(lambda: QThreadPool.globalInstance().activeThreadCount() == 0, timeout=10000)
