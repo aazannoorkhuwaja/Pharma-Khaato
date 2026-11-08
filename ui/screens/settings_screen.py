@@ -383,7 +383,7 @@ class SettingsScreen(QWidget):
         backup_layout.addWidget(self.tbl_backups, 1)
         tech_grid.addWidget(backup_card, 1)
         tech_layout.addLayout(tech_grid, 1)
-        self.tabs.addTab(self.tab_technical, "System & Recovery")
+        self.tabs.addTab(self.tab_technical, "System && Recovery")
 
     def _on_tab_changed(self, index: int):
         current = self.tabs.widget(index)
