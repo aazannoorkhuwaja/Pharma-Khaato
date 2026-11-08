@@ -80,14 +80,14 @@ class POSScreen(QWidget):
         header.addWidget(title)
         header.addStretch()
 
-        shortcut_hint = QLabel("F1 Search  ·  F2 Customer  ·  F5 Hold  ·  F6 Resume  ·  F12 Complete")
-        shortcut_hint.setObjectName("caption")
-        set_tone(shortcut_hint, "muted")
-        shortcut_hint.setToolTip(
+        self.lbl_shortcuts = QLabel("F1 Search  ·  F2 Customer  ·  F5 Hold  ·  F6 Resume  ·  F12 Complete")
+        self.lbl_shortcuts.setObjectName("caption")
+        set_tone(self.lbl_shortcuts, "muted")
+        self.lbl_shortcuts.setToolTip(
             "Keyboard shortcuts: F1 product search, F2 customer, F3 discount, "
             "F4 payment method, F5 hold, F6 held sales, F10/F12 complete sale."
         )
-        header.addWidget(shortcut_hint)
+        header.addWidget(self.lbl_shortcuts)
         search_layout.addLayout(header)
 
         self.txt_search = SearchLineEdit(
@@ -310,7 +310,8 @@ class POSScreen(QWidget):
                 lambda _checked=False, choice=index:
                     self._select_payment_method(choice)
             )
-            choices.addWidget(button, index // 3, index % 3)
+            # Payment panel can be 292px wide, so three tiles clip here.
+            choices.addWidget(button, index // 2, index % 2)
             self.payment_choice_buttons.append(button)
         summary_layout.addLayout(choices)
         summary_layout.addSpacing(2)
@@ -416,6 +417,10 @@ class POSScreen(QWidget):
         # pharmacy screens or with larger Windows text scaling.
         compact = event.size().width() < 850
         if hasattr(self, "btn_customer_focus"):
+            self.lbl_shortcuts.setText(
+                "F1 Search  ·  F12 Sale" if compact or ThemeManager.get_font_scale() >= 1.25
+                else "F1 Search  ·  F2 Customer  ·  F5 Hold  ·  F6 Resume  ·  F12 Complete"
+            )
             self.btn_customer_focus.setText("Customer" if compact else "Customer (F2)")
             self.btn_hold.setText("Hold" if compact else "Hold Sale (F5)")
             self.btn_recall.setText("Resume" if compact else "Resume Sale (F6)")
