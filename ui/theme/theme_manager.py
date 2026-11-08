@@ -27,6 +27,7 @@ class ThemeManager:
     events = ThemeEvents()
     _current_mode = "light"   # Light is the default
     _current_scale = 1.0
+    _current_density = "standard"
 
     @classmethod
     def get_theme_mode(cls) -> str:
@@ -35,6 +36,10 @@ class ThemeManager:
     @classmethod
     def get_font_scale(cls) -> float:
         return cls._current_scale
+
+    @classmethod
+    def get_density(cls) -> str:
+        return cls._current_density
 
     @classmethod
     def load_preferences(cls):
@@ -46,10 +51,13 @@ class ThemeManager:
             ThemeTokens.set_palette(mode)
             raw_scale = _SETTINGS_CONTROLLER.get("font_scale", "1.0")
             cls._current_scale = max(0.8, min(2.0, float(raw_scale)))
+            raw_density = _SETTINGS_CONTROLLER.get("display_density", "standard")
+            cls._current_density = raw_density if raw_density in ("standard", "compact") else "standard"
         except (TypeError, ValueError) as e:
             logger.warning(f"Failed to parse theme preferences: {e}")
             cls._current_mode = "light"
             cls._current_scale = 1.0
+            cls._current_density = "standard"
             ThemeTokens.set_palette("light")
         except Exception as e:
             logger.warning(f"Failed to load theme preferences: {e}")
@@ -60,6 +68,7 @@ class ThemeManager:
         ok = _SETTINGS_CONTROLLER.update({
             "theme_mode": cls._current_mode,
             "font_scale": str(cls._current_scale),
+            "display_density": cls._current_density,
         })
         if not ok:
             logger.warning("Failed to save one or more theme preferences.")
@@ -89,6 +98,17 @@ class ThemeManager:
     def set_font_scale(cls, scale: float, save: bool = True):
         """Sets font scaling factor and applies globally."""
         cls._current_scale = max(0.8, min(2.0, float(scale)))
+        if save:
+            cls.save_preferences()
+        cls.apply_theme()
+        cls.events.changed.emit()
+
+    @classmethod
+    def set_density(cls, density: str, save: bool = True):
+        """Switch UI information density without changing financial inputs."""
+        if density not in ("standard", "compact"):
+            return
+        cls._current_density = density
         if save:
             cls.save_preferences()
         cls.apply_theme()
@@ -139,19 +159,26 @@ class ThemeManager:
         t = ThemeTokens
         is_dark = (mode == "dark")
 
+        # Compact only affects spacing; it never shrinks text below the
+        # user's chosen accessible interface scale.
+        density_ratio = 0.80 if cls._current_density == "compact" else 1.0
+
         # ── Scaled sizes ──────────────────────────────────────────────────
         fs_body   = int(t.FONT_SIZE_BODY * scale)    # 13px at 1.0 — minimum for counter data
         fs_label  = int(t.FONT_SIZE_LABEL * scale)   # 11px — secondary labels only
         fs_h2     = int(t.FONT_SIZE_H2 * scale)
         fs_h1     = int(t.FONT_SIZE_H1 * scale)
-        btn_pv    = max(6, int(8 * scale))
+        btn_pv    = max(5, int(8 * scale * density_ratio))
         btn_ph    = max(10, int(16 * scale))
-        inp_pv    = max(4, int(6 * scale))
-        inp_h_min = LayoutMetrics.scaled(LayoutMetrics.CONTROL_HEIGHT, scale)
+        inp_pv    = max(4, int(6 * scale * density_ratio))
+        inp_h_min = LayoutMetrics.scaled(
+            34 if cls._current_density == "compact" else LayoutMetrics.CONTROL_HEIGHT,
+            scale,
+        )
         action_h  = LayoutMetrics.scaled(LayoutMetrics.PRIMARY_ACTION_HEIGHT, scale)
-        row_pv    = max(6, int(7 * scale))
+        row_pv    = max(4, int(7 * scale * density_ratio))
         row_ph    = max(8, int(10 * scale))
-        card_gap  = max(10, int(14 * scale))
+        card_gap  = max(8, int(14 * scale * density_ratio))
         scroll_w  = max(8, int(10 * scale))
         sidebar_bg = "#14243D" if not is_dark else "#0E1A2C"
         sidebar_hover = "#243C56" if not is_dark else "#1A3047"
