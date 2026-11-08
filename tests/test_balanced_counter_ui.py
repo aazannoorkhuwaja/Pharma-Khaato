@@ -41,9 +41,13 @@ def test_tender_tiles_follow_combo_and_lock_during_pending_checkout(owner, qtbot
 
     screen._set_checkout_locked(True)
     assert all(not b.isEnabled() for b in screen.payment_choice_buttons)
-    screen._select_payment_method(1)  # prohibited when a sale is unresolved
-    # _set_checkout_locked also sets enabled flags, but has no backend mutation.
-    screen._set_checkout_locked(False)
+    screen.session.pending_checkout = {"request": {"checkout_token": "pending-test"}}
+    try:
+        screen._select_payment_method(1)
+        assert screen.cmb_pay_method.currentData() == "Easypaisa"
+    finally:
+        screen.session.pending_checkout = None
+        screen._set_checkout_locked(False)
     settle(qtbot, screen)
 
 
