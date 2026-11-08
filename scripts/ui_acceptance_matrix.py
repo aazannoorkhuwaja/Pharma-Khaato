@@ -208,6 +208,16 @@ def collect():
                 }
                 if not visible_title:
                     failures.append(f"{label}/{key}: workspace heading outside window")
+                # Navigation remains readable, not merely inside a clipped
+                # Qt widget. This checks text width; separately inspect captures.
+                nav_clipped = [
+                    name for name, button in window.nav_buttons.items()
+                    if button.isVisible() and button.fontMetrics().horizontalAdvance(
+                        button.text().replace("&&", "&")
+                    ) > button.width() - 12
+                ]
+                if nav_clipped:
+                    failures.append(f"{label}/{key}: sidebar nav label clipped: {nav_clipped}")
                 if key == "pos":
                     pos = screens["pos"]
                     anchors = {
@@ -219,6 +229,27 @@ def collect():
                         name: inside_window(window, widget)
                         for name, widget in anchors.items()
                     }
+                    # Prevent false greens where anchors fit but captions or
+                    # tender tiles are horizontally cut off inside a scroll panel.
+                    scroll = pos.findChild(
+                        __import__("PySide6.QtWidgets", fromlist=["QScrollArea"]).QScrollArea,
+                        "paymentSummaryScroll",
+                    )
+                    viewport = scroll.viewport()
+                    record["payment_tiles_fit"] = all(
+                        (button.mapTo(viewport, QPoint(0, 0)).x() >= 0 and
+                         button.mapTo(viewport, QPoint(0, 0)).x() + button.width() <= viewport.width())
+                        for button in pos.payment_choice_buttons
+                    )
+                    if not record["payment_tiles_fit"]:
+                        failures.append(f"{label}/pos: payment buttons horizontally clipped")
+                    record["shortcuts_fit"] = (
+                        pos.lbl_shortcuts.fontMetrics().horizontalAdvance(
+                            pos.lbl_shortcuts.text()
+                        ) <= pos.lbl_shortcuts.width() + 3
+                    )
+                    if not record["shortcuts_fit"]:
+                        failures.append(f"{label}/pos: shortcut legend clipped")
                     record["tender_count"] = len(pos.payment_choice_buttons)
                     record["selected_tenders"] = sum(button.isChecked()
                                                      for button in pos.payment_choice_buttons)
