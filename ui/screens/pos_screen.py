@@ -7,7 +7,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QDoubleSpinBox,
-    QFrame, QDialog, QScrollArea, QCheckBox, QMessageBox,
+    QFrame, QDialog, QScrollArea, QCheckBox, QMessageBox, QSizePolicy,
 )
 from PySide6.QtCore import Qt, QTimer, QEvent
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -235,6 +235,8 @@ class POSScreen(QWidget):
 
         summary_body = QWidget()
         summary_body.setObjectName("paymentSummaryBody")
+        summary_body.setMinimumWidth(0)
+        summary_body.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         summary_layout = QVBoxLayout(summary_body)
         summary_layout.setContentsMargins(0, 0, 4, 0)
         summary_layout.setSpacing(12)
@@ -296,11 +298,15 @@ class POSScreen(QWidget):
         choices = QGridLayout()
         choices.setHorizontalSpacing(6)
         choices.setVerticalSpacing(6)
+        choices.setColumnStretch(0, 1)
+        choices.setColumnStretch(1, 1)
         for index, (display_label, _backend_value) in enumerate(PAYMENT_OPTIONS):
             label = "Credit" if display_label == "Customer Credit" else display_label
             button = QPushButton(label)
             button.setObjectName("paymentOption")
             button.setCheckable(True)
+            button.setMinimumWidth(0)
+            button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             button.setAccessibleName(display_label)
             button.setToolTip(
                 "Requires a registered credit customer" if display_label == "Customer Credit"
