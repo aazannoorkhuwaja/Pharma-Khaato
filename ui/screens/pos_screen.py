@@ -146,11 +146,11 @@ class POSScreen(QWidget):
             "Select an item and press Delete to remove it. Use + or - to change quantity."
         )
         self.cart_table.setHorizontalHeaderLabels(
-            ["Product", "Batch", "Price", "Qty", "Amount", "In Stock", "Unit"]
+            ["Product", "Expiry", "Price", "Qty", "Amount", "In Stock", "Unit"]
         )
         self.cart_table.setColumnCount(7)
         self.cart_table.setHorizontalHeaderLabels(
-            ["Product", "Batch", "Price", "Qty", "Amount", "In Stock", "Unit"]
+            ["Product", "Expiry", "Price", "Qty", "Amount", "In Stock", "Unit"]
         )
         self.cart_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.cart_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
@@ -275,7 +275,7 @@ class POSScreen(QWidget):
         self.spn_discount.setPrefix("Rs. ")
         self.spn_discount.setDecimals(2)
         self.spn_discount.setAccessibleName("Discount amount")
-        self.spn_discount.valueChanged.connect(self.refresh_cart_display)
+        self.spn_discount.valueChanged.connect(self.refresh_payment_totals)
         discount_row.addWidget(self.spn_discount)
 
         cash_row = QHBoxLayout()
@@ -286,7 +286,7 @@ class POSScreen(QWidget):
         self.spn_cash_received.setPrefix("Rs. ")
         self.spn_cash_received.setDecimals(2)
         self.spn_cash_received.setAccessibleName("Cash received")
-        self.spn_cash_received.valueChanged.connect(self.refresh_cart_display)
+        self.spn_cash_received.valueChanged.connect(self.refresh_payment_totals)
         cash_row.addWidget(self.spn_cash_received)
 
         self.lbl_total = QLabel("Total: Rs. 0.00")
@@ -565,13 +565,14 @@ class POSScreen(QWidget):
     def _add_result_tuple_to_cart(self, result, clear_search=True):
         if self.session.pending_checkout:
             return
-        product_id, product_name, price, batch_id, batch_qty, _batch_expiry = result[:6]
+        product_id, product_name, price, batch_id, batch_qty, batch_expiry = result[:6]
         metadata = result[6] if len(result) > 6 else {}
         product = {
             "prod_id": product_id,
             "name": product_name,
             "price": float(price),
             "batch_id": batch_id,
+            "expiry_date": str(batch_expiry or ""),
             "stock": batch_qty,
             "base_stock": metadata.get("base_stock", batch_qty),
             "unit_code": metadata.get("unit_code", "base"),
@@ -772,11 +773,11 @@ class POSScreen(QWidget):
 
         for row, item in enumerate(self.session.active_cart):
             self.cart_table.setItem(row, 0, QTableWidgetItem(str(item["name"])))
-            # Batch stays in the table for internal traceability but is hidden by
-            # the shared table policy on routine screens.
-            self.cart_table.setItem(
-                row, 1, QTableWidgetItem(str(item.get("batch_id", "-")))
-            )
+            # Show the selected batch expiry as a preview, not an allocation
+            # guarantee. The checkout service revalidates every allocated lot.
+            expiry_item = QTableWidgetItem(str(item.get("expiry_date") or "Review"))
+            expiry_item.setToolTip("Selected lot expiry preview; all lots are rechecked at checkout.")
+            self.cart_table.setItem(row, 1, expiry_item)
             self.cart_table.setItem(
                 row, 2, QTableWidgetItem(f"Rs. {float(item['price']):.2f}")
             )
@@ -810,7 +811,10 @@ class POSScreen(QWidget):
         has_items = bool(self.session.active_cart)
         self.lbl_cart_empty.setVisible(not has_items)
         self.cart_table.setVisible(has_items)
+        self.refresh_payment_totals()
 
+    def refresh_payment_totals(self):
+        """Update payment math without rebuilding cart editors on each keystroke."""
         subtotal = self.session.get_cart_subtotal()
         self.session.discount_amount = self.spn_discount.value()
         net_total = self.session.get_cart_total()
