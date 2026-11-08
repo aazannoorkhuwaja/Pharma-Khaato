@@ -80,7 +80,7 @@ class POSScreen(QWidget):
         header.addWidget(title)
         header.addStretch()
 
-        self.lbl_shortcuts = QLabel("F1 Search  ·  F2 Customer  ·  F5 Hold  ·  F6 Resume  ·  F12 Complete")
+        self.lbl_shortcuts = QLabel("F1 Search  ·  F12 Sale")
         self.lbl_shortcuts.setObjectName("caption")
         set_tone(self.lbl_shortcuts, "muted")
         self.lbl_shortcuts.setToolTip(
@@ -424,8 +424,8 @@ class POSScreen(QWidget):
         compact = event.size().width() < 850
         if hasattr(self, "btn_customer_focus"):
             self.lbl_shortcuts.setText(
-                "F1 Search  ·  F12 Sale" if compact or ThemeManager.get_font_scale() >= 1.25
-                else "F1 Search  ·  F2 Customer  ·  F5 Hold  ·  F6 Resume  ·  F12 Complete"
+                "F1 · F12" if compact or ThemeManager.get_font_scale() >= 1.25
+                else "F1 Search · F12 Sale"
             )
             self.btn_customer_focus.setText("Customer" if compact else "Customer (F2)")
             self.btn_hold.setText("Hold" if compact else "Hold Sale (F5)")
