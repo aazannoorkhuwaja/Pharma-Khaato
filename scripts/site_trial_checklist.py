@@ -59,9 +59,16 @@ def default_record():
         "version": 1,
         "site": "REPLACE WITH NON-SENSITIVE SHOP ALIAS",
         "application_commit": "RECORD TESTED COMMIT",
+        "application_version": "RECORD TESTED VERSION",
         "target_hardware": "RECORD MODEL/OS/PRINTER/SCANNER",
         "operator": "RECORD OPERATOR NAME LOCALLY",
         "reviewer": "RECORD SHOP OWNER/REVIEWER LOCALLY",
+        "approval": {
+            "decision": "pending",  # never automatically approved by CI
+            "date": "",
+            "supervisor_signature_reference": "",
+            "legal_tax_review_reference": "",
+        },
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "notice": "No live customer data, invoices, CNICs, passwords or patient info in this file.",
         "cases": {key: {"title": title, "status": "not_run", "evidence": "", "notes": ""}
