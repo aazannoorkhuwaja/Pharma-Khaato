@@ -1,4 +1,5 @@
 import os
+import ntpath
 import sqlite3
 import json
 import shutil
@@ -73,14 +74,16 @@ def recover_interrupted_restore():
     if not isinstance(state, dict) or not isinstance(state.get("quarantine"), str):
         raise RuntimeError("The recovery journal needs support review.")
     # Select a trusted directory entry rather than using a journal-controlled
-    # path for filesystem operations. Never follow a quarantine symlink.
+    # path for filesystem operations. Match the basename so a moved data
+    # folder can recover its original WAL; ntpath also reads old Windows paths
+    # after a move to Linux. Never follow a quarantine symlink.
     backup_dir = os.path.abspath(PathManager.get_backups_dir())
-    requested = os.path.normcase(os.path.abspath(state["quarantine"]))
+    requested = os.path.normcase(ntpath.basename(state["quarantine"]))
     quarantine = None
     with os.scandir(backup_dir) as entries:
         for entry in entries:
             if (entry.name.startswith("before_restore_") and entry.is_dir(follow_symlinks=False)
-                    and os.path.normcase(entry.path) == requested):
+                    and os.path.normcase(entry.name) == requested):
                 quarantine = entry.path
                 break
     valid = os.path.exists(live) and _validate_sqlite_database(live)[0]

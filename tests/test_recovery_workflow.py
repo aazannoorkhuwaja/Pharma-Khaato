@@ -297,7 +297,8 @@ def test_interrupted_recovery_restores_database_last(seeded_shop, monkeypatch):
     assert not journal.exists()
 
 
-def test_valid_main_with_quarantined_wal_is_an_incomplete_rollback(seeded_shop, monkeypatch):
+@pytest.mark.parametrize('relocated', [False, True])
+def test_valid_main_with_quarantined_wal_is_an_incomplete_rollback(seeded_shop, monkeypatch, relocated):
     """Recover pending journals left by an older interrupted rollback."""
     import json
     from core import backup_service as backups
@@ -319,7 +320,8 @@ def test_valid_main_with_quarantined_wal_is_an_incomplete_rollback(seeded_shop, 
     wal = quarantine / (live.name + '-wal')
     wal.write_bytes(committed_wal)
     journal = Path(PathManager.get_config_dir()) / 'restore-pending.json'
-    journal.write_text(json.dumps({'quarantine': str(quarantine), 'stage': str(live) + '.restore-test'}))
+    recorded_quarantine = str(quarantine) if not relocated else 'C:\\PreviousShop\\backups\\' + quarantine.name
+    journal.write_text(json.dumps({'quarantine': recorded_quarantine, 'stage': str(live) + '.restore-test'}))
     original_replace = backups.os.replace
     def fail_wal(source, destination):
         if str(destination) == str(live) + '-wal':
