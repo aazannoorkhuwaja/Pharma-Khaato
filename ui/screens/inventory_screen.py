@@ -395,6 +395,7 @@ class InventoryScreen(QWidget):
 
         from ui.screens.batches_screen import BatchesScreen
         self.batch_browser = BatchesScreen()
+        self.batch_browser.stock_changed.connect(self.refresh_catalog_data)
         self.tabs.addTab(self.batch_browser, "Batches && Expiry")
         self.tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self.tabs, 1)
@@ -1009,8 +1010,12 @@ class InventoryScreen(QWidget):
                         "Selling price   Rs. " + format(float(product["price"]), ",.2f"),
                         "Shelf   " + str(product.get("rack_location") or "—"),
                         "Barcode   " + str(product.get("barcode") or "—")]))
-                self._tasks.run_latest("product-preview", lambda: _INVENTORY_CONTROLLER.product_details(product_id), loaded,
-                    lambda _details: self.lbl_product_details.setText("Details unavailable. Select the medicine to retry."))
+                def failed(_details):
+                    if self._selected_product_id() != product_id:
+                        return
+                    self.lbl_product_name.setText("Medicine details unavailable")
+                    self.lbl_product_details.setText("Select another medicine, then this medicine to retry.")
+                self._tasks.run_latest("product-preview", lambda: _INVENTORY_CONTROLLER.product_details(product_id), loaded, failed)
         self.btn_selected_stock.setEnabled(selected)
         self.btn_edit_prod.setEnabled(selected)
         self.btn_correct_stock.setEnabled(selected)

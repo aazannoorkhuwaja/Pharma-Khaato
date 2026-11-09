@@ -214,3 +214,52 @@ def test_returns_preview_tracks_quantity_and_clears_stale_sale(reference_ui):
     assert 'Credit Card' in screen.lbl_return_tender.text()
     screen.clear_sale()
     assert screen.lbl_refund_preview.text() == 'Estimated Refund: Rs. 0.00'
+
+
+def test_failed_cash_and_product_reads_leave_loading_state(reference_ui, monkeypatch):
+    from ui.screens import cash_session_screen as cash, inventory_screen as inventory
+    app, state, windows = reference_ui
+    def unavailable(*_args, **_kwargs):
+        raise OSError('test connection interrupted')
+    monkeypatch.setattr(cash._CASH_CONTROLLER, 'active_session', unavailable)
+    drawer = cash.CashSessionScreen(show_message_box=False)
+    windows.append(drawer)
+    drawer.refresh_all_data()
+    settle(app)
+    assert all(label.text() == 'Unavailable' for label in drawer.cash_metrics.values())
+    screen = inventory.InventoryScreen(show_message_box=False)
+    windows.append(screen)
+    screen.show()
+    settle(app)
+    monkeypatch.setattr(inventory._INVENTORY_CONTROLLER, 'product_details', unavailable)
+    screen.tbl_products.selectRow(0)
+    settle(app)
+    assert screen.lbl_product_name.text() == 'Medicine details unavailable'
+    screen.tbl_products.clearSelection()
+    assert screen.lbl_product_name.text() == 'Select a medicine'
+
+
+def test_batch_correction_refreshes_catalog_and_invalidates_intake(reference_ui, monkeypatch):
+    from PySide6.QtWidgets import QDialog
+    from ui.screens import inventory_screen as inventory
+    from core.inventory_service import set_batch_count
+    app, state, windows = reference_ui
+    screen = inventory.InventoryScreen(show_message_box=False)
+    windows.append(screen)
+    screen.show()
+    settle(app)
+    assert screen.all_products_raw[0][3] == 100
+    screen._intake_loaded = True
+    screen.tabs.setCurrentWidget(screen.batch_browser)
+    settle(app)
+    screen.batch_browser.table.selectRow(0)
+    def correction(dialog):
+        ok, message = set_batch_count(1, 93, 'Physical recount', employee_id=state.current_user['id'], expected_quantity=100)
+        assert ok, message
+        return QDialog.Accepted
+    monkeypatch.setattr(inventory.StockCorrectionDialog, 'exec', correction)
+    screen.batch_browser._adjust_selected()
+    settle(app)
+    assert screen.batch_browser._rows[0]['quantity'] == 93
+    assert screen.all_products_raw[0][3] == 93
+    assert not screen._intake_loaded

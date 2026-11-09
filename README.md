@@ -70,4 +70,10 @@ Tell us what you were trying to do, what happened, and the app version. Do not s
 
 [Credits](CREDITS.md) · [MIT License](LICENSE)
 
-For the Windows / Ubuntu pharmacy trial, follow [the simple shop checklist](docs/SHOP_TRIAL.md). See [2.4.2 improvements](docs/releases/2.4.2.md).
+For the Windows / Ubuntu pharmacy trial, follow [the simple shop checklist](docs/SHOP_TRIAL.md). <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:a1033c519c65fedbbc2ffdfd5bb821c2e8e8af3055b37acfb86a63be4a623121 -->
+
+For the first 2.5.0 test release, use [the test handoff](docs/FIRST_TEST_RELEASE.md) and [release notes](docs/releases/2.5.0.md).
+
+<!-- /coderabbit-ai-generated:v1 -->

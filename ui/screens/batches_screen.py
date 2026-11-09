@@ -1,5 +1,5 @@
 """Reference batch/expiry browser using bounded authoritative inventory reads."""
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QLineEdit, QComboBox, QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QDialog, QScrollArea, QLayout, QSizePolicy)
 from controllers.inventory_controller import InventoryController
@@ -12,6 +12,8 @@ from ui.widgets.reference_icons import icon
 
 
 class BatchesScreen(QWidget):
+    stock_changed = Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.controller = InventoryController()
@@ -184,7 +186,9 @@ class BatchesScreen(QWidget):
         from ui.screens.inventory_screen import StockCorrectionDialog
         row=(batch['id'],batch['medicine'],batch['lot'],batch['quantity'],batch['expiry'],
              batch['condition'],batch['unit'],batch['price'],batch['expiry_precision'])
-        if StockCorrectionDialog([row],self).exec()==QDialog.Accepted:self.refresh()
+        if StockCorrectionDialog([row],self).exec()==QDialog.Accepted:
+            self.refresh()
+            self.stock_changed.emit()
 
     def _failed(self, _details):
         self._rows=[];self.table.setRowCount(0);self._selection_changed()

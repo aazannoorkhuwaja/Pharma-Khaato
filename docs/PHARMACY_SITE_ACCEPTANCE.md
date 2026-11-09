@@ -21,7 +21,13 @@
 
 ### Critical physical display limitation to test
 
-At **1366×768 physical pixels with Windows scaling at 150%**, a Qt app sees roughly **911×512 logical pixels** before taskbar space, but the current minimum application height is **600 logical pixels**. This combination may *not fit*. Treat it as a potential blocker until verified on an actual Windows workstation. Do not interpret headless `QT_SCALE_FACTOR=1.5` screenshots of a 1366×768 **logical** window as proof that this physical configuration works.
+At **1366×768 physical pixels with Windows scaling at 150%**, a Qt app sees roughly **911×512 logical pixels** before taskbar space, <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:d70e91b4b862d2ed0203bd462fd539295fd5eb8b77231724ec1a96cc196f5018 -->
+
+and the current minimum application height is **440 logical pixels**. The layout adapts to short windows, but actual taskbar space, fonts and driver scaling still need verification on a Windows workstation.
+
+<!-- /coderabbit-ai-generated:v1 --> Do not interpret headless `QT_SCALE_FACTOR=1.5` screenshots of a 1366×768 **logical** window as proof that this physical configuration works.
 
 ## Actual on-site test protocol
 

@@ -17,13 +17,25 @@ Never post business data in a public GitHub issue.
 
 ## Recovery
 
-Pharma Khaato creates automatic daily integrity-checked backups and also supports manual backups in **Settings → System & Recovery**.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:ab48b7a39725999e9667843e098dd8328dd49bfaf1a015d2e037de914a413d95 -->
+
+Pharma Khaato checks for automatic integrity-checked backups each minute and saves a snapshot at least hourly while open
+
+<!-- /coderabbit-ai-generated:v1 --> and also supports manual backups in **Settings → System & Recovery**.
 
 Restoring a backup:
 
 - requires an administrator/manager account;
 - validates the selected SQLite backup;
-- creates a safety backup of the current database first;
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:148d89dfca985a77c1eecfe0e814579820eff589db4ef4f29af0830223fa6dc2 -->
+
+- preserves the previous database and journals as recovery evidence;
+
+<!-- /coderabbit-ai-generated:v1 -->
 - restores the selected snapshot;
 - requires the application to restart before work continues.
 

@@ -508,10 +508,6 @@ class POSScreen(QWidget):
         # pharmacy screens or with larger Windows text scaling.
         compact = event.size().width() < 850
         if hasattr(self, "btn_customer_focus"):
-            self.lbl_shortcuts.setText(
-                "F1 · F12" if compact or ThemeManager.get_font_scale() >= 1.25
-                else "F1 Search · F12 Sale"
-            )
             self.btn_customer_focus.setText("Customer" if compact else "Customer (F2)")
             self.btn_hold.setText("Hold" if compact else "Hold Sale (F5)")
             self.btn_recall.setText("Resume" if compact else "Resume Sale (F6)")
@@ -544,16 +540,10 @@ class POSScreen(QWidget):
                 self.payment_choices_layout.addWidget(button, index // columns, index % columns)
             for column in range(5):
                 self.payment_choices_layout.setColumnStretch(column, 1 if column < columns else 0)
-        if wide != self._reference_wide:
-            self._reference_wide = wide
-            # Pin the amount with checkout on short/high-DPI screens.
-            self._reference_fin_layout.removeWidget(self.lbl_total)
-            self._reference_right_layout.removeWidget(self.lbl_total)
-            if wide:
-                self._reference_fin_layout.addWidget(self.lbl_total)
-            else:
-                self._reference_right_layout.insertWidget(1, self.lbl_total)
-        self.lbl_shortcuts.setText("F1 Search   ·   F2 Customer   ·   F3 Discount   ·   F5 Hold   ·   F6 Resume   ·   F12 Sale" if wide else "F1 Search  ·  F2 Customer  ·  F12 Sale")
+        # The final amount must stay with checkout at every window size,
+        # including when the operator scrolls through the payment details.
+        self._reference_wide = wide
+        self.lbl_shortcuts.setText("F1 Search · F12 Sale")
 
     def _resize_cart_controls(self):
         self._reflow_reference_layout()

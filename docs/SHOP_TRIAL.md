@@ -7,7 +7,13 @@ Use a separate practice shop first. Keep your current billing system available u
 - Windows: download the Windows installer, close Pharma Khaato, and run Setup. Open the app from the Start menu.
 - Ubuntu / Linux Mint: download and extract Linux-installers, then open the file ending in `.deb` with your software installer.
 - If this computer already has shop records, use Settings → System & Recovery → Create Backup Now before updating. Copy a backup to another device.
-- Check About Pharma Khaato shows **2.4.2**. Updating preserves existing accounts and records.
+- Check About Pharma Khaato shows <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:3b5c60100fba2e8f682b0e193e07e25101fb494631e12116e7600720ec8a6678 -->
+
+**2.5.0**
+
+<!-- /coderabbit-ai-generated:v1 -->. Updating preserves existing accounts and records.
 
 For an isolated Ubuntu practice shop, close the app and run:
 
