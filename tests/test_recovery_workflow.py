@@ -350,3 +350,26 @@ def test_missing_quarantine_keeps_evidence_and_allows_verified_live_store(seeded
     assert seeded_shop.get_conn().raw_conn.execute('SELECT COUNT(*) FROM Employee').fetchone()[0] == 1
     assert journal.exists()
     assert stage.read_bytes() == b'preserve staged recovery evidence'
+
+
+def test_journal_cannot_restore_from_quarantine_symlink(seeded_shop, tmp_path):
+    import json
+    from core import backup_service as backups
+    from core.path_manager import PathManager
+    live = Path(PathManager.get_db_path())
+    seeded_shop.close_all_connections()
+    outside = tmp_path / 'outside-backups'
+    outside.mkdir()
+    original = outside / live.name
+    live.rename(original)
+    link = Path(PathManager.get_backups_dir()) / 'before_restore_symlink'
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip('Creating directory symlinks requires unavailable OS permissions')
+    journal = Path(PathManager.get_config_dir()) / 'restore-pending.json'
+    journal.write_text(json.dumps({'quarantine': str(link), 'stage': str(live) + '.restore-test'}))
+    with pytest.raises(RuntimeError, match='recovery'):
+        backups.recover_interrupted_restore()
+    assert original.exists() and journal.exists()
+    assert not live.exists()

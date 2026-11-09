@@ -72,15 +72,24 @@ def recover_interrupted_restore():
     live = PathManager.get_db_path()
     if not isinstance(state, dict) or not isinstance(state.get("quarantine"), str):
         raise RuntimeError("The recovery journal needs support review.")
-    quarantine = os.path.abspath(state["quarantine"])
-    if os.path.commonpath((quarantine, os.path.abspath(PathManager.get_backups_dir()))) != os.path.abspath(PathManager.get_backups_dir()):
-        raise RuntimeError("The recovery journal needs support review.")
+    # Select a trusted directory entry rather than using a journal-controlled
+    # path for filesystem operations. Never follow a quarantine symlink.
+    backup_dir = os.path.abspath(PathManager.get_backups_dir())
+    requested = os.path.normcase(os.path.abspath(state["quarantine"]))
+    quarantine = None
+    with os.scandir(backup_dir) as entries:
+        for entry in entries:
+            if (entry.name.startswith("before_restore_") and entry.is_dir(follow_symlinks=False)
+                    and os.path.normcase(entry.path) == requested):
+                quarantine = entry.path
+                break
     valid = os.path.exists(live) and _validate_sqlite_database(live)[0]
-    if valid and not os.path.exists(quarantine):
-        # A crash may persist the journal before the quarantine directory's
-        # creation. Keep all evidence for support, but do not block a verified
-        # live store just because the missing directory cannot be synced.
-        return
+    if quarantine is None:
+        if valid:
+            # A crash may persist the journal before directory creation.
+            # Keep journal/stage evidence without blocking a verified store.
+            return
+        raise RuntimeError("The interrupted recovery needs support review; the original database is missing.")
     original = os.path.join(quarantine, os.path.basename(live))
     # Older recovery attempts could have moved the main file before failing
     # on its journals. A valid main file alone does not prove that rollback
