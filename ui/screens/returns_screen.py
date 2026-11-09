@@ -12,7 +12,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QSpinBox, QComboBox,
-    QMessageBox, QFormLayout, QScrollArea,
+    QMessageBox, QFormLayout, QScrollArea, QBoxLayout,
 )
 
 from controllers.return_controller import ReturnController
@@ -90,7 +90,9 @@ class ReturnsScreen(QWidget):
         self.tbl_items.verticalHeader().setVisible(False)
         self.tbl_items.setEditTriggers(QTableWidget.NoEditTriggers)
         items_layout.addWidget(self.tbl_items, 1)
-        layout.addWidget(items_card, 1)
+        self.return_body = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self.return_body.addWidget(items_card, 7)
+        layout.addLayout(self.return_body, 1)
 
         action_card = Card()
         action_layout = action_card.layout()
@@ -110,6 +112,17 @@ class ReturnsScreen(QWidget):
         self.txt_reason.setMaxLength(250)
         self.txt_reason.setAccessibleName("Reason for return")
         form.addRow("Reason:", self.txt_reason)
+        summary_title = QLabel("Return Summary")
+        summary_title.setObjectName("h2")
+        action_layout.addWidget(summary_title)
+        self.lbl_return_tender = QLabel("Find the original sale to see its payment method.")
+        self.lbl_return_tender.setWordWrap(True)
+        action_layout.addWidget(self.lbl_return_tender)
+        self.lbl_refund_preview = QLabel("Estimated Refund: Rs. 0.00")
+        self.lbl_refund_preview.setObjectName("posTotal")
+        self.lbl_refund_preview.setWordWrap(True)
+        action_layout.addWidget(self.lbl_refund_preview)
+        form.setRowWrapPolicy(QFormLayout.WrapAllRows)
         action_layout.addLayout(form)
 
         self.lbl_refund_help = QLabel(
@@ -141,7 +154,7 @@ class ReturnsScreen(QWidget):
         self.action_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.action_scroll.setMinimumHeight(160)
         self.action_scroll.setWidget(action_card)
-        layout.addWidget(self.action_scroll)
+        self.return_body.addWidget(self.action_scroll, 3)
         self._load_pending_return()
 
     def _update_header_density(self):
@@ -161,6 +174,8 @@ class ReturnsScreen(QWidget):
         super().resizeEvent(event)
         if hasattr(self, "return_header"):
             self._update_header_density()
+        if hasattr(self, "return_body"):
+            self.return_body.setDirection(QBoxLayout.Direction.LeftToRight if event.size().width() >= 1000 else QBoxLayout.Direction.TopToBottom)
 
     @staticmethod
     def _employee_id():
@@ -178,6 +193,7 @@ class ReturnsScreen(QWidget):
         self._qty_widgets.clear()
         self.tbl_items.setRowCount(0)
         self.lbl_sale_summary.setText("Enter a sale number to begin.")
+        self._update_refund_preview()
         self.btn_process.setEnabled(False)
         self.txt_reason.clear()
         self.cmb_condition.setCurrentIndex(2)
@@ -195,6 +211,7 @@ class ReturnsScreen(QWidget):
         self.btn_find.setEnabled(True)
         self.btn_find.setText("Find Sale")
         self.lbl_sale_summary.setText("Press Find Sale to load this receipt.")
+        self._update_refund_preview()
 
     def find_sale(self):
         if self._processing or self._pending_return:
@@ -209,6 +226,7 @@ class ReturnsScreen(QWidget):
         self._qty_widgets.clear()
         self.tbl_items.setRowCount(0)
         self.btn_process.setEnabled(False)
+        self._update_refund_preview()
         self.btn_find.setText("Finding…")
         self.lbl_sale_summary.setText(f"Finding Sale #{raw}…")
 
@@ -273,8 +291,28 @@ class ReturnsScreen(QWidget):
                 qty.setEnabled(line["remaining_returnable"] > 0)
                 self.tbl_items.setCellWidget(row, 4, qty)
                 self._qty_widgets[int(line["batch_id"])] = qty
+                qty.valueChanged.connect(self._update_refund_preview)
         finally:
             self.tbl_items.setUpdatesEnabled(True)
+        self._update_refund_preview()
+
+    def _preview_refund(self, selected):
+        if not self.current_sale or not any(selected.values()):
+            return Decimal("0")
+        lines = self.current_sale["lines"]
+        base = sum(Decimal(str(line["line_base"])) for line in lines)
+        selected_base = sum(Decimal(str(line["unit_price"])) * selected.get(line["batch_id"], 0) for line in lines)
+        remaining = sum(line["remaining_returnable"] - selected.get(line["batch_id"], 0) for line in lines)
+        refundable = Decimal(str(self.current_sale["gross_total"])) - Decimal(str(self.current_sale["already_refunded"]))
+        if remaining == 0:
+            return refundable
+        return min(refundable, (Decimal(str(self.current_sale["gross_total"])) * selected_base / base).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) if base else Decimal("0")
+
+    def _update_refund_preview(self, *_):
+        selected = {batch: widget.value() for batch, widget in self._qty_widgets.items()}
+        preview = self._preview_refund(selected)
+        self.lbl_refund_preview.setText(f"Estimated Refund: Rs. {preview:,.2f}")
+        self.lbl_return_tender.setText("Original payment: " + str(self.current_sale["payment_method"]) if self.current_sale else "Find the original sale to see its payment method.")
 
     def process_return(self):
         if self._pending_return and not self._processing:
@@ -305,14 +343,7 @@ class ReturnsScreen(QWidget):
             return
 
         selected = {item["batch_id"]: item["qty"] for item in items}
-        base = sum(Decimal(str(line["line_base"])) for line in self.current_sale["lines"])
-        selected_base = sum(Decimal(str(line["unit_price"])) * selected.get(line["batch_id"], 0)
-                            for line in self.current_sale["lines"])
-        remaining = sum(line["remaining_returnable"] - selected.get(line["batch_id"], 0)
-                        for line in self.current_sale["lines"])
-        refundable = Decimal(str(self.current_sale["gross_total"])) - Decimal(str(self.current_sale["already_refunded"]))
-        preview = refundable if remaining == 0 else min(refundable,
-            (Decimal(str(self.current_sale["gross_total"])) * selected_base / base).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+        preview = self._preview_refund(selected)
         reply = QMessageBox.question(
             self,
             "Confirm Return",

@@ -30,21 +30,21 @@ class Palette:
 LIGHT_PALETTE = Palette(
     # Premium light: warm porcelain canvas, true-white cards, ink text,
     # emerald accent — high contrast without harshness.
-    BG_DARK="#EEF2F7",
-    BG_GRADIENT="qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #F7F9FC, stop:1 #E8EDF4)",
+    BG_DARK="#F3F7FC",
+    BG_GRADIENT="#F3F7FC",
     SURFACE_BASE="#FFFFFF",
     SURFACE_ELEVATED="#FBFCFE",
     SURFACE_GLASS="rgba(255, 255, 255, 0.92)",
-    BORDER_SUBTLE="#DCE3EC",
+    BORDER_SUBTLE="#D9E2ED",
     BORDER_STRONG="#AAB6C6",
-    BORDER_FOCUS="#0E9F6E",
-    TEXT_PRIMARY="#101828",
-    TEXT_SECONDARY="#3A4556",
-    TEXT_MUTED="#69758A",
-    ACCENT="#0E9F6E",
+    BORDER_FOCUS="#089B61",
+    TEXT_PRIMARY="#10203C",
+    TEXT_SECONDARY="#52637A",
+    TEXT_MUTED="#66768A",
+    ACCENT="#089B61",
     ACCENT_HOVER="#0B7E57",
-    ACCENT_LIGHT="#E3F5EE",
-    SUCCESS="#0E9F6E",
+    ACCENT_LIGHT="#E5F7EB",
+    SUCCESS="#089B61",
     WARNING="#B45309",
     DANGER="#DC2626",
     INFO="#1D4ED8",
@@ -116,7 +116,7 @@ class ThemeTokensMeta(type):
 class ThemeTokens(metaclass=ThemeTokensMeta):
     _active_palette = LIGHT_PALETTE
 
-    FONT_FAMILY = "'Segoe UI', 'Inter', Arial, sans-serif"
+    FONT_FAMILY = "'Segoe UI', 'Inter', 'DejaVu Sans', 'Arial'"
 
     SPACE_XS  = 4
     SPACE_SM  = 8

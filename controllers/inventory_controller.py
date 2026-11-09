@@ -58,6 +58,9 @@ class InventoryController:
         kwargs["employee_id"] = self._employee_id()
         return self._after_inventory_mutation(self.model.update_product(product_id, **kwargs))
 
+    def batch_browser(self, term='', expiry='all', stock_status='all', supplier_id=None, limit=100, offset=0):
+        return self.model.batch_browser(term, expiry, stock_status, supplier_id, limit, offset)
+
     def stock_batches(self, product_id=None):
         return self.model.stock_batches(product_id)
 

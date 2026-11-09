@@ -1,10 +1,10 @@
 """Responsive day-to-day sales, stock, expiry, and activity reports."""
 
-from datetime import date
+from datetime import date, timedelta
 import csv
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QGridLayout, QLabel, QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QDateEdit, QFileDialog,
     QMessageBox, QTabWidget,
 )
@@ -12,6 +12,7 @@ from PySide6.QtCore import QDate
 
 from ui.theme.tokens import ThemeTokens
 from ui.widgets.card import Card
+from ui.widgets.report_chart import ReportChart
 from ui.widgets.screen_header import ScreenHeader
 from ui.widgets.toast import ToastType, show_toast
 from ui.widgets.table_polish import polish_table
@@ -69,7 +70,8 @@ class ReportsScreen(QWidget):
             button.clicked.connect(
                 lambda _checked=False, key=destination: self._open_workspace(key)
             )
-            shortcuts.addWidget(button, column // 2, column % 2)
+            button.setProperty("compact", True)
+            shortcuts.addWidget(button, 0, column)
         layout.addLayout(shortcuts)
 
         self.kpi_grid = QGridLayout()
@@ -91,6 +93,20 @@ class ReportsScreen(QWidget):
         self._reflow_kpis(3)
         layout.addLayout(self.kpi_grid)
 
+        self.chart_panel = QWidget()
+        charts = QHBoxLayout(self.chart_panel)
+        charts.setContentsMargins(0, 0, 0, 0)
+        self.sales_trend = ReportChart("trend")
+        self.payment_mix = ReportChart("mix")
+        for title, chart in (("Net Sales Trend · Last 7 Days", self.sales_trend),
+                             ("Payment Method Distribution", self.payment_mix)):
+            card = Card()
+            label = QLabel(title)
+            label.setObjectName("h2")
+            card.addWidget(label)
+            card.addWidget(chart)
+            charts.addWidget(card, 1)
+        layout.addWidget(self.chart_panel, 1)
         self.tabs = QTabWidget()
         self.tabs.setUsesScrollButtons(True)
 
@@ -157,7 +173,8 @@ class ReportsScreen(QWidget):
 
     def resizeEvent(self, event):
         width = event.size().width()
-        columns = 3 if width >= 1000 else (2 if width >= 720 else 1)
+        columns = 4 if width >= 1000 else (2 if width >= 720 else 1)
+        self.chart_panel.setVisible(width >= 900 and event.size().height() >= 650)
         self._reflow_kpis(columns)
         super().resizeEvent(event)
 
@@ -170,8 +187,8 @@ class ReportsScreen(QWidget):
         for index, card in enumerate(self._kpi_cards):
             row, column = divmod(index, columns)
             self.kpi_grid.addWidget(card, row, column)
-        for column in range(columns):
-            self.kpi_grid.setColumnStretch(column, 1)
+        for column in range(4):
+            self.kpi_grid.setColumnStretch(column, 1 if column < columns else 0)
 
     def create_kpi_card(self, title: str, value: str, color: str) -> Card:
         card = Card()
@@ -179,7 +196,7 @@ class ReportsScreen(QWidget):
         title_label = QLabel(title)
         title_label.setStyleSheet(f"font-weight: 600; color: {ThemeTokens.TEXT_MUTED};")
         value_label = QLabel(value)
-        value_label.setObjectName("val_label")
+        value_label.setObjectName("metric")
         value_label.setStyleSheet(f"font-weight: 800; color: {color};")
         card_layout.addWidget(title_label)
         card_layout.addWidget(value_label)
@@ -196,6 +213,15 @@ class ReportsScreen(QWidget):
     def _refresh_financials(self, *_):
         selected_date = self._selected_date()
         self._set_financials_loading()
+        self.payment_mix.set_values([])
+        self.sales_trend.set_values([])
+        def trend():
+            end = date.fromisoformat(selected_date)
+            return [((end-timedelta(days=offset)).strftime("%d %b"),
+                     _REPORTS_CONTROLLER.daily_sales((end-timedelta(days=offset)).isoformat())["net_sales"])
+                    for offset in range(6,-1,-1)]
+        self._tasks.run_latest("sales-trend", trend, self.sales_trend.set_values,
+                               lambda _details: self.sales_trend.set_values([]))
 
         def load():
             sales = _REPORTS_CONTROLLER.daily_sales(selected_date)
@@ -218,6 +244,7 @@ class ReportsScreen(QWidget):
 
     def _apply_financials(self, payload):
         sales, collections = payload
+        self.payment_mix.set_values(list(sales.get("tender_breakdown", {}).items()))
         self.card_total.val_label.setText(f"Rs. {float(sales.get('total_sales', 0)):.2f}")
         self.card_refunds.val_label.setText(f"Rs. {float(sales['returns_total']):,.2f}")
         self.card_net.val_label.setText(f"Rs. {float(sales['net_sales']):,.2f}")
