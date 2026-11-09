@@ -152,6 +152,10 @@ def collect():
         ("counter_1366", 1366, 768, "light", "standard", 1.0),
         ("counter_1024", 1024, 768, "light", "standard", 1.0),
         ("minimum_900", 900, 600, "light", "compact", 1.0),
+        # Emulate the Qt-logical available desktop on a physical 1366x768
+        # workstation at 150% scaling. This is not a substitute for real DPI.
+        ("scaled_laptop_150_available", 910, 480, "light", "compact", 1.0),
+        ("scaled_laptop_150_startup", 855, 440, "light", "compact", 1.0),
         ("desktop_1920", 1920, 1080, "light", "standard", 1.0),
         ("dark_1366", 1366, 768, "dark", "standard", 1.0),
         ("compact_1366", 1366, 768, "light", "compact", 1.0),
@@ -206,6 +210,11 @@ def collect():
                     "title_visible": visible_title,
                     "screenshot": photo,
                 }
+                if window.width() > width + 2 or window.height() > height + 2:
+                    failures.append(
+                        f"{label}/{key}: forced window exceeds target desktop "
+                        f"({window.width()}x{window.height()} > {width}x{height})"
+                    )
                 if not visible_title:
                     failures.append(f"{label}/{key}: workspace heading outside window")
                 # Navigation remains readable, not merely inside a clipped
