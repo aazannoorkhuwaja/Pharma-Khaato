@@ -333,3 +333,20 @@ def test_valid_main_with_quarantined_wal_is_an_incomplete_rollback(seeded_shop, 
     backups.recover_interrupted_restore()
     assert seeded_shop.get_conn().raw_conn.execute('SELECT product_name FROM Products WHERE id=1').fetchone()[0] == 'Recovered WAL data'
     assert not journal.exists()
+
+
+def test_missing_quarantine_keeps_evidence_and_allows_verified_live_store(seeded_shop):
+    import json
+    from core.path_manager import PathManager
+    live = Path(PathManager.get_db_path())
+    seeded_shop.close_all_connections()
+    stage = Path(str(live) + '.restore-unfinished')
+    stage.write_bytes(b'preserve staged recovery evidence')
+    journal = Path(PathManager.get_config_dir()) / 'restore-pending.json'
+    journal.write_text(json.dumps({
+        'quarantine': str(Path(PathManager.get_backups_dir()) / 'before_restore_missing_directory'),
+        'stage': str(stage),
+    }))
+    assert seeded_shop.get_conn().raw_conn.execute('SELECT COUNT(*) FROM Employee').fetchone()[0] == 1
+    assert journal.exists()
+    assert stage.read_bytes() == b'preserve staged recovery evidence'

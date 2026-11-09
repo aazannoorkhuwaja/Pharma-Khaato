@@ -76,6 +76,11 @@ def recover_interrupted_restore():
     if os.path.commonpath((quarantine, os.path.abspath(PathManager.get_backups_dir()))) != os.path.abspath(PathManager.get_backups_dir()):
         raise RuntimeError("The recovery journal needs support review.")
     valid = os.path.exists(live) and _validate_sqlite_database(live)[0]
+    if valid and not os.path.exists(quarantine):
+        # A crash may persist the journal before the quarantine directory's
+        # creation. Keep all evidence for support, but do not block a verified
+        # live store just because the missing directory cannot be synced.
+        return
     original = os.path.join(quarantine, os.path.basename(live))
     # Older recovery attempts could have moved the main file before failing
     # on its journals. A valid main file alone does not prove that rollback
