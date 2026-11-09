@@ -85,7 +85,7 @@ def test_pos_keeps_shortcuts_but_removes_hotkey_wall_and_internal_batch_ids():
 
     assert "HotkeyBadge" not in source
     assert 'QShortcut(QKeySequence("F10")' in source
-    assert 'QPushButton("Complete Sale")' in source
+    assert 'QPushButton("Complete Sale (F12)")' in source
     assert 'QPushButton("Complete Sale (F10)")' not in source
     assert 'setPrefix("Rs. ")' in source
     assert "Medicine not found" in source

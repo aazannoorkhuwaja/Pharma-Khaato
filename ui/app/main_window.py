@@ -5,12 +5,13 @@ from datetime import datetime
 
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QPushButton,
-    QLabel, QFrame, QStatusBar, QMessageBox, QDialog, QScrollArea, QLayout
+    QLabel, QFrame, QStatusBar, QMessageBox, QDialog, QScrollArea, QLayout, QMenu
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtGui import QShortcut, QKeySequence
 
 from config import ApplicationSettings
+from ui.widgets.reference_icons import icon, PharmacyMark
 from ui.app.router import AppRouter
 from ui.app.async_tasks import AsyncTaskRunner
 from ui.theme.tokens import ThemeTokens
@@ -69,11 +70,21 @@ class MainWindow(QMainWindow):
         self.brand_label = QLabel("PHARMA KHAATO")
         self.brand_label.setObjectName("sidebarBrand")
         self.brand_label.setWordWrap(True)
-        self.sub_brand = QLabel(ApplicationSettings.PRODUCT_TAGLINE)
+        self.sub_brand = QLabel("Pharmacy Billing & Stock")
         self.sub_brand.setObjectName("sidebarCaption")
         self.sub_brand.setWordWrap(True)
-        sidebar_layout.addWidget(self.brand_label)
-        sidebar_layout.addWidget(self.sub_brand)
+        brand_row = QHBoxLayout()
+        self.brand_cross = QLabel("+")
+        self.brand_cross.setObjectName("brandCross")
+        self.brand_cross.setAlignment(Qt.AlignCenter)
+        self.brand_cross.setFixedSize(36, 36)
+        brand_row.addWidget(self.brand_cross)
+        brand_text = QVBoxLayout()
+        brand_text.setSpacing(2)
+        brand_text.addWidget(self.brand_label)
+        brand_text.addWidget(self.sub_brand)
+        brand_row.addLayout(brand_text, 1)
+        sidebar_layout.addLayout(brand_row)
 
         self.lbl_clock = QLabel()
         self.lbl_clock.setObjectName("sidebarCaption")
@@ -90,6 +101,8 @@ class MainWindow(QMainWindow):
         for key, text, short_text, shortcut_key in self._nav_items:
             btn = QPushButton()
             btn.setObjectName("navButton")
+            btn.setIcon(icon(key, "#E4EBF4"))
+            btn.setIconSize(QSize(22, 22))
             btn.setCheckable(True)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setToolTip(f"{text} ({shortcut_key}) — {NAV_BY_KEY[key].help_text}")
@@ -103,6 +116,8 @@ class MainWindow(QMainWindow):
             self.shortcuts[key] = shortcut
 
         sidebar_layout.addStretch()
+        self.pharmacy_mark = PharmacyMark()
+        sidebar_layout.addWidget(self.pharmacy_mark)
         self.user_badge = QLabel("User: Signed Out")
         self.user_badge.setObjectName("sidebarCaption")
         self.user_badge.setWordWrap(True)
@@ -153,6 +168,20 @@ class MainWindow(QMainWindow):
         self.btn_logout.clicked.connect(lambda _checked=False: self.on_logout())
         sidebar_layout.addWidget(self.btn_logout)
 
+        # Secondary utilities remain available without crowding navigation.
+        self.utility_menu = QMenu(self)
+        self.utility_actions = {}
+        for button in (self.btn_printer_setup, self.btn_shop_computers,
+                       self.btn_getting_started, self.btn_about, self.btn_theme_toggle):
+            action = self.utility_menu.addAction(button.text() or "Switch light / dark theme")
+            self.utility_actions[button] = action
+            action.triggered.connect(lambda _checked=False, target=button: target.click())
+            button.hide()
+        self.btn_tools = QPushButton("Shop Tools")
+        self.btn_tools.setObjectName("sidebarUtilityButton")
+        self.btn_tools.setMenu(self.utility_menu)
+        sidebar_layout.insertWidget(sidebar_layout.count() - 1, self.btn_tools)
+
         # Persistent task header. The existing lazy screen router remains intact.
         self.router = AppRouter()
         workspace = QWidget()
@@ -169,13 +198,14 @@ class MainWindow(QMainWindow):
         self.lbl_workspace_title = QLabel("Billing / New Sale")
         self.lbl_workspace_title.setObjectName("workspaceTitle")
         header_layout.addWidget(self.lbl_workspace_title)
-        header_layout.addStretch(1)
+        header_layout.addSpacing(14)
         self.lbl_workspace_user = QLabel("")
         self.lbl_workspace_user.setObjectName("workspaceMeta")
         header_layout.addWidget(self.lbl_workspace_user)
         self.lbl_workspace_shift = QLabel("Checking shift")
         self.lbl_workspace_shift.setObjectName("workspaceShift")
         header_layout.addWidget(self.lbl_workspace_shift)
+        header_layout.addStretch(1)
         self.lbl_header_clock = QLabel("")
         self.lbl_header_clock.setObjectName("workspaceMeta")
         header_layout.addWidget(self.lbl_header_clock)
@@ -220,18 +250,15 @@ class MainWindow(QMainWindow):
             return
         self._sidebar_mode = mode
         self.sidebar.setFixedWidth(sidebar_width)
-        mini_labels = {
-            "pos": "P", "customers": "CU", "khatoo": "CR",
-            "inventory": "ST", "cash_session": "CA",
-            "reports": "RP", "settings": "SE", "returns": "RT",
-        }
         for key, text, short_text, shortcut_key in self._nav_items:
-            label = text if mode == "full" else short_text if mode == "compact" else mini_labels.get(key, key)
+            label = text if mode == "full" else short_text if mode == "compact" else ""
             self.nav_buttons[key].setText(_qt_button_text(label))
-        self.brand_label.setText("PK" if mode == "mini" else
-                                 "PHARMA\nKHAATO" if scale > 1.2 else "PHARMA KHAATO")
+        self.brand_label.setText("" if mode == "mini" else "Pharma-Khaato")
+        self.brand_label.setVisible(mode != "mini")
+        self.pharmacy_mark.setVisible(mode == "full")
+        self.btn_tools.setText("Tools" if mode == "mini" else "Shop Tools")
         self.sub_brand.setVisible(mode == "full")
-        self.lbl_clock.setVisible(mode != "mini")
+        self.lbl_clock.setVisible(False)
         self.user_badge.setVisible(mode != "mini")
         self.lbl_version.setVisible(mode != "mini")
         self.btn_printer_setup.setText("PRN" if mode == "mini" else "Printer Setup")
@@ -380,9 +407,11 @@ class MainWindow(QMainWindow):
         allowed = self.get_allowed_screens()
         for key, btn in self.nav_buttons.items():
             btn.setVisible(key in allowed)
-        self.btn_getting_started.setVisible("inventory" in allowed)
-        self.btn_printer_setup.setVisible("settings" in allowed)
-        self.btn_shop_computers.setVisible("settings" in allowed)
+        for button, permitted in ((self.btn_getting_started, "inventory" in allowed),
+                                  (self.btn_printer_setup, "settings" in allowed),
+                                  (self.btn_shop_computers, "settings" in allowed)):
+            self.utility_actions[button].setVisible(permitted)
+            button.hide()
         if "pos" in allowed:
             self.on_nav_clicked("pos")
         self.status_bar.showMessage(f"Signed in: {uname} • Ready")

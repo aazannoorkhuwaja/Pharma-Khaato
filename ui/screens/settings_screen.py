@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QFormLayout,
     QDoubleSpinBox, QSpinBox, QMessageBox, QTabWidget, QTextEdit,
-    QScrollArea, QLayout, QComboBox, QInputDialog, QDialog, QApplication, QAbstractItemView, QFileDialog,
+    QScrollArea, QLayout, QBoxLayout, QComboBox, QInputDialog, QDialog, QApplication, QAbstractItemView, QFileDialog,
 )
 
 from config import ApplicationSettings
@@ -65,6 +65,11 @@ class SettingsScreen(QWidget):
         self.load_settings()
         ThemeManager.events.changed.connect(self._sync_display_preferences)
 
+    def resizeEvent(self, event):
+        if hasattr(self, "general_columns"):
+            self.general_columns.setDirection(QBoxLayout.Direction.LeftToRight if event.size().width() >= 1050 else QBoxLayout.Direction.TopToBottom)
+        super().resizeEvent(event)
+
     def _sync_display_preferences(self):
         for combo, value in ((self.cmb_theme_mode, ThemeManager.get_theme_mode()),
                              (self.cmb_font_scale, str(ThemeManager.get_font_scale())),
@@ -83,7 +88,8 @@ class SettingsScreen(QWidget):
         body = QWidget()
         self.general_scroll.setWidget(body)
         outer.addWidget(self.general_scroll)
-        gen_layout = QVBoxLayout(body)
+        gen_layout = QBoxLayout(QBoxLayout.Direction.LeftToRight, body)
+        self.general_columns = gen_layout
         gen_layout.setSizeConstraint(QLayout.SetMinimumSize)
         gen_layout.setContentsMargins(16, 16, 16, 16)
         gen_layout.setSpacing(14)
@@ -124,7 +130,8 @@ class SettingsScreen(QWidget):
         profile_form.addRow("Licence number:", self.txt_license)
         profile_form.addRow("NTN / tax ID:", self.txt_ntn)
         profile_layout.addLayout(profile_form)
-        gen_layout.addWidget(profile_card)
+        profile_layout.addStretch()
+        gen_layout.addWidget(profile_card, 1)
 
         card = Card()
         card_layout = card.layout()
@@ -183,8 +190,7 @@ class SettingsScreen(QWidget):
         self.btn_save_settings.clicked.connect(self.save_settings)
         card_layout.addWidget(self.btn_save_settings)
         card_layout.addStretch()
-        gen_layout.addWidget(card)
-        gen_layout.addStretch()
+        gen_layout.addWidget(card, 1)
         self.tabs.addTab(self.tab_general, "General")
 
     def _setup_receipts_tab(self):

@@ -180,7 +180,7 @@ class ThemeManager:
         row_ph    = max(8, int(10 * scale))
         card_gap  = max(8, int(14 * scale * density_ratio))
         scroll_w  = max(8, int(10 * scale))
-        sidebar_bg = "#14243D" if not is_dark else "#0E1A2C"
+        sidebar_bg = "#152843" if not is_dark else "#0E1A2C"
         sidebar_hover = "#243C56" if not is_dark else "#1A3047"
         sidebar_muted = "#B9C9DA"
 
@@ -217,6 +217,28 @@ class ThemeManager:
             font-size: {fs_body}px;
         }}
 
+        QWidget#workspace, QWidget#paymentSummaryBody {{ background: {bg}; }}
+        QScrollArea#referenceWorkArea, QWidget#referenceWorkBody {{ background: {bg}; }}
+        QWidget#paymentSummaryBody {{ background: {surf}; }}
+        QLabel#brandCross {{
+            background: {accent}; color: white; border-radius: 8px;
+            font-size: {int(28 * scale)}px; font-weight: 900;
+        }}
+        QLabel#shortcutStrip {{
+            background: {surf}; border: 1px solid {bd_sub};
+            border-radius: {r_sm}px; padding: 6px 10px;
+            color: {txt2}; font-size: {fs_label}px;
+        }}
+        QLabel#changeDue {{
+            background: {acc_lt}; border-radius: {r_sm}px; padding: 8px;
+            font-weight: 700;
+        }}
+        QPushButton#quantityStep {{
+            min-width: {int(18 * scale)}px; max-width: {int(24 * scale)}px;
+            min-height: {int(22 * scale)}px; padding: 0px;
+        }}
+        QFrame#searchToolbar QLineEdit {{ border: 2px solid {accent}; }}
+        QFrame#searchToolbar {{ background: {surf}; border: 1px solid {bd_sub}; border-radius: {r_md}px; }}
         /* ── Cards & Frames ───────────────────────────────────────────── */
         QFrame#card, QFrame#tileContainer {{
             background: {surf_grad};
@@ -296,12 +318,13 @@ class ThemeManager:
             border-color: {accent};
         }}
         QPushButton#navButton {{
+            min-height: {int(24 * scale)}px;
             text-align: left;
             background-color: transparent;
             color: #E4EBF4;
             border: 1px solid transparent;
             padding: {max(7, int(9 * scale))}px {max(8, int(11 * scale))}px;
-            font-weight: 600;
+            font-weight: 500;
         }}
         QPushButton#navButton:hover {{
             background-color: {sidebar_hover};
@@ -309,9 +332,9 @@ class ThemeManager:
             border-color: {sidebar_hover};
         }}
         QPushButton#navButton:checked {{
-            background-color: #087E5A;
+            background-color: {accent};
             color: #FFFFFF;
-            border-color: #15926A;
+            border-color: {accent};
             font-weight: 800;
         }}
         QPushButton#sidebarUtilityButton {{
@@ -380,7 +403,7 @@ class ThemeManager:
             padding: {btn_pv}px {btn_ph}px;
             font-weight: 600;
             font-size: {fs_body}px;
-            min-height: {inp_h_min}px;
+            min-height: {max(18, inp_h_min - 2 * inp_pv)}px;
         }}
         QPushButton[compact="true"] {{
             min-height: {LayoutMetrics.scaled(30, scale)}px;
@@ -404,7 +427,7 @@ class ThemeManager:
             color: #FFFFFF;
             border: none;
             font-weight: 700;
-            min-height: {action_h}px;
+            min-height: {max(24, action_h - 2 * (btn_pv + 1))}px;
             padding: {btn_pv + 1}px {btn_ph + 2}px;
         }}
         QPushButton#primaryButton:hover {{
@@ -435,8 +458,9 @@ class ThemeManager:
         /* Cashier tender choices remain keyboard-compatible with the hidden
            selection combo; checked state is the one visible active method. */
         QPushButton#paymentOption {{
-            padding: {max(5, int(7 * scale))}px {max(4, int(6 * scale))}px;
-            min-height: {LayoutMetrics.scaled(40, scale)}px;
+            font-size: {fs_label}px;
+            padding: {max(4, int(5 * scale))}px {max(2, int(3 * scale))}px;
+            min-height: {LayoutMetrics.scaled(30, scale)}px;
             border: 1px solid {bd_str};
             background-color: {surf};
             color: {txt2};
@@ -570,7 +594,7 @@ class ThemeManager:
             border-radius: {r_sm}px;
             padding: {inp_pv}px {t.SPACE_MD}px;
             font-size: {fs_body}px;
-            min-height: {inp_h_min}px;
+            min-height: {max(18, inp_h_min - 2 * inp_pv)}px;
             selection-background-color: {t.ACCENT_HOVER};
             selection-color: #FFFFFF;
         }}
@@ -601,7 +625,7 @@ class ThemeManager:
         QLineEdit#primarySearch {{
             border: 2px solid {accent};
             font-weight: 600;
-            min-height: {LayoutMetrics.scaled(42, scale)}px;
+            min-height: {LayoutMetrics.scaled(30, scale)}px;
         }}
         QLineEdit#primarySearch:focus {{
             border: 2px solid {t.BORDER_FOCUS};
