@@ -70,22 +70,41 @@ def recover_interrupted_restore():
     with open(journal, encoding="utf-8") as handle:
         state = json.load(handle)
     live = PathManager.get_db_path()
+    if not isinstance(state, dict) or not isinstance(state.get("quarantine"), str):
+        raise RuntimeError("The recovery journal needs support review.")
     quarantine = os.path.abspath(state["quarantine"])
     if os.path.commonpath((quarantine, os.path.abspath(PathManager.get_backups_dir()))) != os.path.abspath(PathManager.get_backups_dir()):
         raise RuntimeError("The recovery journal needs support review.")
     valid = os.path.exists(live) and _validate_sqlite_database(live)[0]
-    if not valid:
-        for suffix in ("", "-wal", "-shm"):
+    original = os.path.join(quarantine, os.path.basename(live))
+    # Older recovery attempts could have moved the main file before failing
+    # on its journals. A valid main file alone does not prove that rollback
+    # recovered every committed record from its WAL.
+    incomplete_rollback = not os.path.exists(original) and any(
+        os.path.exists(os.path.join(quarantine, os.path.basename(live + suffix)))
+        for suffix in ("-wal", "-shm")
+    )
+    if not valid or incomplete_rollback:
+        if not os.path.isfile(original) and not (valid and incomplete_rollback):
+            # Never let normal startup silently initialize an empty shop after
+            # an interrupted swap has lost its original database.
+            raise RuntimeError("The interrupted recovery needs support review; the original database is missing.")
+        # Recover journals first and the main file last. If a journal move
+        # fails, a retry must not mistake the restored main file for a fully
+        # recovered database and discard the remaining recovery evidence.
+        for suffix in ("-shm", "-wal", ""):
             previous = os.path.join(quarantine, os.path.basename(live + suffix))
             if os.path.exists(previous):
                 os.replace(previous, live + suffix)
+    _sync_directory(os.path.dirname(live))
+    _sync_directory(quarantine)
     stage = state.get("stage", "")
-    if stage.startswith(live + ".restore-"):
+    if isinstance(stage, str) and stage.startswith(live + ".restore-") and os.path.dirname(stage) == os.path.dirname(live):
         for suffix in ("", "-wal", "-shm"):
             if os.path.exists(stage + suffix):
                 os.remove(stage + suffix)
     os.remove(journal)
-    _sync_directory(os.path.dirname(live))
+    _sync_directory(os.path.dirname(journal))
 
 
 def _copy_external(snapshot):

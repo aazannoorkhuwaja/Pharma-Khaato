@@ -243,3 +243,93 @@ def test_stage_flush_failure_preserves_live_store(seeded_shop, monkeypatch):
     with seeded_shop.get_db() as (_conn, cur):
         cur.execute('SELECT product_name FROM Products WHERE id=1')
         assert cur.fetchone()[0] == 'Keep current records'
+
+
+@pytest.mark.parametrize('live_contents', [None, b'', b'damaged database'])
+def test_interrupted_restore_never_creates_empty_shop_when_original_missing(seeded_shop, live_contents):
+    import json
+    from core.path_manager import PathManager
+    live = Path(PathManager.get_db_path())
+    seeded_shop.close_all_connections()
+    live.unlink()
+    if live_contents is not None:
+        live.write_bytes(live_contents)
+    quarantine = Path(PathManager.get_backups_dir()) / 'before_restore_missing'
+    quarantine.mkdir()
+    journal = Path(PathManager.get_config_dir()) / 'restore-pending.json'
+    journal.write_text(json.dumps({'quarantine': str(quarantine), 'stage': str(live) + '.restore-test'}))
+    with pytest.raises(RuntimeError, match='recovery'):
+        seeded_shop.get_conn()
+    assert journal.exists()
+    if live_contents is None:
+        assert not live.exists()
+    else:
+        assert live.read_bytes() == live_contents
+
+
+def test_interrupted_recovery_restores_database_last(seeded_shop, monkeypatch):
+    """Retry must not mistake a restored main file for a completed WAL recovery."""
+    import json
+    from core import backup_service as backups
+    from core.path_manager import PathManager
+    live = Path(PathManager.get_db_path())
+    seeded_shop.close_all_connections()
+    quarantine = Path(PathManager.get_backups_dir()) / 'before_restore_retry'
+    quarantine.mkdir()
+    live.rename(quarantine / live.name)
+    (quarantine / (live.name + '-wal')).write_bytes(b'preserved journal evidence')
+    journal = Path(PathManager.get_config_dir()) / 'restore-pending.json'
+    journal.write_text(json.dumps({'quarantine': str(quarantine), 'stage': str(live) + '.restore-test'}))
+    original_replace = backups.os.replace
+    def fail_wal(source, destination):
+        if str(destination) == str(live) + '-wal':
+            raise OSError('simulated interrupted recovery')
+        return original_replace(source, destination)
+    monkeypatch.setattr(backups.os, 'replace', fail_wal)
+    with pytest.raises(OSError, match='interrupted recovery'):
+        backups.recover_interrupted_restore()
+    assert journal.exists()
+    assert not live.exists(), 'Main database must stay quarantined until journals are recovered'
+    monkeypatch.setattr(backups.os, 'replace', original_replace)
+    backups.recover_interrupted_restore()
+    assert live.exists()
+    assert Path(str(live) + '-wal').read_bytes() == b'preserved journal evidence'
+    assert not journal.exists()
+
+
+def test_valid_main_with_quarantined_wal_is_an_incomplete_rollback(seeded_shop, monkeypatch):
+    """Recover pending journals left by an older interrupted rollback."""
+    import json
+    from core import backup_service as backups
+    from core.path_manager import PathManager
+    live = Path(PathManager.get_db_path())
+    connection = seeded_shop.get_conn().raw_conn
+    connection.execute('PRAGMA wal_autocheckpoint=0')
+    connection.execute('PRAGMA wal_checkpoint(TRUNCATE)')
+    main_before_commit = live.read_bytes()
+    connection.execute("UPDATE Products SET product_name='Recovered WAL data' WHERE id=1")
+    connection.commit()
+    committed_wal = Path(str(live) + '-wal').read_bytes()
+    seeded_shop.close_all_connections()
+    # Model the main file being restored before its WAL during old rollback.
+    live.write_bytes(main_before_commit)
+    assert backups._validate_sqlite_database(str(live))[0]
+    quarantine = Path(PathManager.get_backups_dir()) / 'before_restore_legacy_retry'
+    quarantine.mkdir()
+    wal = quarantine / (live.name + '-wal')
+    wal.write_bytes(committed_wal)
+    journal = Path(PathManager.get_config_dir()) / 'restore-pending.json'
+    journal.write_text(json.dumps({'quarantine': str(quarantine), 'stage': str(live) + '.restore-test'}))
+    original_replace = backups.os.replace
+    def fail_wal(source, destination):
+        if str(destination) == str(live) + '-wal':
+            raise OSError('interrupted WAL rollback')
+        return original_replace(source, destination)
+    monkeypatch.setattr(backups.os, 'replace', fail_wal)
+    with pytest.raises(OSError, match='WAL rollback'):
+        backups.recover_interrupted_restore()
+    assert journal.exists() and wal.exists()
+    monkeypatch.setattr(backups.os, 'replace', original_replace)
+    backups.recover_interrupted_restore()
+    assert seeded_shop.get_conn().raw_conn.execute('SELECT product_name FROM Products WHERE id=1').fetchone()[0] == 'Recovered WAL data'
+    assert not journal.exists()

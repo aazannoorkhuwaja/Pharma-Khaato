@@ -8,9 +8,12 @@ this check enforces completeness, not the authenticity of a supervisor's signoff
 from __future__ import annotations
 
 import argparse
-import json
 import re
+import sys
+from datetime import date
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts.site_trial_checklist import CASES, load
 
@@ -22,21 +25,25 @@ CRITICAL = (
 )
 
 
+def _text(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
 def validate(record: dict, revision: str, version: str) -> list[str]:
     blockers: list[str] = []
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         blockers.append("Candidate revision must be a full Git commit SHA.")
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
         blockers.append("Version must be major.minor.patch.")
-    if record.get("kind") != "human-site-acceptance":
+    if not isinstance(record, dict) or record.get("kind") != "human-site-acceptance":
         return blockers + ["Incorrect site acceptance worksheet type."]
     if record.get("application_commit") != revision:
         blockers.append("Tested revision does not match release candidate.")
     if record.get("application_version") != version:
         blockers.append("Tested version does not match release candidate.")
     for key in ("site", "target_hardware", "operator", "reviewer"):
-        val = str(record.get(key) or "").strip()
-        if not val or val.upper().startswith(("RECORD ", "REPLACE ")):
+        val = record.get(key)
+        if not _text(val) or val.strip().upper().startswith(("RECORD ", "REPLACE ")):
             blockers.append(f"Missing onsite metadata: {key}.")
     cases = record.get("cases", {})
     if not isinstance(cases, dict) or set(cases) != {key for key, _ in CASES}:
@@ -46,14 +53,23 @@ def validate(record: dict, revision: str, version: str) -> list[str]:
             case = cases[key]
             if not isinstance(case, dict) or case.get("status") != "pass":
                 blockers.append(f"Site case not passed: {key}.")
-            if key in CRITICAL and not str(case.get("evidence") or "").strip():
+            if key in CRITICAL and (not isinstance(case, dict) or not _text(case.get("evidence"))):
                 blockers.append(f"Critical case has no evidence reference: {key}.")
-    approval = record.get("approval") or {}
+    approval = record.get("approval")
+    if not isinstance(approval, dict):
+        return blockers + ["Approval must be a completed supervisor record."]
     if approval.get("decision") != "approve_pilot":
         blockers.append("Explicit supervised pilot approval is missing.")
     for key in ("date", "supervisor_signature_reference", "legal_tax_review_reference"):
-        if not str(approval.get(key) or "").strip():
+        if not _text(approval.get(key)):
             blockers.append(f"Approval is missing {key}.")
+    value = approval.get("date")
+    try:
+        if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            raise ValueError
+        date.fromisoformat(value)
+    except ValueError:
+        blockers.append("Approval date must be a real calendar date in YYYY-MM-DD format.")
     return blockers
 
 
@@ -65,7 +81,7 @@ def main() -> int:
     args = parser.parse_args()
     try:
         data = load(args.file)
-    except (FileNotFoundError, ValueError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError) as exc:
         print("BLOCKED: no valid on-site acceptance record:", exc)
         return 2
     errors = validate(data, args.revision, args.version)

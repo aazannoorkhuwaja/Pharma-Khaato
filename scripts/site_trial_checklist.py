@@ -79,8 +79,13 @@ def default_record():
 def load(path):
     data = json.loads(path.read_text(encoding="utf-8"))
     expected = set(dict(CASES))
-    if data.get("kind") != "human-site-acceptance" or set(data.get("cases", {})) != expected:
+    if (not isinstance(data, dict) or data.get("kind") != "human-site-acceptance"
+            or not isinstance(data.get("cases"), dict) or set(data["cases"]) != expected):
         raise ValueError("Not a valid/current Pharma-Khaato human site trial record.")
+    for case in data["cases"].values():
+        if (not isinstance(case, dict) or not isinstance(case.get("status"), str)
+                or case["status"] not in ALLOWED or not isinstance(case.get("title"), str)):
+            raise ValueError("Invalid case entry in site trial record.")
     return data
 
 
@@ -138,7 +143,11 @@ def main():
         return 0
     if not path.exists():
         p.error(f"No trial record found: {path}. First run --init.")
-    data = load(path)
+    try:
+        data = load(path)
+    except (OSError, ValueError) as exc:
+        print(f"BLOCKED: no valid on-site acceptance record: {exc}")
+        return 2
     if args.record:
         if args.record not in data["cases"]:
             p.error(f"Unknown test ID: {args.record}")
