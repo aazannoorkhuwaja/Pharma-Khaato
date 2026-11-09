@@ -27,6 +27,7 @@ class ThemeManager:
     events = ThemeEvents()
     _current_mode = "light"   # Light is the default
     _current_scale = 1.0
+    _current_density = "standard"
 
     @classmethod
     def get_theme_mode(cls) -> str:
@@ -35,6 +36,10 @@ class ThemeManager:
     @classmethod
     def get_font_scale(cls) -> float:
         return cls._current_scale
+
+    @classmethod
+    def get_density(cls) -> str:
+        return cls._current_density
 
     @classmethod
     def load_preferences(cls):
@@ -46,10 +51,13 @@ class ThemeManager:
             ThemeTokens.set_palette(mode)
             raw_scale = _SETTINGS_CONTROLLER.get("font_scale", "1.0")
             cls._current_scale = max(0.8, min(2.0, float(raw_scale)))
+            raw_density = _SETTINGS_CONTROLLER.get("display_density", "standard")
+            cls._current_density = raw_density if raw_density in ("standard", "compact") else "standard"
         except (TypeError, ValueError) as e:
             logger.warning(f"Failed to parse theme preferences: {e}")
             cls._current_mode = "light"
             cls._current_scale = 1.0
+            cls._current_density = "standard"
             ThemeTokens.set_palette("light")
         except Exception as e:
             logger.warning(f"Failed to load theme preferences: {e}")
@@ -60,6 +68,7 @@ class ThemeManager:
         ok = _SETTINGS_CONTROLLER.update({
             "theme_mode": cls._current_mode,
             "font_scale": str(cls._current_scale),
+            "display_density": cls._current_density,
         })
         if not ok:
             logger.warning("Failed to save one or more theme preferences.")
@@ -89,6 +98,17 @@ class ThemeManager:
     def set_font_scale(cls, scale: float, save: bool = True):
         """Sets font scaling factor and applies globally."""
         cls._current_scale = max(0.8, min(2.0, float(scale)))
+        if save:
+            cls.save_preferences()
+        cls.apply_theme()
+        cls.events.changed.emit()
+
+    @classmethod
+    def set_density(cls, density: str, save: bool = True):
+        """Switch UI information density without changing financial inputs."""
+        if density not in ("standard", "compact"):
+            return
+        cls._current_density = density
         if save:
             cls.save_preferences()
         cls.apply_theme()
@@ -139,20 +159,30 @@ class ThemeManager:
         t = ThemeTokens
         is_dark = (mode == "dark")
 
+        # Compact only affects spacing; it never shrinks text below the
+        # user's chosen accessible interface scale.
+        density_ratio = 0.80 if cls._current_density == "compact" else 1.0
+
         # ── Scaled sizes ──────────────────────────────────────────────────
         fs_body   = int(t.FONT_SIZE_BODY * scale)    # 13px at 1.0 — minimum for counter data
         fs_label  = int(t.FONT_SIZE_LABEL * scale)   # 11px — secondary labels only
         fs_h2     = int(t.FONT_SIZE_H2 * scale)
         fs_h1     = int(t.FONT_SIZE_H1 * scale)
-        btn_pv    = max(6, int(8 * scale))
+        btn_pv    = max(5, int(8 * scale * density_ratio))
         btn_ph    = max(10, int(16 * scale))
-        inp_pv    = max(4, int(6 * scale))
-        inp_h_min = LayoutMetrics.scaled(LayoutMetrics.CONTROL_HEIGHT, scale)
+        inp_pv    = max(4, int(6 * scale * density_ratio))
+        inp_h_min = LayoutMetrics.scaled(
+            34 if cls._current_density == "compact" else LayoutMetrics.CONTROL_HEIGHT,
+            scale,
+        )
         action_h  = LayoutMetrics.scaled(LayoutMetrics.PRIMARY_ACTION_HEIGHT, scale)
-        row_pv    = max(6, int(7 * scale))
+        row_pv    = max(4, int(7 * scale * density_ratio))
         row_ph    = max(8, int(10 * scale))
-        card_gap  = max(10, int(14 * scale))
+        card_gap  = max(8, int(14 * scale * density_ratio))
         scroll_w  = max(8, int(10 * scale))
+        sidebar_bg = "#14243D" if not is_dark else "#0E1A2C"
+        sidebar_hover = "#243C56" if not is_dark else "#1A3047"
+        sidebar_muted = "#B9C9DA"
 
         # Aliased token values for readability below
         bg        = t.BG_DARK
@@ -210,7 +240,7 @@ class ThemeManager:
             border-radius: {r_md}px;
         }}
         QLabel#posTotal {{
-            font-size: {max(fs_h1, int(24 * scale))}px;
+            font-size: {max(fs_h2, int(20 * scale))}px;
             font-weight: 900;
             color: {txt};
             background-color: {acc_lt};
@@ -220,37 +250,89 @@ class ThemeManager:
 
         /* ── Sidebar Container & Nav ──────────────────────────────────── */
         QFrame#sidebarFrame {{
-            background: {surf_grad};
-            border-right: 1px solid {bd_sub};
+            background: {sidebar_bg};
+            border-right: 1px solid {sidebar_hover};
+        }}
+        QScrollArea#sidebarScroll, QScrollArea#sidebarScroll > QWidget,
+        QWidget#sidebarBody {{
+            background: {sidebar_bg};
+            border: none;
+        }}
+        QLabel#sidebarBrand {{
+            color: #FFFFFF;
+            font-size: {fs_h2}px;
+            font-weight: 800;
+        }}
+        QLabel#sidebarCaption {{
+            color: {sidebar_muted};
+            font-size: {fs_label}px;
+        }}
+        QFrame#workspaceHeader {{
+            background: {surf};
+            border-bottom: 1px solid {bd_sub};
+            border-radius: 0px;
+        }}
+        QLabel#workspaceTitle {{
+            color: {txt};
+            font-size: {fs_h1}px;
+            font-weight: 800;
+        }}
+        QLabel#workspaceMeta {{
+            color: {txt2};
+            font-size: {fs_label}px;
+            font-weight: 600;
+        }}
+        QLabel#workspaceShift {{
+            color: {t.WARNING};
+            background-color: {elevated};
+            border: 1px solid {bd_sub};
+            border-radius: {r_sm}px;
+            padding: 4px 8px;
+            font-weight: 700;
+        }}
+        QLabel#workspaceShift[shiftOpen="true"] {{
+            color: {accent};
+            background-color: {acc_lt};
+            border-color: {accent};
         }}
         QPushButton#navButton {{
             text-align: left;
             background-color: transparent;
-            color: {txt2};
+            color: #E4EBF4;
             border: 1px solid transparent;
             padding: {max(7, int(9 * scale))}px {max(8, int(11 * scale))}px;
             font-weight: 600;
         }}
         QPushButton#navButton:hover {{
-            background-color: {elevated};
-            color: {txt};
-            border-color: {bd_sub};
+            background-color: {sidebar_hover};
+            color: #FFFFFF;
+            border-color: {sidebar_hover};
         }}
         QPushButton#navButton:checked {{
-            background-color: {acc_lt};
-            color: {accent};
-            border-color: {accent};
+            background-color: #087E5A;
+            color: #FFFFFF;
+            border-color: #15926A;
             font-weight: 800;
         }}
         QPushButton#sidebarUtilityButton {{
+            background-color: {sidebar_bg};
+            color: #E4EBF4;
+            border: 1px solid {sidebar_hover};
             font-size: {fs_label}px;
             padding: {max(5, int(6 * scale))}px {max(7, int(9 * scale))}px;
         }}
         QPushButton#sidebarLogoutButton {{
-            color: {t.DANGER};
+            background-color: {sidebar_bg};
+            color: #F8B4B4;
+            border: 1px solid {sidebar_hover};
             font-weight: 700;
             font-size: {fs_label}px;
             padding: {max(5, int(6 * scale))}px {max(7, int(9 * scale))}px;
+        }}
+        QPushButton#sidebarUtilityButton:hover {{
+            background-color: {sidebar_hover};
+            color: #FFFFFF;
+            border-color: {sidebar_hover};
         }}
         QPushButton#sidebarLogoutButton:hover {{
             background-color: {t.DANGER};
@@ -348,6 +430,31 @@ class ThemeManager:
             color: #FFFFFF;
             border: none;
             font-weight: 700;
+        }}
+
+        /* Cashier tender choices remain keyboard-compatible with the hidden
+           selection combo; checked state is the one visible active method. */
+        QPushButton#paymentOption {{
+            padding: {max(5, int(7 * scale))}px {max(4, int(6 * scale))}px;
+            min-height: {LayoutMetrics.scaled(40, scale)}px;
+            border: 1px solid {bd_str};
+            background-color: {surf};
+            color: {txt2};
+            font-weight: 700;
+        }}
+        QPushButton#paymentOption:hover {{
+            border-color: {accent};
+            color: {txt};
+        }}
+        QPushButton#paymentOption:checked {{
+            color: {accent};
+            background-color: {acc_lt};
+            border: 2px solid {accent};
+        }}
+        QPushButton#paymentOption:disabled {{
+            color: {t.TEXT_MUTED};
+            background-color: {elevated};
+            border: 1px solid {bd_sub};
         }}
 
         /* Danger action button */

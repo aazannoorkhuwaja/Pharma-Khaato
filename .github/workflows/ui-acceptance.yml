@@ -1,0 +1,72 @@
+name: UI Acceptance Evidence
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "ui/**"
+      - "scripts/ui_acceptance_matrix.py"
+      - ".github/workflows/ui-acceptance.yml"
+      - "tests/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop-rendering:
+    name: ${{ matrix.os }} / simulated Qt scale ${{ matrix.scale }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        scale: ["1", "1.25", "1.5"]
+    env:
+      QT_QPA_PLATFORM: offscreen
+      QT_SCALE_FACTOR: ${{ matrix.scale }}
+      PYTHONUTF8: "1"
+
+    steps:
+      - name: Check out the exact PR source
+        uses: actions/checkout@v4
+
+      - name: Install Linux Qt runtime libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install application and test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Compile UI acceptance harness
+        run: python -m py_compile scripts/ui_acceptance_matrix.py
+
+      - name: Capture screen-by-screen visual matrix and critical controls
+        run: python scripts/ui_acceptance_matrix.py --strict
+
+      - name: Publish screenshots and the machine-readable acceptance manifest
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qt-ui-acceptance-${{ runner.os }}-scale-${{ matrix.scale }}
+          path: artifacts/ui_acceptance/
+          retention-days: 21
+          if-no-files-found: warn

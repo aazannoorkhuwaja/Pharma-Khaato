@@ -60,6 +60,10 @@ class SessionState(QObject):
                 (item.get("id") == p_id or item.get("prod_id") == p_id)
                 and item.get("unit_code", "base") == product_item.get("unit_code", "base")
             ):
+                # Multiple physical lots may be consolidated into one cart row.
+                # Never imply that the first scanned lot is guaranteed at checkout.
+                if item.get("batch_id") != product_item.get("batch_id"):
+                    item["expiry_date"] = "Verify at checkout"
                 item["qty"] += qty
                 item["subtotal"] = item["qty"] * item["price"]
                 return
@@ -70,6 +74,7 @@ class SessionState(QObject):
             "name": product_item.get("name"),
             "price": float(product_item.get("price", 0.0)),
             "batch_id": product_item.get("batch_id"),
+            "expiry_date": str(product_item.get("expiry_date") or ""),
             "stock": product_item.get("stock", 0),
             "qty": qty,
             "subtotal": qty * float(product_item.get("price", 0.0)),

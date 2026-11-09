@@ -67,7 +67,8 @@ class SettingsScreen(QWidget):
 
     def _sync_display_preferences(self):
         for combo, value in ((self.cmb_theme_mode, ThemeManager.get_theme_mode()),
-                             (self.cmb_font_scale, str(ThemeManager.get_font_scale()))):
+                             (self.cmb_font_scale, str(ThemeManager.get_font_scale())),
+                             (self.cmb_density, ThemeManager.get_density())):
             index = combo.findData(value)
             if index >= 0:
                 combo.setCurrentIndex(index)
@@ -161,11 +162,20 @@ class SettingsScreen(QWidget):
         self.cmb_font_scale.addItem("Medium (125%)", "1.25")
         self.cmb_font_scale.addItem("Large (150%)", "1.5")
 
+        self.cmb_density = QComboBox()
+        self.cmb_density.addItem("Standard (recommended)", "standard")
+        self.cmb_density.addItem("Compact (more rows)", "compact")
+        self.cmb_density.setAccessibleName("Display density")
+        self.cmb_density.setToolTip(
+            "Compact reduces spacing without reducing your chosen text size."
+        )
+
         form.addRow("Sales tax:", self.spn_tax)
         form.addRow("Customer credit limit:", self.spn_credit_limit)
         form.addRow("Warn about expiry:", self.spn_expiry_threshold)
         form.addRow("Theme:", self.cmb_theme_mode)
         form.addRow("Interface size:", self.cmb_font_scale)
+        form.addRow("Display density:", self.cmb_density)
         card_layout.addLayout(form)
 
         self.btn_save_settings = QPushButton("Save Pharmacy Settings")
@@ -373,7 +383,7 @@ class SettingsScreen(QWidget):
         backup_layout.addWidget(self.tbl_backups, 1)
         tech_grid.addWidget(backup_card, 1)
         tech_layout.addLayout(tech_grid, 1)
-        self.tabs.addTab(self.tab_technical, "System & Recovery")
+        self.tabs.addTab(self.tab_technical, "System && Recovery")
 
     def _on_tab_changed(self, index: int):
         current = self.tabs.widget(index)
@@ -464,6 +474,9 @@ class SettingsScreen(QWidget):
         scale_index = self.cmb_font_scale.findData(str(ThemeManager.get_font_scale()))
         if scale_index >= 0:
             self.cmb_font_scale.setCurrentIndex(scale_index)
+        density_index = self.cmb_density.findData(ThemeManager.get_density())
+        if density_index >= 0:
+            self.cmb_density.setCurrentIndex(density_index)
 
     def save_settings(self):
         pharmacy_name = self.txt_pharmacy_name.text().strip()
@@ -497,6 +510,7 @@ class SettingsScreen(QWidget):
         scale = float(self.cmb_font_scale.currentData())
         ThemeManager.set_theme(mode, save=True)
         ThemeManager.set_font_scale(scale, save=True)
+        ThemeManager.set_density(str(self.cmb_density.currentData() or "standard"), save=True)
         if self.show_message_box:
             show_toast(self, "Pharmacy settings saved.", ToastType.SUCCESS)
 

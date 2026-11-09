@@ -54,28 +54,29 @@ class MainWindow(QMainWindow):
         sidebar_outer = QVBoxLayout(self.sidebar)
         sidebar_outer.setContentsMargins(0, 0, 0, 0)
         self.sidebar_scroll = QScrollArea()
+        self.sidebar_scroll.setObjectName("sidebarScroll")
         self.sidebar_scroll.setWidgetResizable(True)
         self.sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         sidebar_body = QWidget()
+        sidebar_body.setObjectName("sidebarBody")
         self.sidebar_scroll.setWidget(sidebar_body)
         sidebar_outer.addWidget(self.sidebar_scroll)
         sidebar_layout = QVBoxLayout(sidebar_body)
-        sidebar_layout.setSizeConstraint(QLayout.SetMinimumSize)
+        sidebar_layout.setSizeConstraint(QLayout.SetDefaultConstraint)
         sidebar_layout.setContentsMargins(12, 16, 12, 16)
         sidebar_layout.setSpacing(8)
 
         self.brand_label = QLabel("PHARMA KHAATO")
-        self.brand_label.setObjectName("h2")
-        self.brand_label.setStyleSheet(f"color: {ThemeTokens.ACCENT}; font-weight: 800;")
+        self.brand_label.setObjectName("sidebarBrand")
+        self.brand_label.setWordWrap(True)
         self.sub_brand = QLabel(ApplicationSettings.PRODUCT_TAGLINE)
-        self.sub_brand.setObjectName("caption")
+        self.sub_brand.setObjectName("sidebarCaption")
         self.sub_brand.setWordWrap(True)
         sidebar_layout.addWidget(self.brand_label)
         sidebar_layout.addWidget(self.sub_brand)
 
         self.lbl_clock = QLabel()
-        self.lbl_clock.setObjectName("caption")
-        self.lbl_clock.setStyleSheet("font-weight: 600;")
+        self.lbl_clock.setObjectName("sidebarCaption")
         sidebar_layout.addWidget(self.lbl_clock)
 
         self.clock_timer = QTimer(self)
@@ -103,13 +104,13 @@ class MainWindow(QMainWindow):
 
         sidebar_layout.addStretch()
         self.user_badge = QLabel("User: Signed Out")
-        self.user_badge.setObjectName("caption")
+        self.user_badge.setObjectName("sidebarCaption")
         self.user_badge.setWordWrap(True)
         self.user_badge.setStyleSheet("font-weight: 700;")
         sidebar_layout.addWidget(self.user_badge)
 
         self.lbl_version = QLabel(f"Version {ApplicationSettings.APP_VERSION}")
-        self.lbl_version.setObjectName("caption")
+        self.lbl_version.setObjectName("sidebarCaption")
         self.lbl_version.setToolTip("Installed Pharma Khaato version")
         sidebar_layout.addWidget(self.lbl_version)
 
@@ -152,9 +153,36 @@ class MainWindow(QMainWindow):
         self.btn_logout.clicked.connect(lambda _checked=False: self.on_logout())
         sidebar_layout.addWidget(self.btn_logout)
 
+        # Persistent task header. The existing lazy screen router remains intact.
         self.router = AppRouter()
+        workspace = QWidget()
+        workspace.setObjectName("workspace")
+        workspace_layout = QVBoxLayout(workspace)
+        workspace_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_layout.setSpacing(0)
+
+        self.workspace_header = QFrame()
+        self.workspace_header.setObjectName("workspaceHeader")
+        header_layout = QHBoxLayout(self.workspace_header)
+        header_layout.setContentsMargins(16, 8, 16, 8)
+        header_layout.setSpacing(12)
+        self.lbl_workspace_title = QLabel("Billing / New Sale")
+        self.lbl_workspace_title.setObjectName("workspaceTitle")
+        header_layout.addWidget(self.lbl_workspace_title)
+        header_layout.addStretch(1)
+        self.lbl_workspace_user = QLabel("")
+        self.lbl_workspace_user.setObjectName("workspaceMeta")
+        header_layout.addWidget(self.lbl_workspace_user)
+        self.lbl_workspace_shift = QLabel("Checking shift")
+        self.lbl_workspace_shift.setObjectName("workspaceShift")
+        header_layout.addWidget(self.lbl_workspace_shift)
+        self.lbl_header_clock = QLabel("")
+        self.lbl_header_clock.setObjectName("workspaceMeta")
+        header_layout.addWidget(self.lbl_header_clock)
+        workspace_layout.addWidget(self.workspace_header)
+        workspace_layout.addWidget(self.router, 1)
         main_layout.addWidget(self.sidebar)
-        main_layout.addWidget(self.router, 1)
+        main_layout.addWidget(workspace, 1)
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -181,9 +209,10 @@ class MainWindow(QMainWindow):
         super().resizeEvent(event)
 
     def _apply_sidebar_density(self, width: int, force: bool = False):
-        if width >= LayoutMetrics.SIDEBAR_FULL_AT:
+        scale = ThemeManager.get_font_scale()
+        if width >= LayoutMetrics.SIDEBAR_FULL_AT and scale < 1.2:
             mode, sidebar_width = "full", LayoutMetrics.SIDEBAR_FULL
-        elif width >= LayoutMetrics.SIDEBAR_COMPACT_AT:
+        elif width >= LayoutMetrics.SIDEBAR_COMPACT_AT and scale <= 1.25:
             mode, sidebar_width = "compact", LayoutMetrics.SIDEBAR_COMPACT
         else:
             mode, sidebar_width = "mini", LayoutMetrics.SIDEBAR_MINI
@@ -191,18 +220,37 @@ class MainWindow(QMainWindow):
             return
         self._sidebar_mode = mode
         self.sidebar.setFixedWidth(sidebar_width)
+        mini_labels = {
+            "pos": "P", "customers": "CU", "khatoo": "CR",
+            "inventory": "ST", "cash_session": "CA",
+            "reports": "RP", "settings": "SE", "returns": "RT",
+        }
         for key, text, short_text, shortcut_key in self._nav_items:
-            self.nav_buttons[key].setText(_qt_button_text(text if mode != "mini" else short_text))
-        self.brand_label.setText("PHARMA KHAATO" if mode != "mini" else "PK")
+            label = text if mode == "full" else short_text if mode == "compact" else mini_labels.get(key, key)
+            self.nav_buttons[key].setText(_qt_button_text(label))
+        self.brand_label.setText("PK" if mode == "mini" else
+                                 "PHARMA\nKHAATO" if scale > 1.2 else "PHARMA KHAATO")
         self.sub_brand.setVisible(mode == "full")
+        self.lbl_clock.setVisible(mode != "mini")
         self.user_badge.setVisible(mode != "mini")
         self.lbl_version.setVisible(mode != "mini")
-        self.btn_printer_setup.setText("Printer" if mode == "mini" else "Printer Setup")
-        self.btn_about.setText("About" if mode == "mini" else "About Pharma Khaato")
-        self.btn_getting_started.setText("Prepare" if mode == "mini" else "Prepare Your Shop")
+        self.btn_printer_setup.setText("PRN" if mode == "mini" else "Printer Setup")
+        self.btn_shop_computers.setText("LAN" if mode == "mini" else "Shop Computers")
+        self.btn_about.setText("INF" if mode == "mini" else "About Pharma Khaato")
+        self.btn_getting_started.setText("HLP" if mode == "mini" else "Prepare Your Shop")
+        for button, help_text in (
+            (self.btn_printer_setup, "Printer Setup"),
+            (self.btn_shop_computers, "Shop Computers"),
+            (self.btn_about, "About Pharma Khaato"),
+            (self.btn_getting_started, "Prepare Your Shop"),
+            (self.btn_theme_toggle, "Toggle Light / Dark Theme"),
+            (self.btn_logout, "Sign Out"),
+        ):
+            button.setAccessibleName(help_text)
+            button.setToolTip(help_text)
         if mode == "mini":
-            self.btn_theme_toggle.setText("Theme")
-            self.btn_logout.setText("Sign Out")
+            self.btn_theme_toggle.setText("THM")
+            self.btn_logout.setText("OUT")
         else:
             self.refresh_theme_toggle_label(update_density=False)
             self.btn_logout.setText("Sign Out")
@@ -210,6 +258,15 @@ class MainWindow(QMainWindow):
 
     def update_clock(self):
         now = datetime.now()
+        self.lbl_header_clock.setText(now.strftime("%d %b %Y  •  %I:%M %p"))
+        self.lbl_header_clock.setVisible(
+            self.width() >= LayoutMetrics.SIDEBAR_FULL_AT
+            and ThemeManager.get_font_scale() < 1.3
+        )
+        self.lbl_workspace_user.setVisible(
+            self.width() >= LayoutMetrics.SIDEBAR_COMPACT_AT
+            and ThemeManager.get_font_scale() <= 1.25
+        )
         if self._sidebar_mode == "mini":
             self.lbl_clock.setText(now.strftime("%H:%M"))
             self.lbl_clock.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -229,7 +286,11 @@ class MainWindow(QMainWindow):
             return
         for key, btn in self.nav_buttons.items():
             btn.setChecked(key == screen_key)
-        self.router.navigate_to(screen_key)
+        if self.router.navigate_to(screen_key):
+            title = NAV_BY_KEY[screen_key].label
+            self.lbl_workspace_title.setText(
+                "Billing / New Sale" if screen_key == "pos" else title
+            )
 
     def get_allowed_screens(self):
         base = ["pos", "customers", "khatoo", "cash_session"]
@@ -279,7 +340,7 @@ class MainWindow(QMainWindow):
     def refresh_theme_toggle_label(self, update_density: bool = True):
         mode = ThemeManager.get_theme_mode()
         if self._sidebar_mode == "mini":
-            self.btn_theme_toggle.setText("Theme")
+            self.btn_theme_toggle.setText("THM")
         else:
             self.btn_theme_toggle.setText("Use Light Mode" if mode == "dark" else "Use Dark Mode")
         if update_density:
@@ -288,8 +349,20 @@ class MainWindow(QMainWindow):
     def _show_shift_status(self, session):
         self._shift_tasks.invalidate("shift")
         self.lbl_shift_status.setText("Shift Open" if session else "Shift Closed")
+        self.lbl_workspace_shift.setText("Shift Open" if session else "Shift Closed")
+        self.lbl_workspace_shift.setProperty("shiftOpen", bool(session))
+        self.lbl_workspace_shift.style().unpolish(self.lbl_workspace_shift)
+        self.lbl_workspace_shift.style().polish(self.lbl_workspace_shift)
         color = ThemeTokens.SUCCESS if session else ThemeTokens.WARNING
         self.lbl_shift_status.setStyleSheet(f"color: {color}; font-weight: 700; padding: 0 8px;")
+
+    def _shift_status_unavailable(self):
+        # Unknown is never displayed as 'Closed' or 'Open'.
+        self.lbl_shift_status.setText("Shift unavailable")
+        self.lbl_workspace_shift.setText("Shift unavailable")
+        self.lbl_workspace_shift.setProperty("shiftOpen", False)
+        self.lbl_workspace_shift.style().unpolish(self.lbl_workspace_shift)
+        self.lbl_workspace_shift.style().polish(self.lbl_workspace_shift)
 
     def set_active_user(self, user_dict):
         self.current_user = user_dict
@@ -297,10 +370,13 @@ class MainWindow(QMainWindow):
         role = role_label(user_dict.get("occupation", "Staff")) if isinstance(user_dict, dict) else "Staff"
         emp_id = user_dict.get("id", 1) if isinstance(user_dict, dict) else 1
         self.user_badge.setText(f"{uname}\n{role}")
+        self.lbl_workspace_user.setText(f"{role}: {uname}")
         self.lbl_shift_status.setText("Checking Shift")
+        self.lbl_workspace_shift.setText("Checking shift")
+        self.lbl_workspace_shift.setProperty("shiftOpen", False)
         self._shift_tasks.run_latest("shift", lambda: _CASH_CONTROLLER.active_session(emp_id),
                                     self._show_shift_status,
-                                    lambda _e: self.lbl_shift_status.setText("Shift unavailable"))
+                                    lambda _e: self._shift_status_unavailable())
         allowed = self.get_allowed_screens()
         for key, btn in self.nav_buttons.items():
             btn.setVisible(key in allowed)

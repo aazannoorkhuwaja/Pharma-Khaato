@@ -371,7 +371,7 @@ class InventoryScreen(QWidget):
         header_card.add_pill(self.pill_near_expiry)
         layout.addWidget(header_card)
         owner_actions=QHBoxLayout()
-        supplier_accounts=QPushButton('Supplier Invoices & Payments')
+        supplier_accounts=QPushButton('Supplier Invoices && Payments')
         supplier_accounts.clicked.connect(self.open_supplier_accounts)
         recover_receiving=QPushButton('Confirm Pending Stock Entry')
         recover_receiving.clicked.connect(self.recover_stock_entry)

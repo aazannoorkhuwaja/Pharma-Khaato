@@ -36,8 +36,8 @@ class ReportsScreen(QWidget):
         layout.setSpacing(14)
 
         header = ScreenHeader(
-            "Reports",
-            "Review sales, payment mix, collections, low stock, expiry, and activity."
+            "Owner Overview & Reports",
+            "Review real sales, collections and stock risks before making decisions."
         )
         self.dt_picker = QDateEdit()
         self.dt_picker.setDate(QDate.currentDate())
@@ -51,6 +51,26 @@ class ReportsScreen(QWidget):
         self.btn_export.clicked.connect(self.export_csv)
         header.add_widget(self.btn_export)
         layout.addWidget(header)
+
+        # Task-first operational links use the existing router and permissions.
+        # They never duplicate financial or inventory calculations in widgets.
+        shortcuts = QGridLayout()
+        shortcuts.setHorizontalSpacing(8)
+        shortcuts.setVerticalSpacing(8)
+        for column, (label, destination) in enumerate((
+            ("Review Stock Alerts", "inventory"),
+            ("Customer Credit", "khatoo"),
+            ("Shift & Cash", "cash_session"),
+            ("System & Backup", "settings"),
+        )):
+            button = QPushButton(label)
+            button.setAccessibleName(label)
+            button.setToolTip(f"Open {label}")
+            button.clicked.connect(
+                lambda _checked=False, key=destination: self._open_workspace(key)
+            )
+            shortcuts.addWidget(button, column // 2, column % 2)
+        layout.addLayout(shortcuts)
 
         self.kpi_grid = QGridLayout()
         self.kpi_grid.setHorizontalSpacing(12)
@@ -123,6 +143,17 @@ class ReportsScreen(QWidget):
         # These methods only schedule work; the screen can paint immediately.
         self._refresh_financials()
         self._load_current_tab(self.tabs.currentIndex())
+
+    def _open_workspace(self, key: str):
+        window = self.window()
+        if not hasattr(window, "get_allowed_screens") or key not in window.get_allowed_screens():
+            return
+        window.on_nav_clicked(key)
+        target = window.router.get_screen(key)
+        if key == "inventory" and target is not None and hasattr(target, "tabs"):
+            target.tabs.setCurrentIndex(2)  # existing Stock Alerts tab
+        elif key == "settings" and target is not None and hasattr(target, "tabs"):
+            target.tabs.setCurrentWidget(target.tab_technical)
 
     def resizeEvent(self, event):
         width = event.size().width()

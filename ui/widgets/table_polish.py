@@ -71,6 +71,9 @@ def polish_table(table, min_row_height: int = 0, hide_internal_keys: bool = True
     table.setAlternatingRowColors(True)
 
     base_height = min_row_height or LayoutMetrics.TABLE_ROW_HEIGHT
+    if ThemeManager.get_density() == "compact":
+        # Never shrink rows containing in-cell actions below their safe target.
+        base_height = min(base_height, 34)
     if has_action_column:
         base_height = max(base_height, LayoutMetrics.TABLE_ACTION_ROW_HEIGHT)
 
