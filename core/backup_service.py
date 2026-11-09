@@ -1,4 +1,5 @@
 import os
+import ntpath
 import sqlite3
 import json
 import shutil
@@ -70,22 +71,57 @@ def recover_interrupted_restore():
     with open(journal, encoding="utf-8") as handle:
         state = json.load(handle)
     live = PathManager.get_db_path()
-    quarantine = os.path.abspath(state["quarantine"])
-    if os.path.commonpath((quarantine, os.path.abspath(PathManager.get_backups_dir()))) != os.path.abspath(PathManager.get_backups_dir()):
+    if not isinstance(state, dict) or not isinstance(state.get("quarantine"), str):
         raise RuntimeError("The recovery journal needs support review.")
+    # Select a trusted directory entry rather than using a journal-controlled
+    # path for filesystem operations. Match the basename so a moved data
+    # folder can recover its original WAL; ntpath also reads old Windows paths
+    # after a move to Linux. Never follow a quarantine symlink.
+    backup_dir = os.path.abspath(PathManager.get_backups_dir())
+    requested = os.path.normcase(ntpath.basename(state["quarantine"]))
+    quarantine = None
+    with os.scandir(backup_dir) as entries:
+        for entry in entries:
+            if (entry.name.startswith("before_restore_") and entry.is_dir(follow_symlinks=False)
+                    and os.path.normcase(entry.name) == requested):
+                quarantine = entry.path
+                break
     valid = os.path.exists(live) and _validate_sqlite_database(live)[0]
-    if not valid:
-        for suffix in ("", "-wal", "-shm"):
+    if quarantine is None:
+        if valid:
+            # A crash may persist the journal before directory creation.
+            # Keep journal/stage evidence without blocking a verified store.
+            return
+        raise RuntimeError("The interrupted recovery needs support review; the original database is missing.")
+    original = os.path.join(quarantine, os.path.basename(live))
+    # Older recovery attempts could have moved the main file before failing
+    # on its journals. A valid main file alone does not prove that rollback
+    # recovered every committed record from its WAL.
+    incomplete_rollback = not os.path.exists(original) and any(
+        os.path.exists(os.path.join(quarantine, os.path.basename(live + suffix)))
+        for suffix in ("-wal", "-shm")
+    )
+    if not valid or incomplete_rollback:
+        if not os.path.isfile(original) and not (valid and incomplete_rollback):
+            # Never let normal startup silently initialize an empty shop after
+            # an interrupted swap has lost its original database.
+            raise RuntimeError("The interrupted recovery needs support review; the original database is missing.")
+        # Recover journals first and the main file last. If a journal move
+        # fails, a retry must not mistake the restored main file for a fully
+        # recovered database and discard the remaining recovery evidence.
+        for suffix in ("-shm", "-wal", ""):
             previous = os.path.join(quarantine, os.path.basename(live + suffix))
             if os.path.exists(previous):
                 os.replace(previous, live + suffix)
+    _sync_directory(os.path.dirname(live))
+    _sync_directory(quarantine)
     stage = state.get("stage", "")
-    if stage.startswith(live + ".restore-"):
+    if isinstance(stage, str) and stage.startswith(live + ".restore-") and os.path.dirname(stage) == os.path.dirname(live):
         for suffix in ("", "-wal", "-shm"):
             if os.path.exists(stage + suffix):
                 os.remove(stage + suffix)
     os.remove(journal)
-    _sync_directory(os.path.dirname(live))
+    _sync_directory(os.path.dirname(journal))
 
 
 def _copy_external(snapshot):

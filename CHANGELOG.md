@@ -2,7 +2,20 @@
 
 All notable product changes are recorded here. Dates refer to the engineering/release line; a build is not a production release until its launch-candidate gates and manual hardware acceptance are complete.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:b3c8a23161375ece5c1c3a8676b7851607e988576152465c72d7e1af63f7bb3e -->
+
+## Unreleased — Recovery and release verification
+
+- Stop interrupted-restore recovery when the preserved original is missing; keep the recovery journal and surviving files for support instead of allowing an empty shop to be initialized.
+- Restore SQLite journals before the main database so an interrupted recovery remains retryable.
+- Repair the documented release-gate command and reject malformed worksheets, invalid approval dates and non-text evidence without a traceback.
+- These repairs preserve the existing requirement for native Windows/Linux checks and real pharmacy acceptance before release.
+
 ## 2.4.1 — Recording review fixes
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 - Fixed dark-mode stock forms, expanding stock-entry layout, expiry labels and current-month calendar navigation.
 - Kept bill total and change beside Complete Sale and removed generated customer references from selection.

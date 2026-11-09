@@ -62,3 +62,50 @@ def test_worksheet_roundtrip(tmp_path):
     path = tmp_path / "acceptance.json"
     atomic_write(path, accepted_record())
     assert validate(load(path), SHA, VERSION) == []
+
+
+def test_malformed_cases_and_approval_are_blocked_without_crashing():
+    for field, value in [('cases', None), ('cases', []), ('approval', []), ('approval', 'approved')]:
+        record = accepted_record()
+        record[field] = value
+        assert validate(record, SHA, VERSION)
+    record = accepted_record()
+    record['cases']['restore'] = None
+    assert validate(record, SHA, VERSION)
+
+
+def test_approval_requires_real_calendar_date_and_text_evidence():
+    for value in ('yesterday', '2026-02-30', '2026-1-1', True):
+        record = accepted_record()
+        record['approval']['date'] = value
+        assert validate(record, SHA, VERSION)
+    for value in (True, 123, ['evidence']):
+        record = accepted_record()
+        record['cases']['restore']['evidence'] = value
+        assert validate(record, SHA, VERSION)
+
+
+def test_loader_rejects_malformed_json_shapes(tmp_path):
+    import json
+    import pytest
+    for value in ([], None, 42, {'kind': 'human-site-acceptance', 'cases': None}):
+        path = tmp_path / 'invalid.json'
+        path.write_text(json.dumps(value), encoding='utf-8')
+        with pytest.raises(ValueError):
+            load(path)
+
+
+def test_documented_gate_command_runs_and_blocks_bad_input(tmp_path):
+    import subprocess
+    import sys
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    path = tmp_path / 'bad.json'
+    path.write_text('[]', encoding='utf-8')
+    result = subprocess.run(
+        [sys.executable, 'scripts/release_acceptance_gate.py', '--file', str(path),
+         '--revision', SHA, '--version', VERSION], cwd=root, capture_output=True, text=True,
+    )
+    assert result.returncode == 2, result.stderr
+    assert 'BLOCKED' in result.stdout
+    assert 'Traceback' not in result.stderr
