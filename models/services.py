@@ -187,6 +187,10 @@ class InventoryModel:
         from core.inventory_service import product_details
         return product_details(product_id)
 
+    def batch_browser(self, term='', expiry='all', stock_status='all', supplier_id=None, limit=100, offset=0):
+        from core.inventory_query_service import batch_browser
+        return batch_browser(term, expiry, stock_status, supplier_id, limit, offset)
+
     def stock_batches(self, product_id=None):
         from core.inventory_service import stock_batches
         return stock_batches(product_id)

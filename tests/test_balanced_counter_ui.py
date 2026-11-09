@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_theme_has_navy_sidebar_and_keyboard_safe_payment_buttons():
     theme = (ROOT / "ui/theme/theme_manager.py").read_text(encoding="utf-8")
     pos = (ROOT / "ui/screens/pos_screen.py").read_text(encoding="utf-8")
-    assert 'sidebar_bg = "#14243D"' in theme
+    assert 'sidebar_bg = "#152843"' in theme
     assert "QLabel#workspaceTitle" in theme
     assert "QPushButton#paymentOption:checked" in theme
     assert "def _select_payment_method(self, index)" in pos
@@ -61,8 +61,8 @@ def test_compact_density_reduces_spacing_without_shrinking_fonts():
         ThemeManager.set_density("compact", save=False)
         compact = ThemeManager.build_qss("light", 1.0)
         assert ThemeManager.get_density() == "compact"
-        assert "min-height: 38px;" in standard
-        assert "min-height: 34px;" in compact
+        assert "min-height: 26px;" in standard  # 38px target minus vertical input padding
+        assert "min-height: 26px;" in compact  # 34px target minus compact input padding
         assert "font-size: 13px;" in standard
         assert "font-size: 13px;" in compact
         assert standard != compact

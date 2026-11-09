@@ -36,6 +36,8 @@ class ProductCatalogModel(QAbstractTableModel):
 
         if role == Qt.DisplayRole:
             return row_data[column]
+        if role == Qt.ToolTipRole:
+            return "\n".join(f"{label}: {value}" for label, value in zip(self.HEADERS, row_data))
         if role == Qt.TextAlignmentRole:
             if column in (2, 3):
                 return int(Qt.AlignRight | Qt.AlignVCenter)
