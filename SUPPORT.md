@@ -15,33 +15,27 @@ Do not send the pharmacy database, backup files, exported customer ledgers, pass
 
 Never post business data in a public GitHub issue.
 
-## Recovery
-
 <!-- coderabbit-ai-generated:v1 -->
 
-<!-- coderabbit-ai-generated-section:v1:ab48b7a39725999e9667843e098dd8328dd49bfaf1a015d2e037de914a413d95 -->
+<!-- coderabbit-ai-generated-section:v1:e236e4f7e1508c70371dd7feb953fd327e44a5917f4f570a349eca7a5ab965f7 -->
 
-Pharma Khaato checks for automatic integrity-checked backups each minute and saves a snapshot at least hourly while open
+## Recovery
 
-<!-- /coderabbit-ai-generated:v1 --> and also supports manual backups in **Settings → System & Recovery**.
+Pharma Khaato checks for automatic integrity-checked backups each minute and saves a snapshot at least hourly while open. Use **Settings → System & Recovery** for a manual backup. Check the second-copy warning and verify a restore from a separate protected device.
 
 Restoring a backup:
 
 - requires an administrator/manager account;
 - validates the selected SQLite backup;
-<!-- coderabbit-ai-generated:v1 -->
-
-<!-- coderabbit-ai-generated-section:v1:148d89dfca985a77c1eecfe0e814579820eff589db4ef4f29af0830223fa6dc2 -->
-
 - preserves the previous database and journals as recovery evidence;
-
-<!-- /coderabbit-ai-generated:v1 -->
 - restores the selected snapshot;
 - requires the application to restart before work continues.
 
-If the workstation has suffered disk failure or the operating system cannot start, preserve the `Pharma-Khaato` application-data directory before reinstalling or replacing the machine.
+After workstation or disk failure, preserve the application-data directory and external backups before reinstalling. Ask the test lead for help if recovery evidence is incomplete.
 
 ## Hardware issues
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 For printer, scanner or cash-drawer problems, record the exact hardware model, connection type (USB/network/Bluetooth), operating system and driver version. Hardware acceptance is workstation-specific and cannot be proven by software CI alone.
 

@@ -1,4 +1,5 @@
 """Native, theme-aware report charts driven only by supplied service values."""
+import math
 from PySide6.QtCore import Qt, QRectF, QPointF
 from PySide6.QtGui import QPainter, QColor, QPen, QPainterPath
 from PySide6.QtWidgets import QWidget, QSizePolicy
@@ -15,8 +16,14 @@ class ReportChart(QWidget):
         self.setAccessibleName('Sales trend' if kind == 'trend' else 'Payment method distribution')
 
     def set_values(self, values):
-        self.values = [(str(label), float(value)) for label, value in values]
-        self.setAccessibleDescription('; '.join(f'{label}: Rs. {value:,.2f}' for label, value in self.values))
+        try:
+            cleaned = [(str(label), float(value)) for label, value in values]
+            if not all(math.isfinite(value) for _, value in cleaned):
+                raise ValueError('Non-finite report value')
+        except (TypeError, ValueError, OverflowError):
+            cleaned = []  # Never invent a zero financial balance for invalid data.
+        self.values = cleaned
+        self.setAccessibleDescription('; '.join(f'{label}: Rs. {value:,.2f}' for label, value in self.values) if self.values else 'Report data unavailable')
         self.update()
 
     def paintEvent(self, event):

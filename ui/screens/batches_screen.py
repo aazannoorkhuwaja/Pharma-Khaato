@@ -192,6 +192,7 @@ class BatchesScreen(QWidget):
 
     def _failed(self, _details):
         self._rows=[];self.table.setRowCount(0);self._selection_changed()
+        self.previous.setEnabled(self._page > 0)
         for label in self.metrics.values():label.setText('Unavailable')
         self.status.setText('Could not load batches. Change a filter or reopen the tab to retry.')
 

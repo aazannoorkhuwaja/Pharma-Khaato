@@ -405,8 +405,10 @@ class KhatooScreen(QWidget):
             self.account_statement.clear()
             self.account_contact.setText("")
             if context:
-                row = self.tbl_ledger.currentRow()
-                self.account_contact.setText("Phone: " + self.tbl_ledger.item(row, 1).text() + "\nArea: " + self.tbl_ledger.item(row, 2).text())
+                row = self.tbl_ledger.selectionModel().selectedRows()[0].row()
+                phone = self.tbl_ledger.item(row, 1)
+                area = self.tbl_ledger.item(row, 2)
+                self.account_contact.setText("Phone: " + (phone.text() if phone else "—") + "\nArea: " + (area.text() if area else "—"))
                 self._tasks.run_latest("account-preview", lambda: _KHATOO_CONTROLLER.statement(context[0]),
                                       self.account_statement.setPlainText,
                                       lambda _details: self.account_statement.setPlainText("Statement unavailable. Select the customer to retry."))

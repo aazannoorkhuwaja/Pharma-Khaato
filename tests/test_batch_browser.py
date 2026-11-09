@@ -42,3 +42,13 @@ def test_batch_browser_service_enforces_inventory_read(seeded_shop, admin_emp_id
     with pytest.raises(ShopAPIError) as caught:
         service.call(cashier['token'],'InventoryModel','batch_browser')
     assert caught.value.status==403
+
+
+def test_batch_search_matches_literal_percentage_underscore_and_escape(seeded_shop):
+    from core.inventory_query_service import batch_browser
+    with seeded_shop.get_db() as (_conn, cur):
+        cur.execute('UPDATE Batch SET lot_number=%s WHERE id=1', ('LOT-5%_!',))
+    for term in ('5%', '%_', '_!', '!'):
+        assert batch_browser(term=term)['count'] == 1
+    assert batch_browser(term='5_')['count'] == 0
+    assert batch_browser(term='Test_ed')['count'] == 0

@@ -171,8 +171,9 @@ def batch_browser(term='', expiry='all', stock_status='all', supplier_id=None, l
     offset = max(0, int(offset))
     predicates, params = [], []
     if term.strip():
-        predicates.append('(p.product_name LIKE %s OR COALESCE(b.lot_number,\'\') LIKE %s OR s.supplier_name LIKE %s)')
-        params.extend(['%' + term.strip() + '%'] * 3)
+        predicates.append("(p.product_name LIKE %s ESCAPE '!' OR COALESCE(b.lot_number,'') LIKE %s ESCAPE '!' OR s.supplier_name LIKE %s ESCAPE '!')")
+        literal = term.strip().replace('!', '!!').replace('%', '!%').replace('_', '!_')
+        params.extend(['%' + literal + '%'] * 3)
     if expiry == 'near':
         predicates.append('b.expiry_date >= %s AND b.expiry_date <= %s')
         params.extend([today, cutoff])
