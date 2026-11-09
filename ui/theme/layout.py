@@ -8,8 +8,11 @@ without inventing one-off widths or touch targets.
 
 class LayoutMetrics:
     # Main shell breakpoints.  Widths are in logical Qt pixels (DPI independent).
-    SHELL_MIN_WIDTH = 900
-    SHELL_MIN_HEIGHT = 600
+    # A 1366x768 physical Windows monitor at 150% scaling is only about
+    # 910x512 Qt logical pixels, often ~480 high after the taskbar. The
+    # previous 900x600 minimum could extend checkout beyond the desktop.
+    SHELL_MIN_WIDTH = 820
+    SHELL_MIN_HEIGHT = 440
     SIDEBAR_FULL_AT = 1260
     SIDEBAR_COMPACT_AT = 1080
 
@@ -37,6 +40,21 @@ class LayoutMetrics:
 
     # Dialogs remain usable on 1366x768 laptops and high-DPI screens.
     DIALOG_MARGIN = 48
+
+    @classmethod
+    def startup_window_size(cls, available_width: int, available_height: int) -> tuple[int, int]:
+        """Choose a sensible Qt-logical size without exceeding the usable screen.
+
+        Screen geometry already accounts for operating-system DPI scaling.
+        Do not divide by the scale factor a second time. Small monitors must
+        stay reachable even if preferred size exceeds the desktop.
+        """
+        width = max(1, int(available_width))
+        height = max(1, int(available_height))
+        return (
+            min(width, max(cls.SHELL_MIN_WIDTH, int(width * 0.94)), 1440),
+            min(height, max(cls.SHELL_MIN_HEIGHT, int(height * 0.90)), 900),
+        )
 
     @staticmethod
     def scaled(value: int, scale: float) -> int:
