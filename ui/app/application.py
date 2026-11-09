@@ -12,6 +12,7 @@ from config import ApplicationSettings
 from controllers.application_controller import ApplicationController
 from core.logger import get_logger
 from ui.theme.theme_manager import ThemeManager
+from ui.theme.layout import LayoutMetrics
 from ui.app.main_window import MainWindow
 from ui.app.async_tasks import AsyncTaskRunner
 from ui.app.state.session_state import SessionState
@@ -226,10 +227,9 @@ def run_app():
     screen = window.screen() or app.primaryScreen()
     if screen is not None:
         area = screen.availableGeometry()
-        window.resize(
-            min(1440, max(900, int(area.width() * 0.94))),
-            min(900, max(600, int(area.height() * 0.90))),
-        )
+        # availableGeometry is already expressed in Qt logical pixels.
+        # Do not force the old 900x600 size on 150%-scaled 1366x768 screens.
+        window.resize(*LayoutMetrics.startup_window_size(area.width(), area.height()))
     window.show()
     if needs_setup:
         QTimer.singleShot(0, window.show_getting_started)
