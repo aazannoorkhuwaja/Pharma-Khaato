@@ -4,11 +4,13 @@ from decimal import Decimal, ROUND_HALF_UP
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (QDialog,QVBoxLayout,QHBoxLayout,QFormLayout,QLabel,QPushButton,
     QLineEdit,QComboBox,QSpinBox,QDoubleSpinBox,QTableWidget,QTableWidgetItem,QHeaderView,
-    QMessageBox,QInputDialog,QScrollArea,QWidget,QLayout,QSizePolicy)
+    QMessageBox,QInputDialog,QScrollArea,QWidget,QLayout,QSizePolicy,QBoxLayout)
 from controllers.inventory_controller import InventoryController
 from ui.app.async_tasks import AsyncTaskRunner
 from ui.widgets.responsive import configure_dialog
 from ui.widgets.table_polish import polish_table
+from ui.widgets.card import Card
+from ui.widgets.reference_icons import icon
 
 _INVENTORY=InventoryController()
 
@@ -28,17 +30,33 @@ def table(headers):
 class SupplierInvoiceDialog(QDialog):
     def __init__(self,supplier_id,supplier_name,parent=None):
         super().__init__(parent)
-        configure_dialog(self,1000,760,minimum_width=680,minimum_height=500)
+        configure_dialog(self,1000,760,minimum_width=640,minimum_height=400)
         self.setWindowTitle('Receive Supplier Invoice — '+supplier_name)
         self.supplier_id=supplier_id
         self.lines=[]
         self._busy=False
         self.tasks=AsyncTaskRunner(self)
         layout=QVBoxLayout(self)
+        layout.setContentsMargins(16,16,16,16)
+        title=QLabel('Purchase Receiving / GRN');title.setObjectName('h1')
+        layout.addWidget(title)
+        supplier_card=Card()
+        supplier_row=QHBoxLayout()
+        supplier_name_label=QLabel(supplier_name)
+        supplier_name_label.setTextFormat(Qt.PlainText)
+        supplier_name_label.setObjectName('h2')
+        supplier_row.addWidget(supplier_name_label,1)
+        supplier_row.addWidget(QLabel('Supplier Invoice No.'))
         self.reference=QLineEdit()
         self.reference.setPlaceholderText('Invoice number printed by the supplier')
-        layout.addWidget(QLabel('Receive all lines from one invoice once. Stock and the supplier balance save together.'))
-        layout.addWidget(self.reference)
+        supplier_row.addWidget(self.reference,1)
+        supplier_card.addLayout(supplier_row)
+        layout.addWidget(supplier_card)
+        self.receiving_body=QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        layout.addLayout(self.receiving_body,1)
+        left_panel=QWidget();left_layout=QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(0,0,0,0)
+        self.receiving_body.addWidget(left_panel,7)
         body=QWidget()
         forms=QHBoxLayout(body)
         forms.setSizeConstraint(QLayout.SetMinimumSize)
@@ -68,28 +86,66 @@ class SupplierInvoiceDialog(QDialog):
         scroll=QScrollArea();scroll.setWidgetResizable(True);scroll.setWidget(body)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.entry_scroll = scroll
-        layout.addWidget(scroll,3)
+        left_layout.addWidget(scroll,3)
         self.add=QPushButton('Add Invoice Line');self.add.clicked.connect(self.add_line)
-        layout.addWidget(self.add)
         self.rows=table(['Product','Quantity','Unit','Cost','Expiry','Lot'])
-        layout.addWidget(self.rows,1)
+        left_layout.addWidget(self.rows,2)
         remove=QPushButton('Remove Selected Line');remove.clicked.connect(self.remove_line)
         actions=QHBoxLayout();actions.addWidget(self.add);actions.addWidget(remove)
-        layout.removeWidget(self.add);layout.insertLayout(3,actions)
-        footer=QHBoxLayout()
+        left_layout.insertLayout(1,actions)
+        summary_card=Card()
+        self.receiving_body.addWidget(summary_card,3)
+        summary_outer=summary_card.layout()
+        summary_scroll=QScrollArea();summary_scroll.setWidgetResizable(True)
+        summary_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        summary_body=QWidget();summary_layout=QVBoxLayout(summary_body)
+        summary_layout.setContentsMargins(0,0,4,0)
+        summary_scroll.setWidget(summary_body);summary_outer.addWidget(summary_scroll,1)
+        summary_title=QLabel('GRN Summary');summary_title.setObjectName('h2')
+        summary_layout.addWidget(summary_title)
+        summary_supplier=QLabel(supplier_name);summary_supplier.setWordWrap(True)
+        summary_supplier.setTextFormat(Qt.PlainText)
+        summary_layout.addWidget(summary_supplier)
+        self.line_count=QLabel('Items: 0');summary_layout.addWidget(self.line_count)
         self.paid=QDoubleSpinBox();self.paid.setRange(0,100000000);self.paid.setDecimals(2);self.paid.setPrefix('Paid now: Rs. ')
         self.method=QComboBox();self.method.addItems(['Bank transfer','Outside drawer','Cash from drawer'])
         self.total=QLabel('Invoice: Rs. 0.00')
-        footer.addWidget(self.total);footer.addWidget(self.paid);footer.addWidget(self.method)
-        layout.addLayout(footer)
+        self.total.setObjectName('metric')
+        summary_layout.addWidget(self.total)
+        summary_layout.addWidget(QLabel('Paid Amount'))
+        summary_layout.addWidget(self.paid)
+        summary_layout.addWidget(QLabel('Payment Source'))
+        summary_layout.addWidget(self.method)
+        self.balance=QLabel('Balance Due: Rs. 0.00');self.balance.setObjectName('posTotal')
+        self.balance.setWordWrap(True);summary_layout.addWidget(self.balance)
+        self.paid.valueChanged.connect(self._refresh_receiving_summary)
+        summary_layout.addStretch()
         self.status=QLabel('');self.status.setWordWrap(True);layout.addWidget(self.status)
         self.save=QPushButton('Save Invoice && Stock');self.save.setObjectName('primaryButton');self.save.clicked.connect(self.save_invoice)
-        layout.addWidget(self.save)
+        self.save.setText('Receive Stock')
+        self.save.setIcon(icon('check','#FFFFFF'))
+        summary_outer.addWidget(self.save)
+        cancel=QPushButton('Cancel');cancel.clicked.connect(self.reject)
+        summary_outer.addWidget(cancel)
+        help_text=QLabel('Receiving updates stock and supplier balances together. Confirm any pending result before entering the invoice again.')
+        help_text.setWordWrap(True);help_text.setObjectName('caption');layout.addWidget(help_text)
         self.timer=QTimer(self);self.timer.setSingleShot(True);self.timer.setInterval(180)
         self.search.textChanged.connect(lambda:self.timer.start())
         self.timer.timeout.connect(self.search_products)
         self.product.currentIndexChanged.connect(self.load_units)
         self.search_products()
+
+    def resizeEvent(self,event):
+        if hasattr(self,'receiving_body'):
+            # Keep the entry form scrollable and the commit action reachable.
+            self.receiving_body.setStretch(0,7 if event.size().width()>=1000 else 6)
+        super().resizeEvent(event)
+
+    def _refresh_receiving_summary(self,*_args):
+        total=sum((Decimal(line['quantity'])*Decimal(str(line['cost_per_unit']))).quantize(Decimal('0.01'),rounding=ROUND_HALF_UP) for line in self.lines)
+        balance=Decimal(str(total))-Decimal(str(self.paid.value()))
+        self.line_count.setText(f'Items: {len(self.lines)}')
+        self.balance.setText(('Balance Due' if balance>=0 else 'Overpaid by — review payment')+f': Rs. {abs(balance):,.2f}')
 
     def search_products(self):
         self.units.clear()
@@ -140,6 +196,7 @@ class SupplierInvoiceDialog(QDialog):
             for col,value in enumerate([line['name'],line['quantity'],line['unit_label'],f'Rs. {cost:,.2f}',line['expiry'],line['lot']]):
                 self.rows.setItem(index,col,QTableWidgetItem(str(value)))
         self.total.setText(f'Invoice: Rs. {total:,.2f}')
+        self._refresh_receiving_summary()
 
     def save_invoice(self):
         if self._busy:return

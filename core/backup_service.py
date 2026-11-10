@@ -29,6 +29,27 @@ def backup_destination():
         return ""
 
 
+def backup_destination_status():
+    """Describe observed volume placement without claiming disk protection."""
+    destination = backup_destination()
+    if not destination:
+        return "unconfigured", "No second backup copy is configured. Choose a protected external device and test restoring on a spare computer."
+    try:
+        if not os.path.isdir(destination):
+            raise OSError("Backup destination missing")
+        device = os.stat(destination).st_dev
+        if not os.getenv("PHARMA_KHAATO_BACKUP_DIR", "").strip():
+            with open(os.path.join(PathManager.get_config_dir(), "backup.json"), encoding="utf-8") as handle:
+                saved_device = json.load(handle).get("device")
+            if saved_device is not None and saved_device != device:
+                raise OSError("Backup device changed")
+        if device == os.stat(os.path.dirname(PathManager.get_db_path())).st_dev:
+            return "same_volume", "The second backup folder is on the same volume as shop records. A disk failure can lose both copies. Choose a separate protected device."
+        return "different_volume", "Second backup folder is on a different volume. Confirm it is a separate protected device and test restoring on a spare computer."
+    except (OSError, ValueError, TypeError, AttributeError):
+        return "unavailable", "The second backup location cannot be verified. Reconnect the configured device and create a backup now."
+
+
 def configure_backup_destination(destination):
     """Persist a local operator-selected backup directory without storing secrets."""
     path = os.path.abspath(os.path.expanduser(str(destination))) if destination else ""
@@ -43,7 +64,8 @@ def configure_backup_destination(destination):
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, target)
-    return True, "Backup destination saved."
+    _status, message = backup_destination_status()
+    return True, "Backup destination saved. " + message
 
 
 def _snapshot(source, target):

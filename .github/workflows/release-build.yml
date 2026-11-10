@@ -235,6 +235,11 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python scripts/prepare_release.py --directory release --version "${RELEASE_TAG#v}" --revision "$(git rev-parse HEAD)"
+      - name: Include practice instructions and an unexecuted acceptance worksheet
+        if: github.ref_name == 'v2.5.0'
+        run: |
+          cp docs/FIRST_TEST_RELEASE.md release/FIRST_TEST_RELEASE.md
+          python scripts/site_trial_checklist.py --init --file release/site-acceptance.json
       - name: Create draft with verified downloads and plain-language notes
         env:
           GH_TOKEN: ${{ github.token }}

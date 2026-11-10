@@ -161,3 +161,55 @@ def active_batches(limit: int = 300):
     except Exception as exc:
         logger.error("Bounded active batch query failed: %s", exc)
         raise RuntimeError("Could not load stock. Try again.") from exc
+
+
+def batch_browser(term='', expiry='all', stock_status='all', supplier_id=None, limit=100, offset=0):
+    """Paged physical-lot review; includes expired and blocked stock without selling it."""
+    today = business_date().isoformat()
+    cutoff = (business_date() + timedelta(days=30)).isoformat()
+    limit = _safe_limit(limit, 100, 1, 200)
+    offset = max(0, int(offset))
+    predicates, params = [], []
+    if term.strip():
+        predicates.append("(p.product_name LIKE %s ESCAPE '!' OR COALESCE(b.lot_number,'') LIKE %s ESCAPE '!' OR s.supplier_name LIKE %s ESCAPE '!')")
+        literal = term.strip().replace('!', '!!').replace('%', '!%').replace('_', '!_')
+        params.extend(['%' + literal + '%'] * 3)
+    if expiry == 'near':
+        predicates.append('b.expiry_date >= %s AND b.expiry_date <= %s')
+        params.extend([today, cutoff])
+    elif expiry == 'expired':
+        predicates.append('b.expiry_date < %s')
+        params.append(today)
+    elif expiry == 'later':
+        predicates.append('b.expiry_date > %s')
+        params.append(cutoff)
+    elif expiry != 'all':
+        raise ValueError('Choose a valid expiry range.')
+    if stock_status in ('SELLABLE', 'QUARANTINED', 'RECALLED'):
+        predicates.append('b.stock_status = %s')
+        params.append(stock_status)
+    elif stock_status != 'all':
+        raise ValueError('Choose a valid stock condition.')
+    if supplier_id is not None:
+        predicates.append('b.supplier_id = %s')
+        params.append(int(supplier_id))
+    joins = ' FROM Batch b JOIN Products p ON p.id=b.product_id LEFT JOIN Supplier s ON s.id=b.supplier_id '
+    where = ' WHERE ' + ' AND '.join(predicates) if predicates else ''
+    with get_db() as (_conn, cur):
+        cur.execute('SELECT COUNT(*)' + joins + where, tuple(params))
+        count = int(cur.fetchone()[0])
+        cur.execute('SELECT b.id,b.product_id,p.product_name,b.lot_number,s.supplier_name,'
+                    'b.manufacture_Date,b.expiry_date,b.quantity,b.cost_price,COALESCE(b.sale_price,p.price),'
+                    'b.stock_status,p.base_unit,b.expiry_precision' + joins + where +
+                    ' ORDER BY b.expiry_date,b.id LIMIT %s OFFSET %s', tuple(params) + (limit, offset))
+        keys = ('id','product_id','medicine','lot','supplier','manufactured','expiry','quantity',
+                'cost','price','condition','unit','expiry_precision')
+        rows = [dict(zip(keys, row)) for row in cur.fetchall()]
+        cur.execute("SELECT SUM(CASE WHEN quantity>0 AND stock_status='SELLABLE' AND expiry_date BETWEEN %s AND %s THEN 1 ELSE 0 END),"
+                    "SUM(CASE WHEN quantity>0 AND expiry_date<%s THEN 1 ELSE 0 END),"
+                    "SUM(CASE WHEN quantity>0 AND stock_status<>'SELLABLE' THEN 1 ELSE 0 END) FROM Batch", (today, cutoff, today))
+        counts = dict(zip(('near', 'expired', 'blocked'), [int(value or 0) for value in cur.fetchone()]))
+        cur.execute('SELECT id,supplier_name FROM Supplier ORDER BY supplier_name,id')
+        suppliers = cur.fetchall()
+    return {'rows': rows, 'count': count, 'offset': offset, 'limit': limit,
+            'counts': counts, 'suppliers': suppliers, 'today': today, 'cutoff': cutoff}

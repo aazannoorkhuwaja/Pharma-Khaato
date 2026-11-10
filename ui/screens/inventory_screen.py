@@ -393,9 +393,18 @@ class InventoryScreen(QWidget):
         self.setup_alerts_tab()
         self.tabs.addTab(self.tab_alerts, "Stock Alerts")
 
+        from ui.screens.batches_screen import BatchesScreen
+        self.batch_browser = BatchesScreen()
+        self.batch_browser.stock_changed.connect(self.refresh_catalog_data)
+        self.tabs.addTab(self.batch_browser, "Batches && Expiry")
         self.tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self.tabs, 1)
         self.refresh_catalog_data()
+
+    def resizeEvent(self, event):
+        if hasattr(self, "product_detail_card"):
+            self.product_detail_card.setVisible(event.size().width() >= 950)
+        super().resizeEvent(event)
 
     def on_screen_show(self):
         self.refresh_catalog_data()
@@ -470,7 +479,35 @@ class InventoryScreen(QWidget):
         self.tbl_products.setSelectionMode(QTableWidget.SingleSelection)
         self.tbl_products.itemSelectionChanged.connect(self._update_catalog_actions)
         self.tbl_products.doubleClicked.connect(lambda *_: self.quick_intake_selected())
-        layout.addWidget(self.tbl_products, 1)
+        catalog_body = QHBoxLayout()
+        catalog_body.addWidget(self.tbl_products, 7)
+        self.product_detail_card = Card()
+        flexible_side_panel(self.product_detail_card, minimum=220, maximum=320)
+        details = self.product_detail_card.layout()
+        label = QLabel("Medicine Details")
+        label.setObjectName("h2")
+        details.addWidget(label)
+        self.lbl_product_name = QLabel("Select a medicine")
+        self.lbl_product_name.setObjectName("h2")
+        self.lbl_product_name.setWordWrap(True)
+        details.addWidget(self.lbl_product_name)
+        self.lbl_product_details = QLabel("View its unit, manufacturer, shelf and barcode here.")
+        self.lbl_product_details.setWordWrap(True)
+        self.lbl_product_details.setTextFormat(Qt.PlainText)
+        details_scroll = QScrollArea()
+        details_scroll.setWidgetResizable(True)
+        details_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.lbl_product_details.setAlignment(Qt.AlignTop)
+        details_scroll.setWidget(self.lbl_product_details)
+        details.addWidget(details_scroll, 1)
+        for text, callback in (("Receive Stock", self.quick_intake_selected),
+                               ("Edit Medicine", self.open_edit_product_dialog),
+                               ("Count / Block Stock", self.open_stock_correction)):
+            button = QPushButton(text)
+            button.clicked.connect(callback)
+            details.addWidget(button)
+        catalog_body.addWidget(self.product_detail_card, 3)
+        layout.addLayout(catalog_body, 1)
 
     def setup_intake_tab(self):
         layout = QHBoxLayout(self.tab_intake)
@@ -666,6 +703,8 @@ class InventoryScreen(QWidget):
             self._load_intake_data()
         elif index == 2:
             self.populate_alerts_tables(self._near_expiry_raw, self._low_stock_raw)
+        elif index == 3:
+            self.batch_browser.refresh()
 
     def refresh_catalog_data(self):
         self.pill_total_prods.setText("Products: …")
@@ -952,7 +991,31 @@ class InventoryScreen(QWidget):
         return item.data(Qt.ItemDataRole.UserRole) if item else None
 
     def _update_catalog_actions(self):
-        selected = self._selected_product_id() is not None
+        product_id = self._selected_product_id()
+        selected = product_id is not None
+        if hasattr(self, "lbl_product_details"):
+            self._tasks.invalidate("product-preview")
+            self.lbl_product_name.setText("Loading medicine…" if selected else "Select a medicine")
+            self.lbl_product_details.setText("")
+            if selected:
+                def loaded(product):
+                    if self._selected_product_id() != product_id:
+                        return
+                    self.lbl_product_name.setText(str(product["name"]))
+                    self.lbl_product_details.setText("\n".join([
+                        "Manufacturer   " + str(product.get("company") or "—"),
+                        "Generic   " + str(product.get("formula") or "—"),
+                        "Category   " + str(product.get("category") or "—"),
+                        "Base unit   " + str(product.get("base_unit") or "unit"),
+                        "Selling price   Rs. " + format(float(product["price"]), ",.2f"),
+                        "Shelf   " + str(product.get("rack_location") or "—"),
+                        "Barcode   " + str(product.get("barcode") or "—")]))
+                def failed(_details):
+                    if self._selected_product_id() != product_id:
+                        return
+                    self.lbl_product_name.setText("Medicine details unavailable")
+                    self.lbl_product_details.setText("Select another medicine, then this medicine to retry.")
+                self._tasks.run_latest("product-preview", lambda: _INVENTORY_CONTROLLER.product_details(product_id), loaded, failed)
         self.btn_selected_stock.setEnabled(selected)
         self.btn_edit_prod.setEnabled(selected)
         self.btn_correct_stock.setEnabled(selected)

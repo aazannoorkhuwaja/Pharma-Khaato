@@ -49,6 +49,15 @@ class ScreenHeader(Card):
     def add_widget(self, widget):
         self.pills_layout.addWidget(widget)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if hasattr(self.window(), "lbl_workspace_title"):
+            # The shell owns the page title. Keep this compact context toolbar.
+            self.lbl_title.hide()
+            if self.lbl_subtitle:
+                self.lbl_subtitle.setObjectName("caption")
+            self.layout().setContentsMargins(10, 8, 10, 8)
+
     def resizeEvent(self, event):
         narrow = event.size().width() < self.BREAKPOINT
         desired = (QBoxLayout.Direction.TopToBottom if narrow

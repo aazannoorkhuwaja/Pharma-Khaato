@@ -47,3 +47,12 @@ def test_partial_or_tampered_release_cannot_be_prepared(tmp_path, problem):
 def test_release_identity_must_be_exact(tmp_path, version, revision):
     with pytest.raises(ValueError):
         prepare(tmp_path, version, revision)
+
+
+def test_installer_fallback_version_matches_application():
+    import re
+    from pathlib import Path
+    from config import ApplicationSettings
+    script = (Path(__file__).resolve().parents[1] / 'installer.iss').read_text()
+    match = re.search(r'#define MyAppVersion "([^"]+)"', script)
+    assert match and match.group(1) == ApplicationSettings.APP_VERSION

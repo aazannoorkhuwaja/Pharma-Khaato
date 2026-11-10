@@ -16,7 +16,7 @@ from ui.widgets.badge_pill import BadgePill
 from ui.widgets.screen_header import ScreenHeader
 from ui.widgets.toast import ToastType, show_toast
 from ui.widgets.table_polish import polish_table
-from ui.widgets.responsive import configure_dialog
+from ui.widgets.responsive import configure_dialog, flexible_side_panel
 from ui.app.async_tasks import AsyncTaskRunner
 from ui.app.state.session_state import SessionState
 from controllers.khatoo_controller import KhatooController
@@ -275,7 +275,28 @@ class KhatooScreen(QWidget):
         self.tbl_ledger.setSelectionMode(QTableWidget.SingleSelection)
         self.tbl_ledger.itemSelectionChanged.connect(self._update_payment_action)
         self.tbl_ledger.doubleClicked.connect(lambda *_: self.open_selected_payment())
-        table_layout.addWidget(self.tbl_ledger, 1)
+        credit_body = QHBoxLayout()
+        credit_body.addWidget(self.tbl_ledger, 6)
+        self.account_details = Card()
+        flexible_side_panel(self.account_details, minimum=250, maximum=370)
+        self.account_name = QLabel("Select a customer")
+        self.account_name.setObjectName("h2")
+        self.account_name.setWordWrap(True)
+        self.account_balance = QLabel("Current Balance: —")
+        self.account_balance.setObjectName("posTotal")
+        self.account_balance.setWordWrap(True)
+        self.account_contact = QLabel("Contact and account details appear here.")
+        self.account_contact.setWordWrap(True)
+        self.account_contact.setTextFormat(Qt.PlainText)
+        self.account_statement = QPlainTextEdit()
+        self.account_statement.setReadOnly(True)
+        self.account_statement.setAccessibleName("Selected customer statement")
+        self.account_statement.setPlaceholderText("Select an account to view its ledger.")
+        for widget in (self.account_name, self.account_contact, self.account_balance):
+            self.account_details.addWidget(widget)
+        self.account_details.addWidget(self.account_statement, 1)
+        credit_body.addWidget(self.account_details, 4)
+        table_layout.addLayout(credit_body, 1)
         pager = QHBoxLayout()
         self.btn_previous = QPushButton("Previous")
         self.btn_next = QPushButton("Next")
@@ -291,6 +312,11 @@ class KhatooScreen(QWidget):
         self.lbl_empty.setWordWrap(True)
         layout.addWidget(self.lbl_empty)
         self.refresh_all_data()
+
+    def resizeEvent(self, event):
+        if hasattr(self, "account_details"):
+            self.account_details.setVisible(event.size().width() >= 950)
+        super().resizeEvent(event)
 
     def refresh_all_data(self):
         term = self.txt_search.text().strip() if hasattr(self, "txt_search") else ""
@@ -372,6 +398,20 @@ class KhatooScreen(QWidget):
 
     def _update_payment_action(self):
         context = self._selected_payment_context()
+        if hasattr(self, "account_name"):
+            self._tasks.invalidate("account-preview")
+            self.account_name.setText(context[1] if context else "Select a customer")
+            self.account_balance.setText(f"Current Balance\nRs. {context[2]:,.2f}" if context else "Current Balance: —")
+            self.account_statement.clear()
+            self.account_contact.setText("")
+            if context:
+                row = self.tbl_ledger.selectionModel().selectedRows()[0].row()
+                phone = self.tbl_ledger.item(row, 1)
+                area = self.tbl_ledger.item(row, 2)
+                self.account_contact.setText("Phone: " + (phone.text() if phone else "—") + "\nArea: " + (area.text() if area else "—"))
+                self._tasks.run_latest("account-preview", lambda: _KHATOO_CONTROLLER.statement(context[0]),
+                                      self.account_statement.setPlainText,
+                                      lambda _details: self.account_statement.setPlainText("Statement unavailable. Select the customer to retry."))
         enabled = context is not None
         self.btn_record_payment.setEnabled(enabled)
         self.btn_statement.setEnabled(enabled)

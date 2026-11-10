@@ -387,8 +387,36 @@ class CashSessionScreen(QWidget):
         self.tbl_movements.verticalHeader().setVisible(False)
         self.tbl_movements.setEditTriggers(QTableWidget.NoEditTriggers)
         movement_layout.addWidget(self.tbl_movements, 1)
-        layout.addWidget(movement_card, 1)
+        self.cash_body = QHBoxLayout()
+        self.cash_summary_card = Card()
+        summary_layout = self.cash_summary_card.layout()
+        summary_heading = QLabel("Shift Cash Summary")
+        summary_heading.setObjectName("h2")
+        summary_layout.addWidget(summary_heading)
+        self.cash_metrics = {}
+        for key, title in (("opening_cash", "Opening Cash"), ("cash_sales", "Cash Sales"),
+                           ("cash_credit_collections", "Credit Collected"), ("cash_in", "Cash In"),
+                           ("cash_out", "Cash Out"), ("refunds", "Cash Refunds"),
+                           ("expected_cash", "Expected in Drawer")):
+            line = QHBoxLayout()
+            label = QLabel(title)
+            value = QLabel("—")
+            value.setObjectName("metric" if key == "expected_cash" else "caption")
+            line.addWidget(label)
+            line.addStretch()
+            line.addWidget(value)
+            summary_layout.addLayout(line)
+            self.cash_metrics[key] = value
+        summary_layout.addStretch()
+        self.cash_body.addWidget(self.cash_summary_card, 3)
+        self.cash_body.addWidget(movement_card, 7)
+        layout.addLayout(self.cash_body, 1)
         self.refresh_all_data()
+
+    def resizeEvent(self, event):
+        if hasattr(self, "cash_summary_card"):
+            self.cash_summary_card.setVisible(event.size().width() >= 900)
+        super().resizeEvent(event)
 
     def get_current_employee_id(self) -> int:
         user = SessionState.get_instance().current_user
@@ -418,6 +446,8 @@ class CashSessionScreen(QWidget):
         self.pill_status.setText("Checking Shift")
         self.pill_status.set_pill_type(BadgePill.TYPE_INFO)
         self.lbl_session_info.setText("Updating drawer totals…")
+        for label in self.cash_metrics.values():
+            label.setText("…")
 
         def load():
             session = _CASH_CONTROLLER.active_session(emp_id)
@@ -451,6 +481,8 @@ class CashSessionScreen(QWidget):
         self.active_session = session
         SessionState.get_instance().set_cash_session(session)
         self._current_summary = summary or {}
+        for key, label in self.cash_metrics.items():
+            label.setText(f"Rs. {float(summary.get(key, 0)):,.2f}" if session else "—")
         if self.active_session:
             self.pill_status.setText("Shift Open")
             self.pill_status.set_pill_type(BadgePill.TYPE_SUCCESS)
@@ -480,6 +512,8 @@ class CashSessionScreen(QWidget):
         self.pill_status.setText("Could Not Check")
         self.pill_status.set_pill_type(BadgePill.TYPE_DANGER)
         self.lbl_session_info.setText("Could not read the current cash shift. Try again.")
+        for label in self.cash_metrics.values():
+            label.setText("Unavailable")
         self.tbl_movements.setRowCount(0)
 
     def populate_movements_table(self, rows=None):

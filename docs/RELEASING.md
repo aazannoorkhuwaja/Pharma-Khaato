@@ -17,7 +17,19 @@ For public Windows distribution, obtain a trusted Windows code-signing certifica
 
 Without configured signing, workflow artifacts are unsigned pilot builds and the generated release remains a draft. Signing does not guarantee that Windows SmartScreen has already established reputation. Never instruct testers to turn off antivirus or operating-system protection.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:e45d841e14614c9818f35c60237d68fe3424d176d550d9545e1ddf2555d2e1c3 -->
+
+## Supervised test releases
+
+A test prerelease can be built from a reviewed integration branch without merging `main`. Use a unique numeric version in the app, installer and notes. Require green source, UI and native packaging checks at that exact revision before sharing it. Push its matching `v<version>` tag to create the verified draft; publish only with explicit owner authorization, mark it **Pre-release**, and do not mark it as latest stable. The first authorized test release is 2.5.0. The normal stable acceptance gates below remain required before real deployment.
+
+Include `FIRST_TEST_RELEASE.md` and a blank `site-acceptance.json` alongside both platform packages, checksums, `release.json` and `Windows-SIGNING.txt`. Unsigned test builds must be identified clearly. Never reuse a published test version for repaired binaries or pretend a blank worksheet is acceptance evidence.
+
 ## Make the draft
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 When source and pharmacy acceptance are complete, prepare the matching plain-language notes at `docs/releases/<version>.md`. Version values in `config.py`, `installer.iss` and the release notes must agree. Do not reuse a version already published.
 

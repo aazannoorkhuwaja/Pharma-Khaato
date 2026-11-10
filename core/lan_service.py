@@ -54,6 +54,7 @@ OPERATIONS["KhatooModel"].update({"accounts": ("credit.read", False), "account_c
 OPERATIONS["ReturnModel"].update({"sale": ("returns.process", False), "operation_status": ("returns.process", False)})
 OPERATIONS["POSModel"].update({"lookup_checkout_result": ("pos.sell", False), "sell_units": ("pos.sell", False),
     "receipt_for_sale": ("pos.sell", False)})
+OPERATIONS["InventoryModel"]["batch_browser"] = ("inventory.read", False)
 OPERATIONS["InventoryModel"].update({"catalog_snapshot": ("inventory.read", False), "catalog_search": ("inventory.read", False),
     "sell_units": ("pos.sell", False), "product_details": ("inventory.read", False), "stock_batches": ("inventory.read", False),
     "update_product": ("inventory.manage", True), "set_batch_count": ("inventory.manage", True)})

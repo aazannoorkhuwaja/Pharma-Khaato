@@ -7,11 +7,13 @@ from decimal import Decimal, ROUND_HALF_UP
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit, QPushButton,
     QTableWidget, QTableWidgetItem, QHeaderView, QComboBox, QDoubleSpinBox,
-    QFrame, QDialog, QScrollArea, QCheckBox, QMessageBox, QSizePolicy,
+    QFrame, QDialog, QScrollArea, QCheckBox, QMessageBox, QSizePolicy, QBoxLayout,
 )
-from PySide6.QtCore import Qt, QTimer, QEvent
+from PySide6.QtCore import Qt, QTimer, QEvent, QSize
 from PySide6.QtGui import QKeySequence, QShortcut
 
+from ui.widgets.payment_tile import PaymentTile
+from ui.widgets.reference_icons import icon
 from ui.theme.tokens import ThemeTokens
 from ui.widgets.card import Card
 from ui.widgets.toast import Toast, ToastType
@@ -63,22 +65,29 @@ class POSScreen(QWidget):
         self.cust_search_timer.setSingleShot(True)
         self.cust_search_timer.timeout.connect(self.perform_customer_search)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(16)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
 
-        left_col = QVBoxLayout()
+        left_body = QWidget()
+        left_body.setObjectName("referenceWorkBody")
+        left_body.setMinimumWidth(0)
+        left_body.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        left_col = QVBoxLayout(left_body)
+        left_col.setContentsMargins(0, 0, 0, 0)
+        self.left_scroll = QScrollArea()
+        self.left_scroll.setObjectName("referenceWorkArea")
+        self.left_scroll.setWidgetResizable(True)
+        self.left_scroll.setFrameShape(QFrame.NoFrame)
+        self.left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.left_scroll.setWidget(left_body)
         left_col.setSpacing(12)
 
         search_card = Card()
+        search_card.setObjectName("searchToolbar")
         search_layout = search_card.layout()
+        search_layout.setContentsMargins(10, 8, 10, 8)
         search_layout.setSpacing(8)
-
-        header = QHBoxLayout()
-        title = QLabel("Search & Scan")
-        title.setObjectName("h2")
-        header.addWidget(title)
-        header.addStretch()
 
         self.lbl_shortcuts = QLabel("F1 Search  ·  F12 Sale")
         self.lbl_shortcuts.setObjectName("caption")
@@ -87,8 +96,7 @@ class POSScreen(QWidget):
             "Keyboard shortcuts: F1 product search, F2 customer, F3 discount, "
             "F4 payment method, F5 hold, F6 held sales, F10/F12 complete sale."
         )
-        header.addWidget(self.lbl_shortcuts)
-        search_layout.addLayout(header)
+        self.lbl_shortcuts.setObjectName("shortcutStrip")
 
         self.txt_search = SearchLineEdit(
             on_down_callback=self.on_search_input_arrow_down,
@@ -102,7 +110,10 @@ class POSScreen(QWidget):
         self.txt_search.setObjectName("primarySearch")
         self.txt_search.textChanged.connect(self.on_search_text_changed)
         self.txt_search.returnPressed.connect(self.on_search_submit)
-        search_layout.addWidget(self.txt_search)
+        self.search_toolbar = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self.search_toolbar.setSpacing(10)
+        self.search_toolbar.addWidget(self.txt_search, 1)
+        search_layout.addLayout(self.search_toolbar)
 
         # Context actions sit beside the scan workflow, not in the payment
         # footer. They preserve the existing shortcuts and controller methods.
@@ -125,8 +136,15 @@ class POSScreen(QWidget):
         self.btn_recall.setToolTip("Resume a previously held sale")
         self.btn_recall.clicked.connect(self.on_recall_sale)
         quick_actions.addWidget(self.btn_recall)
+        self.btn_toolbar_reprint = QPushButton("Reprint")
+        self.btn_toolbar_reprint.setProperty("compact", True)
+        self.btn_toolbar_reprint.setIcon(icon("print"))
+        self.btn_toolbar_reprint.setEnabled(False)
+        self.btn_toolbar_reprint.setToolTip("Reprint the last completed sale")
+        self.btn_toolbar_reprint.clicked.connect(lambda: self.btn_reprint.click())
+        quick_actions.addWidget(self.btn_toolbar_reprint)
         quick_actions.addStretch(1)
-        search_layout.addLayout(quick_actions)
+        self.search_toolbar.addLayout(quick_actions)
 
         self.lbl_search_feedback = QLabel()
         self.lbl_search_feedback.setObjectName("caption")
@@ -134,7 +152,8 @@ class POSScreen(QWidget):
         self.lbl_search_feedback.hide()
         search_layout.addWidget(self.lbl_search_feedback)
 
-        left_col.addWidget(search_card)
+        layout.addWidget(search_card)
+        left_col.addWidget(self.lbl_shortcuts)
 
         self.search_table = SearchResultsTable(
             on_select_callback=self.add_product_from_search_table,
@@ -147,11 +166,13 @@ class POSScreen(QWidget):
         self.search_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.search_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.search_table.verticalHeader().setVisible(False)
+        self.search_table.setColumnHidden(1, True)
+        self.search_table.setColumnHidden(4, True)
         self.search_table.setMinimumHeight(0)
         self.search_table.setMaximumHeight(0)
         self.search_table.hide()
         self.search_table.doubleClicked.connect(self.on_search_table_double_clicked)
-        left_col.addWidget(self.search_table)
+
 
         cart_card = Card()
         cart_layout = cart_card.layout()
@@ -165,6 +186,7 @@ class POSScreen(QWidget):
         self.lbl_cart_count.setObjectName("caption")
         cart_header_row.addWidget(self.lbl_cart_count)
         cart_layout.addLayout(cart_header_row)
+        cart_layout.setAlignment(Qt.AlignTop)
 
         self.cart_table = CartTableWidget(
             on_delete_callback=self.remove_cart_row,
@@ -175,11 +197,11 @@ class POSScreen(QWidget):
             "Select an item and press Delete to remove it. Use + or - to change quantity."
         )
         self.cart_table.setHorizontalHeaderLabels(
-            ["Product", "Expiry", "Price", "Qty", "Amount", "In Stock", "Unit"]
+            ["Product", "Expiry", "Price", "Qty", "Amount", "In Stock", "Unit", ""]
         )
-        self.cart_table.setColumnCount(7)
+        self.cart_table.setColumnCount(8)
         self.cart_table.setHorizontalHeaderLabels(
-            ["Product", "Expiry", "Price", "Qty", "Amount", "In Stock", "Unit"]
+            ["Product", "Expiry", "Price", "Qty", "Amount", "In Stock", "Unit", ""]
         )
         self.cart_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.cart_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
@@ -187,10 +209,16 @@ class POSScreen(QWidget):
         self.cart_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
         self.cart_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
         self.cart_table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        self.cart_table.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        # Reorder presentation only; callbacks retain their stable model columns.
+        self.cart_table.horizontalHeader().moveSection(6, 2)
         self.cart_table.verticalHeader().setVisible(False)
         self.cart_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.cart_table.itemChanged.connect(self.on_cart_cell_changed)
         polish_table(self.cart_table)
+        self.cart_table.setColumnHidden(1, True)
+        self.cart_table.setColumnHidden(5, True)
+        self.cart_table.horizontalHeader().setSectionResizeMode(7, QHeaderView.ResizeToContents)
 
         self.lbl_cart_empty = QLabel("No items yet — scan a barcode or search for a product")
         self.lbl_cart_empty.setAlignment(Qt.AlignCenter)
@@ -198,11 +226,35 @@ class POSScreen(QWidget):
         self.lbl_cart_empty.setWordWrap(True)
 
         cart_layout.addWidget(self.cart_table)
-        cart_layout.addWidget(self.lbl_cart_empty)
+        cart_layout.addWidget(self.lbl_cart_empty, 1)
         left_col.addWidget(cart_card, 1)
 
+        # Reference: customer context and live product results beneath the cart.
+        self.context_row = QBoxLayout(QBoxLayout.Direction.LeftToRight)
+        self.context_row.setSpacing(10)
+        self.customer_card = Card()
+        customer_layout = self.customer_card.layout()
+        customer_title = QLabel("Customer Information")
+        customer_title.setObjectName("h2")
+        customer_layout.addWidget(customer_title)
+        results_card = Card()
+        self.results_card = results_card
+        results_layout = results_card.layout()
+        results_title = QLabel("Suggested / Search Results")
+        results_title.setObjectName("h2")
+        results_layout.addWidget(results_title)
+        self.lbl_result_empty = QLabel("Search above to find medicines.\nSelect a result or press Enter to add it.")
+        self.lbl_result_empty.setObjectName("caption")
+        results_layout.setAlignment(Qt.AlignTop)
+        self.lbl_result_empty.setWordWrap(True)
+        results_layout.addWidget(self.lbl_result_empty)
+        results_layout.addWidget(self.search_table, 1)
+        self.context_row.addWidget(self.customer_card, 2)
+        self.context_row.addWidget(results_card, 3)
+        left_col.addLayout(self.context_row)
+
         right_card = Card()
-        flexible_side_panel(right_card, minimum=292, maximum=420)
+        flexible_side_panel(right_card, minimum=292, maximum=460)
         right_layout = right_card.layout()
         right_layout.setSpacing(12)
 
@@ -241,8 +293,10 @@ class POSScreen(QWidget):
         summary_layout.setContentsMargins(0, 0, 4, 0)
         summary_layout.setSpacing(12)
         summary_scroll.setWidget(summary_body)
+        right_layout.removeWidget(self.shift_banner)
+        summary_layout.addWidget(self.shift_banner)
 
-        summary_title = QLabel("Invoice & Payment")
+        summary_title = QLabel("Invoice Summary")
         summary_title.setObjectName("h2")
         summary_layout.addWidget(summary_title)
 
@@ -251,8 +305,8 @@ class POSScreen(QWidget):
         self.txt_customer.setPlaceholderText("For credit: search name or phone")
         self.txt_customer.setAccessibleName("Find customer")
         self.txt_customer.textChanged.connect(self.on_cust_text_changed)
-        summary_layout.addWidget(customer_label)
-        summary_layout.addWidget(self.txt_customer)
+        customer_layout.addWidget(customer_label)
+        customer_layout.addWidget(self.txt_customer)
 
         self.cust_table = QTableWidget(0, 1)
         self.cust_table.setHorizontalHeaderLabels(["Customer · Phone / Area"])
@@ -265,18 +319,18 @@ class POSScreen(QWidget):
         self.cust_table.hide()
         self.cust_table.doubleClicked.connect(self.on_cust_table_double_clicked)
         self.cust_table.installEventFilter(self)
-        summary_layout.addWidget(self.cust_table)
+        customer_layout.addWidget(self.cust_table)
         self.txt_customer.returnPressed.connect(self.on_customer_lookup)
 
         self.btn_add_customer = QPushButton("Add Credit Customer")
         self.btn_add_customer.setToolTip("Add a customer without leaving this sale")
         self.btn_add_customer.clicked.connect(self._quick_add_customer)
-        summary_layout.addWidget(self.btn_add_customer)
+        customer_layout.addWidget(self.btn_add_customer)
 
         self.lbl_cust_status = QLabel("Walk-in customer")
         self.lbl_cust_status.setWordWrap(True)
         set_tone(self.lbl_cust_status, "muted")
-        summary_layout.addWidget(self.lbl_cust_status)
+        customer_layout.addWidget(self.lbl_cust_status)
         summary_layout.addSpacing(4)
 
         payment_label = QLabel("Payment Method")
@@ -289,6 +343,7 @@ class POSScreen(QWidget):
             "Customer Credit requires a registered customer."
         )
         self.cmb_pay_method.currentIndexChanged.connect(self._on_payment_method_changed)
+        customer_layout.addStretch(1)
         summary_layout.addWidget(payment_label)
         # A hidden Qt combo remains the authoritative UI selection, preserving
         # F4 cycling and all existing controller/checkout integrations.
@@ -296,16 +351,18 @@ class POSScreen(QWidget):
         self.cmb_pay_method.hide()
         self.payment_choice_buttons = []
         choices = QGridLayout()
+        self.payment_choices_layout = choices
         choices.setHorizontalSpacing(6)
         choices.setVerticalSpacing(6)
         choices.setColumnStretch(0, 1)
         choices.setColumnStretch(1, 1)
         for index, (display_label, _backend_value) in enumerate(PAYMENT_OPTIONS):
             label = "Credit" if display_label == "Customer Credit" else display_label
-            button = QPushButton(label)
+            button = PaymentTile(label)
             button.setObjectName("paymentOption")
             button.setCheckable(True)
             button.setMinimumWidth(0)
+            button.setMinimumHeight(58)
             button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             button.setAccessibleName(display_label)
             button.setToolTip(
@@ -358,6 +415,7 @@ class POSScreen(QWidget):
         set_tone(self.lbl_tax, "secondary", "bold")
 
         self.lbl_change = QLabel("Change: Rs. 0.00")
+        self.lbl_change.setObjectName("changeDue")
         set_tone(self.lbl_change, "success", "bold")
 
         fin_layout.addWidget(self.lbl_subtotal)
@@ -371,6 +429,10 @@ class POSScreen(QWidget):
         fin_layout.addSpacing(8)
         fin_layout.addWidget(self.lbl_tax)
 
+        fin_layout.removeWidget(self.chk_exact_cash)
+        fin_layout.removeItem(cash_row)
+        summary_layout.addWidget(self.chk_exact_cash)
+        summary_layout.addLayout(cash_row)
         summary_layout.addWidget(fin_frame)
         self.lbl_checkout_state = QLabel()
         self.lbl_checkout_state.setWordWrap(True)
@@ -389,7 +451,7 @@ class POSScreen(QWidget):
         summary_layout.addStretch()
         right_layout.addWidget(summary_scroll, 1)
 
-        self.btn_checkout = QPushButton("Complete Sale")
+        self.btn_checkout = QPushButton("Complete Sale (F12)")
         self.btn_checkout.setObjectName("primaryButton")
         self.btn_checkout.setAccessibleName("Complete sale")
         self.btn_checkout.setToolTip("Complete this sale (F10 or F12)")
@@ -405,11 +467,33 @@ class POSScreen(QWidget):
         right_layout.addWidget(self.btn_checkout)
         right_layout.addWidget(self.btn_clear)
 
-        layout.addLayout(left_col, 7)
-        layout.addWidget(right_card, 3)
-        layout.setStretch(0, 7)
-        layout.setStretch(1, 3)
+        body = QHBoxLayout()
+        body.setSpacing(10)
+        body.addWidget(self.left_scroll, 65)
+        body.addWidget(right_card, 35)
+        layout.addLayout(body, 1)
+        # Invoice arithmetic precedes tender selection, matching the reference.
+        summary_layout.removeWidget(fin_frame)
+        summary_layout.insertWidget(2, fin_frame)
+        self._reference_fin_layout = fin_layout
+        self._reference_summary_layout = summary_layout
+        self._reference_right_layout = right_layout
+        self._reference_right_card = right_card
+        self._reference_payment_label = payment_label
+        self._reference_wide = None
+        self._reference_columns = None
+        self._reference_compact_context = None
 
+        for button, name in ((self.btn_customer_focus, "customers"),
+                             (self.btn_hold, "hold"), (self.btn_recall, "resume"),
+                             (self.btn_reprint, "print"), (self.btn_clear, "returns")):
+            button.setIcon(icon(name))
+        self.btn_checkout.setIcon(icon("check", "#FFFFFF"))
+        self.search_icon_action = self.txt_search.addAction(icon("search"), QLineEdit.LeadingPosition)
+        self.customer_icon_action = self.txt_customer.addAction(icon("customers"), QLineEdit.LeadingPosition)
+        for button, name in zip(self.payment_choice_buttons, ("cash", "card", "cash", "cash", "customers")):
+            button.setIcon(icon(name, ThemeTokens.ACCENT))
+            button.setIconSize(QSize(18, 18))
         self.toast = Toast(self)
         self.setup_hotkeys()
         self._on_payment_method_changed()
@@ -417,28 +501,63 @@ class POSScreen(QWidget):
         self.refresh_cart_display()
         self._restore_pending_checkout()
         ThemeManager.events.changed.connect(self._resize_cart_controls)
+        self._resize_cart_controls()
 
     def resizeEvent(self, event):
         # Do not allow shortcut labels to compress the search field on small
         # pharmacy screens or with larger Windows text scaling.
         compact = event.size().width() < 850
         if hasattr(self, "btn_customer_focus"):
-            self.lbl_shortcuts.setText(
-                "F1 · F12" if compact or ThemeManager.get_font_scale() >= 1.25
-                else "F1 Search · F12 Sale"
-            )
             self.btn_customer_focus.setText("Customer" if compact else "Customer (F2)")
             self.btn_hold.setText("Hold" if compact else "Hold Sale (F5)")
             self.btn_recall.setText("Resume" if compact else "Resume Sale (F6)")
             self.btn_customer_focus.setToolTip("Find customer (F2)")
+        self._reflow_reference_layout()
         super().resizeEvent(event)
 
+    def _reflow_reference_layout(self):
+        if not hasattr(self, "_reference_right_card"):
+            return
+        scale = ThemeManager.get_font_scale()
+        compact_context = self.height() < 600 or self.width() < 850 or scale >= 1.5
+        if compact_context != self._reference_compact_context:
+            self._reference_compact_context = compact_context
+            self.context_row.removeWidget(self.customer_card)
+            self._reference_summary_layout.removeWidget(self.customer_card)
+            if compact_context:
+                self._reference_summary_layout.insertWidget(0, self.customer_card)
+            else:
+                self.context_row.insertWidget(0, self.customer_card, 2)
+        self.results_card.setVisible(not compact_context or bool(self.search_results_data))
+        wide = self.width() >= 1000 and self.height() >= 610 and scale <= 1.1
+        self.search_toolbar.setDirection(QBoxLayout.Direction.LeftToRight if self.width() >= 950 else QBoxLayout.Direction.TopToBottom)
+        self.context_row.setDirection(QBoxLayout.Direction.LeftToRight)
+        columns = 5 if self._reference_right_card.width() >= 380 and scale <= 1.1 else 2
+        if columns != self._reference_columns:
+            self._reference_columns = columns
+            for index, button in enumerate(self.payment_choice_buttons):
+                self.payment_choices_layout.removeWidget(button)
+                self.payment_choices_layout.addWidget(button, index // columns, index % columns)
+            for column in range(5):
+                self.payment_choices_layout.setColumnStretch(column, 1 if column < columns else 0)
+        # The final amount must stay with checkout at every window size,
+        # including when the operator scrolls through the payment details.
+        self._reference_wide = wide
+        self.lbl_shortcuts.setText("F1 Search · F12 Sale")
+
     def _resize_cart_controls(self):
+        self._reflow_reference_layout()
+        for button, name in ((self.btn_customer_focus, "customers"), (self.btn_hold, "hold"),
+                             (self.btn_recall, "resume"), (self.btn_reprint, "print"),
+                             (self.btn_toolbar_reprint, "print"), (self.btn_clear, "returns")):
+            button.setIcon(icon(name, ThemeTokens.TEXT_PRIMARY))
+        self.search_icon_action.setIcon(icon("search", ThemeTokens.TEXT_PRIMARY))
+        self.customer_icon_action.setIcon(icon("customers", ThemeTokens.TEXT_PRIMARY))
         for row in range(self.cart_table.rowCount()):
             combo = self.cart_table.cellWidget(row, 6)
             if combo:
                 combo.ensurePolished()
-                self.cart_table.setRowHeight(row, combo.sizeHint().height() + 8)
+                self.cart_table.setRowHeight(row, max(58, combo.sizeHint().height() + 8))
         self.cust_table.resizeRowsToContents()
 
     def on_screen_show(self):
@@ -675,10 +794,14 @@ class POSScreen(QWidget):
         self.search_table.setMinimumHeight(0)
         self.search_table.setMaximumHeight(0)
         self.search_table.hide()
+        self.lbl_result_empty.show()
+        self.results_card.setVisible(not self._reference_compact_context)
         if clear_feedback:
             self._set_search_feedback()
 
     def show_search_table(self):
+        self.results_card.show()
+        self.lbl_result_empty.hide()
         self.search_table.setMinimumHeight(140)
         self.search_table.setMaximumHeight(140)
         self.search_table.show()
@@ -848,7 +971,9 @@ class POSScreen(QWidget):
         self.cart_table.setRowCount(len(self.session.active_cart))
 
         for row, item in enumerate(self.session.active_cart):
-            self.cart_table.setItem(row, 0, QTableWidgetItem(str(item["name"])))
+            name_item = QTableWidgetItem(str(item["name"]) + "\nExp: " + str(item.get("expiry_date") or "Review") + "  ·  Available: " + str(item.get("stock", "—")))
+            name_item.setToolTip(name_item.text())
+            self.cart_table.setItem(row, 0, name_item)
             # Show the selected batch expiry as a preview, not an allocation
             # guarantee. The checkout service revalidates every allocated lot.
             expiry_item = QTableWidgetItem(str(item.get("expiry_date") or "Review"))
@@ -858,6 +983,22 @@ class POSScreen(QWidget):
                 row, 2, QTableWidgetItem(f"Rs. {float(item['price']):.2f}")
             )
             self.cart_table.setItem(row, 3, QTableWidgetItem(str(item["qty"])))
+            stepper = QWidget()
+            stepper_layout = QHBoxLayout(stepper)
+            stepper_layout.setContentsMargins(2, 2, 2, 2)
+            stepper_layout.setSpacing(3)
+            for label, delta in (("−", -1), ("+", 1)):
+                button = QPushButton(label)
+                button.setObjectName("quantityStep")
+                button.setAccessibleName(("Decrease " if delta < 0 else "Increase ") + str(item["name"]) + " quantity")
+                button.clicked.connect(lambda _checked=False, row=row, delta=delta: self.on_cart_qty_delta(row, delta))
+                stepper_layout.addWidget(button)
+                if delta == -1:
+                    quantity = QLabel(str(item["qty"]))
+                    quantity.setAlignment(Qt.AlignCenter)
+                    stepper_layout.addWidget(quantity, 1)
+            stepper.setMinimumWidth(88)
+            self.cart_table.setCellWidget(row, 3, stepper)
             self.cart_table.setItem(
                 row, 4, QTableWidgetItem(f"Rs. {float(item['subtotal']):.2f}")
             )
@@ -875,12 +1016,19 @@ class POSScreen(QWidget):
             for unit in units:
                 combo.addItem(str(unit["label"]), unit)
             selected = next((i for i, unit in enumerate(units) if unit["code"] == item.get("unit_code", "base")), 0)
+            combo.setMinimumWidth(max(94, combo.fontMetrics().horizontalAdvance(combo.itemText(selected)) + 64))
             combo.setCurrentIndex(selected)
             combo.setEnabled(len(units) > 1 and not self.session.pending_checkout)
             combo.currentIndexChanged.connect(lambda _index, row=row, combo=combo: self._change_cart_unit(row, combo.currentData()))
             self.cart_table.setCellWidget(row, 6, combo)
+            remove = QPushButton("×")
+            remove.setObjectName("quantityStep")
+            remove.setAccessibleName("Remove " + str(item["name"]) + " from sale")
+            remove.setToolTip("Remove item")
+            remove.clicked.connect(lambda _checked=False, row=row: self.remove_cart_row(row))
+            self.cart_table.setCellWidget(row, 7, remove)
             combo.ensurePolished()
-            self.cart_table.setRowHeight(row, max(self.cart_table.rowHeight(row), combo.sizeHint().height() + 8))
+            self.cart_table.setRowHeight(row, max(58, self.cart_table.rowHeight(row), combo.sizeHint().height() + 8))
 
         self.cart_table.blockSignals(False)
 
@@ -1253,6 +1401,7 @@ class POSScreen(QWidget):
                 self._set_checkout_notice("The bill is saved, but the last step did not finish. Choose Check This Bill before making another bill.", "danger")
                 return
             self._last_sale_id = result.purchase_id
+            self.btn_toolbar_reprint.setEnabled(True)
             total = float(getattr(result, "total", 0) or request.total * (1 + self._tax_rate))
             tender = getattr(result, "payment_method", None) or request.payment_method
             change = float(getattr(result, "change_due", 0) or 0)
@@ -1261,7 +1410,7 @@ class POSScreen(QWidget):
             self.last_sale_frame.show()
             self._set_checkout_locked(False)
             self.on_clear_cart()
-            self.btn_checkout.setText("Complete Sale")
+            self.btn_checkout.setText("Complete Sale (F12)")
             self._set_checkout_notice("Sale saved. Use Reprint Last Receipt if the printer needs another copy.", "success")
             self._load_last_receipt_status(result.purchase_id)
             if getattr(result,'receipt_status','SAVED')=='PRINT_PENDING':
@@ -1274,7 +1423,7 @@ class POSScreen(QWidget):
                 self._checkout_unknown(request)
                 return
             self._set_checkout_locked(False)
-            self.btn_checkout.setText("Complete Sale")
+            self.btn_checkout.setText("Complete Sale (F12)")
             self._set_checkout_notice(f"Sale was not saved: {result.message}", "danger")
         else:
             self._checkout_unknown(request)
@@ -1317,9 +1466,11 @@ class POSScreen(QWidget):
             return
         purchase_id = self._last_sale_id
         self.btn_reprint.setEnabled(False)
+        self.btn_toolbar_reprint.setEnabled(False)
         self.btn_reprint.setText("Printing…")
         def complete(payload):
             self.btn_reprint.setEnabled(True)
+            self.btn_toolbar_reprint.setEnabled(True)
             self.btn_reprint.setText("Reprint Last Receipt")
             ok, message = payload
             self._set_checkout_notice(f"Sale #{purchase_id}: {message}", "success" if ok else "warning")
