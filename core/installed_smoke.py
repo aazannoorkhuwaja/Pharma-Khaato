@@ -132,6 +132,17 @@ def run():
             assert repeated.purchase_id == sale.purchase_id and repeated.duplicate
             _progress('receipt')
             assert receipt_for_sale(sale.purchase_id)['receipt_text']
+            _progress('backup_and_legacy_history')
+            from core.backup_service import backup_database, _validate_sqlite_database
+            snapshot = require(backup_database('installed_check'))
+            assert _validate_sqlite_database(snapshot)[0]
+            # Historical shops may contain this redundant pre-renumbering name.
+            # Exercise packaged SQL lookup, not just the fresh-store happy path.
+            with db_engine.get_db(immediate=True) as (_, cursor):
+                cursor.execute("INSERT INTO schema_migrations(version,applied_at) VALUES(%s,%s)",
+                               ('014_ui_performance_indexes.sql', 'installed-fixture'))
+            legacy_snapshot = require(backup_database('installed_legacy_check'))
+            assert _validate_sqlite_database(legacy_snapshot)[0]
             _progress('certificate')
             ensure_shop_certificate(Path(directory) / 'tls', ['localhost'])
             _progress('qt_application')
@@ -181,7 +192,7 @@ def run():
                     raise RuntimeError('Background screen checks did not finish within 15 seconds.')
             _dispose_windows(app, widgets)
             SessionState.get_instance().clear_user()
-            print('PASS: installed migrations, first-use owner setup, login, stock, cash, checkout/retry, receipt, TLS certificate, eight screens, credits and update dialogs')
+            print('PASS: installed migrations, first-use owner setup, login, stock, cash, checkout/retry, receipt, fresh/legacy backups, TLS certificate, eight screens, credits and update dialogs')
             return 0
         finally:
             _progress('cleanup')

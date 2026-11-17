@@ -1,6 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
+import subprocess
+import sys
 
 block_cipher = None
 
@@ -12,7 +14,13 @@ datas = [
     ('migrations/*.sql', 'migrations'),
     ('.env.example', '.'),
     ('receipts/.gitkeep', 'receipts'),
+    ('packaging/linux/gio-modules/README.txt', 'gio-modules'),
 ]
+
+# Generate and bundle the actual installed runtime license inventory.
+subprocess.run([sys.executable, os.path.join(BASE_DIR, 'scripts', 'release_inventory.py'),
+                '--output', os.path.join(BASE_DIR, 'build', 'runtime-notices')], check=True)
+datas.append((os.path.join(BASE_DIR, 'build', 'runtime-notices'), 'third-party'))
 
 binaries = []
 
@@ -20,6 +28,7 @@ binaries = []
 # Keep the packaged build explicit: a release must contain every major screen
 # and every service reached through MVC facades/background tasks.
 hiddenimports = [
+    'ui.dialogs.recovery_bundle_dialog', 'controllers.recovery_bundle_controller', 'core.recovery_bundle_service',
     'ui.dialogs.about_dialog', 'controllers.update_controller', 'ui.dialogs.update_dialog',
     'core.installed_smoke', 'core.business_time', 'core.counter_preferences', 'core.lan_client',
     'core.lan_config', 'core.lan_service', 'core.local_operations',
@@ -111,6 +120,8 @@ hiddenimports = [
 ]
 
 excluded_modules = [
+    "PySide6.QtWebSockets", "PySide6.QtHttpServer", "PySide6.QtCore5Compat",
+    "PySide6.Qt3DCore", "PySide6.Qt3DRender", "PySide6.QtMultimedia", "PySide6.QtMultimediaWidgets",
     'pytest',
     'pytest_qt',
     'unittest',
@@ -125,7 +136,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=['packaging/hooks/linux_gio.py'],
     excludes=excluded_modules,
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

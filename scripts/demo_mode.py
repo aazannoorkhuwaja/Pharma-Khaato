@@ -211,7 +211,9 @@ def seed_demo_database() -> dict:
     # A mix of tenders makes Reports and Shift & Cash immediately meaningful.
     sale_ids = {
         "cash": _sale(admin_id, "Panadol 500mg", 2, "Cash"),
-        "card": _sale(admin_id, "Augmentin 625mg", 1, "Credit Card", customers[0][0]),
+        # Restricted medicine remains in the catalog to demonstrate the blocked
+        # prescription state; demo transactions obey the same policy as the POS.
+        "card": _sale(admin_id, "Vitamin C 500mg", 1, "Credit Card", customers[0][0]),
         "easypaisa": _sale(admin_id, "Cetirizine 10mg", 2, "Easypaisa", customers[1][0]),
         "jazzcash": _sale(admin_id, "Surgical Gloves Medium", 2, "JazzCash", customers[2][0]),
         "credit": _sale(admin_id, "Brufen 400mg", 4, "Khatoo Credit", customers[3][0]),

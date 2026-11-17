@@ -33,12 +33,20 @@ def reference_ui(seeded_shop, admin_emp_id):
 
 
 def settle(app):
-    for _ in range(30):
+    # Wait for actual completion, including queued result callbacks, rather
+    # than assuming background database work finishes within 450 ms.
+    import time
+    from ui.app.async_tasks import AsyncTaskRunner
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
         app.processEvents()
         QTest.qWait(15)
-        if QThreadPool.globalInstance().activeThreadCount() == 0:
+        runners = [runner for window in app.topLevelWidgets()
+                   for runner in window.findChildren(AsyncTaskRunner)]
+        if QThreadPool.globalInstance().activeThreadCount() == 0 and not any(r._active for r in runners):
             app.processEvents()
-            break
+            return
+    pytest.fail("Background UI work did not settle within 10 seconds")
 
 
 def test_reference_checkout_reflows_and_tenders_remain_exclusive(reference_ui):

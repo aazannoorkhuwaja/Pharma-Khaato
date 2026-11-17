@@ -9,3 +9,8 @@ Categories=Office;Utility;
 Keywords=pharmacy;pos;inventory;billing;stock;credit;
 StartupNotify=true
 StartupWMClass=Pharma Khaato
+Actions=Recovery;
+
+[Desktop Action Recovery]
+Name=Owner Recovery
+Exec=pharma-khaato --recovery-tool

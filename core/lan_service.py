@@ -16,7 +16,8 @@ import ssl
 import subprocess
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
+from collections import deque
 from pathlib import Path
 
 from core.lan_client import json_value
@@ -34,7 +35,7 @@ class ShopAPIError(Exception):
 # reviewed here. A property is likewise individually listed.
 OPERATIONS = {
     "AppModel": {"health": ("pos.sell", False)},
-    "AuthModel": {"employees": ("staff.manage", False), "create_employee": ("staff.manage", True), "reset_password": ("staff.manage", True)},
+    "AuthModel": {"employees": ("staff.manage", False), "create_employee": ("staff.manage", True), "reset_password": ("staff.manage", True), "set_active": ("staff.manage", True)},
     "CustomerModel": {"validate_cnic": ("customer.read", False), "register": ("customer.create", True), "search": ("customer.read", False), "search_with_debt": ("credit.read", False), "total_debt": ("credit.read", False), "debt_aging": ("credit.read", False), "khatoo_summary": ("credit.read", False)},
     "InventoryModel": {"search_products": ("pos.sell", False), "product_by_barcode": ("pos.sell", False), "products": ("inventory.read", False), "suppliers": ("inventory.read", False), "register_product": ("inventory.manage", True), "register_supplier": ("inventory.manage", True), "add_batch": ("inventory.manage", True), "near_expiry": ("inventory.read", False), "expired_stock": ("inventory.read", False), "low_stock": ("inventory.read", False), "active_batches": ("inventory.read", False)},
     "POSModel": {"hold_sale": ("pos.hold", True), "held_sales": ("pos.hold", False), "recall_sale": ("pos.hold", True), "active_session": ("cash.own_shift", False), "tax_rate": ("pos.sell", False), "process_checkout": ("pos.sell", True), "lookup_checkout": ("pos.sell", False), "discount_threshold_pct": ("pos.sell", False)},
@@ -95,17 +96,55 @@ def _invoke_remote(function):
         remote_request.reset(token)
 
 
+class AuthenticationBudget:
+    """Bound expensive password work before looking up user-controlled names."""
+    def __init__(self, *, peer_limit=10, global_limit=60, window=60, max_peers=256, clock=time.monotonic):
+        self.peer_limit, self.global_limit = peer_limit, global_limit
+        self.window, self.max_peers, self.clock = window, max_peers, clock
+        self._global = deque()
+        self._peers = {}
+        self._lock = threading.Lock()
+
+    def allow(self, peer):
+        now = self.clock()
+        with self._lock:
+            cutoff = now - self.window
+            while self._global and self._global[0] <= cutoff:
+                self._global.popleft()
+            for key, events in list(self._peers.items()):
+                while events and events[0] <= cutoff:
+                    events.popleft()
+                if not events:
+                    del self._peers[key]
+            events = self._peers.get(peer)
+            if len(self._global) >= self.global_limit or (events is not None and len(events) >= self.peer_limit):
+                return False
+            if events is None:
+                if len(self._peers) >= self.max_peers:
+                    return False
+                events = self._peers[peer] = deque()
+            events.append(now)
+            self._global.append(now)
+            return True
+
+
 class ShopService:
     def __init__(self, *, session_seconds: int = 12 * 60 * 60):
         self.session_seconds = max(60, min(int(session_seconds), 24 * 60 * 60))
         self._mutation_lock = threading.RLock()
         self._models = {}
+        self._auth_budget = AuthenticationBudget()
 
     def status(self):
         from core.auth_service import has_registered_employees
         return {"ready": True, "configured": has_registered_employees(), "protocol": 1}
 
-    def login(self, username: str, password: str, terminal_id: str):
+    def authenticate_budget(self, peer):
+        if not self._auth_budget.allow(str(peer)):
+            raise ShopAPIError(429, "Too many authentication attempts. Wait one minute and try again.")
+
+    def login(self, username: str, password: str, terminal_id: str, *, peer="local"):
+        self.authenticate_budget(peer)
         from core.auth_service import login_user
         from core.db_engine import get_db
         if not _SAFE_ID.fullmatch(str(terminal_id)) or len(str(terminal_id)) > 64:
@@ -123,6 +162,12 @@ class ShopService:
             cur.execute("SELECT password FROM Employee WHERE Employee_id = %s", (int(employee[0]),))
             revision = _digest(str(cur.fetchone()[0]))
             cur.execute("DELETE FROM Shop_Session WHERE expires_at < %s", (time.time(),))
+            cur.execute("SELECT COUNT(*) FROM Shop_Session")
+            if cur.fetchone()[0] >= 1000:
+                raise ShopAPIError(429, "Too many active shop sessions. Sign out unused counters first.")
+            cur.execute("SELECT COUNT(*) FROM Shop_Session WHERE employee_id=%s", (int(employee[0]),))
+            if cur.fetchone()[0] >= 64:
+                raise ShopAPIError(429, "Too many staff sessions. Sign out unused counters first.")
             cur.execute("INSERT INTO Shop_Session(token_hash,employee_id,terminal_id,password_revision,expires_at) VALUES(%s,%s,%s,%s,%s)",
                         (_digest(token), int(employee[0]), terminal_id, revision, time.time() + self.session_seconds))
         return {"token": token, "employee": list(employee)}
@@ -132,9 +177,13 @@ class ShopService:
         if not token or len(token) > 200:
             raise ShopAPIError(401, "Sign in to the shop again.")
         with get_db() as (_conn, cur):
-            cur.execute("SELECT s.employee_id,s.terminal_id,s.password_revision,s.expires_at,e.password FROM Shop_Session s JOIN Employee e ON e.Employee_id=s.employee_id WHERE s.token_hash=%s", (_digest(token),))
+            cur.execute("SELECT s.employee_id,s.terminal_id,s.password_revision,s.expires_at,e.password FROM Shop_Session s JOIN Employee e ON e.Employee_id=s.employee_id WHERE s.token_hash=%s AND e.is_active=1", (_digest(token),))
             row = cur.fetchone()
         if not row or float(row[3]) <= time.time() or not hmac.compare_digest(str(row[2]), _digest(str(row[4]))):
+            with self._mutation_lock:
+                for key in list(self._models):
+                    if key[0] == _digest(token):
+                        self._models.pop(key, None)
             raise ShopAPIError(401, "Your shop sign-in has expired. Sign in again.")
         return {"employee_id": int(row[0]), "terminal_id": str(row[1]), "session_id": _digest(token)}
 
@@ -154,6 +203,8 @@ class ShopService:
         key = (session["session_id"], model_name)
         with self._mutation_lock:
             if key not in self._models:
+                if len(self._models) >= 256:
+                    self._models.pop(next(iter(self._models)))
                 from models import services
                 local_models = getattr(services, "LOCAL_MODELS", {})
                 if model_name == "ReturnModel":
@@ -214,7 +265,7 @@ class ShopService:
             raise ShopAPIError(400, "The counter sent invalid operation details.") from exc
         # Account reset's employee_id is the target; every other actor field is
         # verified against the session and then authoritatively supplied.
-        target_employee = model_name == "AuthModel" and method_name == "reset_password"
+        target_employee = model_name == "AuthModel" and method_name in {"reset_password", "set_active"}
         for field in ("employee_id", "operator_id", "actor_id"):
             if field == "employee_id" and target_employee:
                 continue
@@ -274,7 +325,8 @@ class ShopService:
             # after that commit. The intent record prevents blind replay of a
             # non-POS mutation if the process stops before response persistence.
             result = json_value(_invoke_remote(invocation))
-            if isinstance(result, dict) and result.get("outcome") == "unknown":
+            from core.operation_outcome import is_unknown_result
+            if is_unknown_result(result):
                 return result
             response = json.dumps(result, allow_nan=False)
             with get_db(immediate=True) as (_conn, cur):
@@ -313,11 +365,13 @@ def create_shop_server(address: tuple[str, int], certificate_path: str, key_path
                 if self.path == "/v1/status":
                     result = service.status()
                 elif self.path == "/v1/login":
-                    result = service.login(payload.get("username", ""), payload.get("password", ""), payload.get("terminal_id", ""))
+                    result = service.login(payload.get("username", ""), payload.get("password", ""), payload.get("terminal_id", ""), peer=self.client_address[0])
                 elif self.path == "/v1/logout":
                     service.session(token)
                     result = service.logout(token)
                 elif self.path == "/v1/call":
+                    if payload.get("model") == "ManagerAuthModel":
+                        service.authenticate_budget(self.client_address[0])
                     result = service.call(token, payload.get("model", ""), payload.get("method", ""), payload.get("args"), payload.get("kwargs"), payload.get("request_id", ""))
                 else:
                     raise ShopAPIError(404, "Unknown shop operation.")
@@ -347,13 +401,11 @@ def create_shop_server(address: tuple[str, int], certificate_path: str, key_path
             except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
                 pass  # A response loss is handled by the durable request identity.
 
-    server = ThreadingHTTPServer(address, Handler)
-    server.daemon_threads = True
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.load_cert_chain(certificate_path, key_path)
-    server.socket = context.wrap_socket(server.socket, server_side=True)
-    return server
+    from core.bounded_http import BoundedTLSHTTPServer
+    return BoundedTLSHTTPServer(address, Handler, context)
 
 
 def ensure_shop_certificate(directory: str | Path, names=()):

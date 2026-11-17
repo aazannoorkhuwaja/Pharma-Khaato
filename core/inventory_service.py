@@ -156,7 +156,7 @@ def register_product(
     except ValueError as ve:
         return False, str(ve)
     except Exception as e:
-        return False, f"Product registration failed: {e}"
+        raise RuntimeError("Operation outcome is unknown. Retry the same request to reconcile it.") from e
 
 
 def register_supplier(name, contact_phone, company_name=None, email="", *, operation_key=None):
@@ -184,7 +184,7 @@ def register_supplier(name, contact_phone, company_name=None, email="", *, opera
     except ValueError as ve:
         return False, str(ve)
     except Exception as e:
-        return False, f"Supplier registration failed: {e}"
+        raise RuntimeError("Operation outcome is unknown. Retry the same request to reconcile it.") from e
 
 
 def _validated_codes(cur, codes, base_unit, strip, box, product_id=None):
@@ -315,8 +315,10 @@ def add_batch(prod_id, supp_id, qty, expiry_date, manufacture_date=None, *, unit
                 cur.execute("UPDATE Stock_Operation SET batch_id=%s WHERE operation_key=%s", (batch_id,operation_key))
         clear_inventory_cache()
         return True, f"Stock received: {qty_base} smallest units."
+    except (ValueError, TypeError, ArithmeticError) as e:
+        return False, str(e)
     except Exception as e:
-        return False, f"Batch creation failed: {e}"
+        raise RuntimeError("Stock receipt outcome is unknown. Retry the same request.") from e
 
 
 def get_stocks_by_supplier(supplier_id):
@@ -378,9 +380,15 @@ def update_product(product_id, *, name, price, min_stock=10, company="General", 
                           "formula":formula,"barcode":barcode,"rx":requires_prescription,"base":base_unit,
                           "strip":strip,"box":box,"rack":rack_location,"active":is_active,"codes":unit_barcodes}):
                 return True,"These product details were already saved."
-            cur.execute("SELECT id FROM Products WHERE id=%s",(product_id,))
-            if not cur.fetchone():
+            cur.execute("SELECT base_unit,units_per_strip,units_per_box FROM Products WHERE id=%s",(product_id,))
+            existing = cur.fetchone()
+            if not existing:
                 raise ValueError("Product was not found.")
+            if (str(existing[0] or "unit"), int(existing[1]), int(existing[2])) != (str(base_unit or "unit").strip(), strip, box):
+                cur.execute("SELECT COUNT(*) FROM Batch WHERE product_id=%s", (product_id,))
+                if cur.fetchone()[0]:
+                    changed = "base unit" if str(existing[0] or "unit") != str(base_unit or "unit").strip() else "pack conversion"
+                    raise ValueError(f"The {changed} cannot change after stock has been received. Create a separate medicine record.")
             cur.execute("SELECT id FROM Products WHERE product_name=%s AND id<>%s",(name,product_id))
             if cur.fetchone():
                 raise ValueError("Another product already uses this name. Include strength or pack size.")
@@ -405,8 +413,10 @@ def update_product(product_id, *, name, price, min_stock=10, company="General", 
                          f"Product {product_id}: {name}; base unit {base_unit}; strip {strip}; box {box}; active {bool(is_active)}"))
         clear_inventory_cache()
         return True,"Product details saved. Existing batch prices and sales history are preserved."
-    except Exception as exc:
+    except (ValueError, TypeError, ArithmeticError) as exc:
         return False,str(exc)
+    except Exception as exc:
+        raise RuntimeError("Stock operation outcome is unknown. Retry the same request.") from exc
 
 
 def stock_batches(product_id=None, limit=500):
@@ -456,8 +466,10 @@ def set_batch_count(batch_id, counted_quantity, reason, *, employee_id=None, ope
                 cur.execute("UPDATE Stock_Operation SET batch_id=%s WHERE operation_key=%s",(batch_id,operation_key))
         clear_inventory_cache()
         return True,"Counted stock and condition saved."
-    except Exception as exc:
+    except (ValueError, TypeError, ArithmeticError) as exc:
         return False,str(exc)
+    except Exception as exc:
+        raise RuntimeError("Stock operation outcome is unknown. Retry the same request.") from exc
 
 
 def get_all_active_batches():

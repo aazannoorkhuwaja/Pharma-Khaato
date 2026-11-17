@@ -70,6 +70,8 @@ def close_all_connections():
 def database_maintenance():
     """Drain managed transactions and close worker connections before replacement."""
     with _DB_GATE:
+        from core.store_ownership import acquire_store
+        acquire_store(PathManager.get_db_path())
         close_all_connections()
         _MIGRATED_PATHS.discard(PathManager.get_db_path())
         yield
@@ -165,6 +167,8 @@ class UnifiedConnection:
 def _get_sqlite_connection():
     """Initialize and return a long-lived thread-local SQLite connection."""
     db_path = PathManager.get_db_path()
+    from core.store_ownership import acquire_store
+    acquire_store(db_path)
     from core.backup_service import recover_interrupted_restore
     recover_interrupted_restore()
 
@@ -186,6 +190,8 @@ def _get_sqlite_connection():
         timeout=_SQLITE_BUSY_TIMEOUT_MS / 1000.0,
     )
 
+    from core.financial_storage import register
+    register(conn)
     try:
         # High-performance desktop settings. WAL keeps reads concurrent with normal
         # writes; a short busy timeout avoids turning lock contention into a

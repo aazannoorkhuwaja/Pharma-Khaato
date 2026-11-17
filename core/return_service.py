@@ -55,11 +55,11 @@ def _canonical_tender(value: str) -> str:
     return str(value or "Other").strip()
 
 
-def _active_cash_session(cur, employee_id: int) -> int | None:
+def _active_cash_session(cur, employee_id: int, terminal_id="local") -> int | None:
     cur.execute(
         "SELECT id FROM Cash_Register_Session "
-        "WHERE employee_id = %s AND status = 'OPEN' ORDER BY id DESC LIMIT 1",
-        (employee_id,),
+        "WHERE employee_id = %s AND terminal_id = %s AND status = 'OPEN' ORDER BY id DESC LIMIT 1",
+        (employee_id, terminal_id or "local"),
     )
     row = cur.fetchone()
     return int(row[0]) if row else None
@@ -113,7 +113,7 @@ def get_returnable_sale(purchase_id: int):
                 return None
             lines = _sale_lines(cur, purchase_id)
             cur.execute(
-                "SELECT COALESCE(SUM(refund_amount), 0) FROM Customer_Returns WHERE purchase_id = %s",
+                "SELECT COALESCE((SUM(refund_amount_minor)/100.0), 0) FROM Customer_Returns WHERE purchase_id = %s",
                 (purchase_id,),
             )
             refunded = _money((cur.fetchone() or [0])[0])
@@ -158,6 +158,7 @@ def _allocate_credit_repayment_refunds(
     return_id: int,
     employee_id: int,
     now_str: str,
+    terminal_id: str = "local",
 ):
     """Reverse prior credit collections by their actual tender, newest first."""
     if excess <= Decimal("0.00"):
@@ -165,9 +166,9 @@ def _allocate_credit_repayment_refunds(
 
     cur.execute(
         "SELECT cp.id, cp.amount, cp.payment_method, "
-        "       COALESCE((SELECT SUM(rt.amount) FROM Refund_Transaction rt "
+        "       COALESCE((SELECT (SUM(rt.amount_minor)/100.0) FROM Refund_Transaction rt "
         "                 WHERE rt.source_credit_payment_id = cp.id), 0) "
-        "       + COALESCE((SELECT SUM(rv.amount) FROM Credit_Payment_Reversal rv "
+        "       + COALESCE((SELECT (SUM(rv.amount_minor)/100.0) FROM Credit_Payment_Reversal rv "
         "                 WHERE rv.payment_id=cp.id), 0) "
         "FROM Credit_Payment cp WHERE cp.khatoo_id = %s ORDER BY cp.id DESC",
         (ledger_id,),
@@ -199,7 +200,7 @@ def _allocate_credit_repayment_refunds(
         session_id = None
         if tender == "Cash":
             if cash_session_id is None:
-                cash_session_id = _active_cash_session(cur, employee_id)
+                cash_session_id = _active_cash_session(cur, employee_id, terminal_id)
             if cash_session_id is None:
                 raise ValueError(
                     "Start a cash shift before refunding a credit payment that was originally paid in cash."
@@ -246,6 +247,7 @@ def process_return(
     reason: str = "Customer return",
     condition: str = "SELLABLE",
     operation_id: str | None = None,
+    terminal_id: str = "local",
 ):
     """Process a return atomically using authoritative sale data.
 
@@ -354,9 +356,14 @@ def process_return(
 
                 cur.execute("SELECT b.stock_status,p.is_active FROM Batch b JOIN Products p ON p.id=b.product_id WHERE b.id=%s", (batch_id,))
                 status = cur.fetchone()
-                can_restock = condition == "SELLABLE" and expiry_date >= today and status and status[0] == 'SELLABLE' and bool(status[1])
+                from datetime import date
+                try:
+                    valid_expiry = date.fromisoformat(expiry_date).isoformat() == expiry_date
+                except ValueError:
+                    valid_expiry = False
+                can_restock = valid_expiry and condition == "SELLABLE" and expiry_date >= today and status and status[0] == 'SELLABLE' and bool(status[1])
                 restock_status = "RESTOCKED" if can_restock else (
-                    "EXPIRED_QUARANTINE" if condition == "SELLABLE" and expiry_date < today
+                    "EXPIRED_QUARANTINE" if condition == "SELLABLE" and (not valid_expiry or expiry_date < today)
                     else f"{condition}_QUARANTINE"
                 )
                 prepared_items.append({
@@ -377,20 +384,17 @@ def process_return(
                 raise ValueError("Select at least one returnable item.")
 
             cur.execute(
-                "SELECT COALESCE(SUM(refund_amount), 0) FROM Customer_Returns WHERE purchase_id = %s",
+                "SELECT COALESCE((SUM(refund_amount_minor)/100.0), 0) FROM Customer_Returns WHERE purchase_id = %s",
                 (purchase_id,),
             )
             already_refunded = _money((cur.fetchone() or [0])[0])
-            remaining_refundable = max(gross_total - already_refunded, Decimal("0.00"))
 
-            proportional_refund = (gross_total * requested_base / original_base).quantize(
-                _CENT, rounding=ROUND_HALF_UP
-            )
-            # On the final remaining item(s), absorb any cent-level proportional
-            # rounding so total refunds can equal but never exceed the sale gross.
-            refund_total = remaining_refundable if remaining_after == 0 else min(proportional_refund, remaining_refundable)
-            if refund_total <= Decimal("0.00"):
-                raise ValueError("This sale has already been fully refunded.")
+            from core.refund_quote import quote_refund
+            returned_base = sum((Decimal(str(line[5])) * int(line[7] or 0) / int(line[3])
+                                 for line in lines), Decimal("0"))
+            refund_total = quote_refund(gross_total, original_base, returned_base,
+                                       requested_base, already_refunded, remaining_after == 0)
+            # Quantity eligibility is independent of remaining monetary entitlement.
 
             now = business_now()
             date_str = now.strftime("%Y-%m-%d")
@@ -448,8 +452,10 @@ def process_return(
                     )
 
             return_session_id = None
-            if original_tender == "Cash":
-                return_session_id = _active_cash_session(cur, employee_id)
+            if refund_total == 0:
+                pass  # Stock-only return: never post a zero cash/refund transaction.
+            elif original_tender == "Cash":
+                return_session_id = _active_cash_session(cur, employee_id, terminal_id)
                 if return_session_id is None:
                     raise ValueError("Start a cash shift before paying a cash refund.")
                 cur.execute(
@@ -526,6 +532,7 @@ def process_return(
                         return_id=return_id,
                         employee_id=employee_id,
                         now_str=now_str,
+                        terminal_id=terminal_id,
                     )
                     refund_tenders.extend(allocated)
                     if cash_session_id is not None:

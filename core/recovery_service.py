@@ -17,8 +17,8 @@ _RECOVERY_GATE = threading.Lock()
 logger = get_logger("PharmaKhaatoRecovery")
 
 
-def recover_from_backup(filepath, username, password):
-    """Require a manager from the selected snapshot before pre-login recovery."""
+def _recover_staged_backup(filepath, username, password):
+    """Require independent shop trust and a snapshot manager before recovery."""
     with _RECOVERY_GATE:
         state_path = os.path.join(PathManager.get_config_dir(), "recovery-attempts.json")
         try:
@@ -28,6 +28,11 @@ def recover_from_backup(filepath, username, password):
             state = {}
         if float(state.get("locked_until", 0)) > time.time():
             return False, "Too many recovery attempts. Wait one minute and try again."
+        from core.backup_trust import verify_snapshot
+        if not verify_snapshot(filepath):
+            return False, ("This backup cannot be authenticated by this shop's recovery key. "
+                           "Use a signed shop backup and its matching owner-held recovery key. "
+                           "Unsigned legacy backups require an authenticated administrator restore.")
         valid, reason = _validate_sqlite_database(filepath)
         if not valid:
             return False, "Choose a valid Pharma Khaato backup. " + reason
@@ -52,3 +57,18 @@ def recover_from_backup(filepath, username, password):
             pass
         logger.info("Pre-login recovery authorized by a snapshot administrator/manager.")
         return restore_database(filepath, require_restart=True)
+
+
+def recover_from_backup(filepath, username, password):
+    """Verify and restore one private, stable copy, preventing source swap races."""
+    import shutil
+    import tempfile
+    try:
+        with tempfile.TemporaryDirectory(prefix="recovery-", dir=PathManager.get_config_dir()) as folder:
+            staged = os.path.join(folder, "snapshot.sqlite")
+            shutil.copyfile(filepath, staged)
+            if os.path.isfile(str(filepath) + ".hmac"):
+                shutil.copyfile(str(filepath) + ".hmac", staged + ".hmac")
+            return _recover_staged_backup(staged, username, password)
+    except (OSError, ValueError):
+        return False, "The recovery snapshot could not be read. Check the backup device and retry."

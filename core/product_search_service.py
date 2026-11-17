@@ -11,16 +11,27 @@ logger = get_logger("PharmaKhaatoProductSearch")
 _MAX_RESULTS = 40
 _COLUMNS = (
     "p.id,p.product_name,COALESCE(b.sale_price,p.price),b.id,"
-    "(SELECT COALESCE(SUM(bs.quantity),0) FROM Batch bs WHERE bs.product_id=p.id "
-    "AND bs.quantity>0 AND bs.expiry_date>=%s AND bs.stock_status='SELLABLE'),"
+    "b.quantity,"
     "b.expiry_date,p.base_unit,p.units_per_strip,p.units_per_box,p.rack_location,"
     "b.lot_number,b.quantity,b.mrp,p.requires_prescription,p.strength,p.dosage_form"
 )
 _FROM = (
-    "Products p JOIN Batch b ON b.id=(SELECT bx.id FROM Batch bx "
-    "WHERE bx.product_id=p.id AND bx.quantity>0 AND bx.expiry_date>=%s "
-    "AND bx.stock_status='SELLABLE' ORDER BY bx.expiry_date,bx.id LIMIT 1) "
+    "Products p JOIN Batch b ON b.product_id=p.id AND b.quantity>0 "
+    "AND b.expiry_date>=%s AND b.stock_status='SELLABLE' "
 )
+
+
+def _valid_rows(rows):
+    """Legacy malformed expiry must not appear as sellable stock."""
+    valid = []
+    for row in rows:
+        try:
+            if date.fromisoformat(str(row[5])).isoformat() == str(row[5]):
+                valid.append(row)
+        except ValueError:
+            continue
+    return valid
+
 
 
 def _present(row, unit_code="base"):
@@ -53,10 +64,14 @@ def get_product_by_barcode(code):
         if not matches:
             return None
         product_id, unit_code = matches[0]
-        cur.execute("SELECT " + _COLUMNS + " FROM " + _FROM + "WHERE p.is_active=1 AND p.id=%s",
-                    (today, today, product_id))
-        row = cur.fetchone()
-    return _present(row, unit_code) if row else None
+        cur.execute("SELECT " + _COLUMNS + " FROM " + _FROM + "WHERE p.is_active=1 AND p.id=%s ORDER BY b.expiry_date,b.id LIMIT %s",
+                    (today, product_id, _MAX_RESULTS))
+        rows = _valid_rows(cur.fetchall())
+    choices = [_present(row, unit_code) for row in rows]
+    if not choices:
+        return None
+    first = choices[0]
+    return (*first[:6], {**first[6], "batch_choices": choices})
 
 
 def _fts_query(term):
@@ -69,7 +84,7 @@ def search_sellable_products(term):
         return []
     exact = get_product_by_barcode(raw)
     if exact:
-        return [exact]
+        return exact[6].get("batch_choices", [exact])
     today = business_date().isoformat()
     query = _fts_query(raw)
     with get_db() as (_conn, cur):
@@ -77,9 +92,9 @@ def search_sellable_products(term):
             cur.execute("SELECT " + _COLUMNS + " FROM " + _FROM +
                         "JOIN product_fts f ON p.id=CAST(f.product_id AS INTEGER) "
                         "WHERE product_fts MATCH %s AND p.is_active=1 "
-                        "ORDER BY bm25(product_fts),p.product_name LIMIT %s",
-                        (today,today,query,_MAX_RESULTS))
-            rows = cur.fetchall()
+                        "ORDER BY bm25(product_fts),p.product_name,b.expiry_date,b.id LIMIT %s",
+                        (today,query,_MAX_RESULTS))
+            rows = _valid_rows(cur.fetchall())
             if rows:
                 return [_present(row) for row in rows]
         safe = raw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -87,6 +102,6 @@ def search_sellable_products(term):
         cur.execute("SELECT " + _COLUMNS + " FROM " + _FROM +
                     "WHERE p.is_active=1 AND (p.product_name LIKE %s ESCAPE '\\' "
                     "OR p.formula LIKE %s ESCAPE '\\' OR p.generic_name LIKE %s ESCAPE '\\') "
-                    "ORDER BY p.product_name LIMIT %s",
-                    (today,today,like,like,like,_MAX_RESULTS))
-        return [_present(row) for row in cur.fetchall()]
+                    "ORDER BY p.product_name,b.expiry_date,b.id LIMIT %s",
+                    (today,like,like,like,_MAX_RESULTS))
+        return [_present(row) for row in _valid_rows(cur.fetchall())]

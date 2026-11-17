@@ -51,9 +51,9 @@ def _record_failed_attempt(username: str) -> None:
             if row is None:
                 attempts = 1
                 cur.execute(
-                    "INSERT INTO Login_Lockout (username, failed_attempts, locked_until) "
-                    "VALUES (%s, 1, 0)",
-                    (username,),
+                    "INSERT INTO Login_Lockout (username, failed_attempts, locked_until, last_attempt) "
+                    "VALUES (%s, 1, 0, %s)",
+                    (username, now),
                 )
             else:
                 attempts = int(row[0]) + 1
@@ -61,9 +61,9 @@ def _record_failed_attempt(username: str) -> None:
                 if attempts >= _MAX_ATTEMPTS:
                     locked_until = now + _LOCKOUT_SECONDS
                 cur.execute(
-                    "UPDATE Login_Lockout SET failed_attempts = %s, locked_until = %s "
+                    "UPDATE Login_Lockout SET failed_attempts = %s, locked_until = %s, last_attempt = %s "
                     "WHERE username = %s",
-                    (attempts, locked_until, username),
+                    (attempts, locked_until, now, username),
                 )
     except sqlite3.Error as exc:
         logger.warning(f"Handled lockout persistence failure: {exc}")
@@ -97,8 +97,8 @@ def _prune_expired_lockouts() -> None:
     try:
         with get_db() as (conn, cur):
             cur.execute(
-                "DELETE FROM Login_Lockout WHERE locked_until > 0 AND locked_until < %s",
-                (cutoff,),
+                "DELETE FROM Login_Lockout WHERE last_attempt < %s AND locked_until < %s",
+                (cutoff, time.time()),
             )
     except sqlite3.Error as exc:
         logger.warning(f"Handled lockout prune failure: {exc}")
@@ -218,7 +218,7 @@ def login_user(username: str, password: str):
         cur = conn.cursor()
         cur.execute(
             "SELECT Employee_id, First_name, Last_name, occupation, password "
-            "FROM Employee WHERE username = %s",
+            "FROM Employee WHERE username = %s AND is_active=1",
             (username,),
         )
         res = cur.fetchone()
@@ -414,11 +414,11 @@ def change_password(
 
 
 def get_all_employees() -> list:
-    """Return (Employee_id, username, First_name, Last_name, occupation) rows."""
+    """Return (Employee_id, username, First_name, Last_name, occupation, is_active) rows."""
     try:
         with get_db() as (conn, cur):
             cur.execute(
-                "SELECT Employee_id, username, First_name, Last_name, occupation "
+                "SELECT Employee_id, username, First_name, Last_name, occupation, is_active "
                 "FROM Employee ORDER BY Employee_id ASC"
             )
             return cur.fetchall()
@@ -461,3 +461,36 @@ def update_employee_password(employee_id: int, new_password: str, actor_id: int 
     except Exception as exc:
         logger.error(f"Administrator password reset failed for employee {employee_id}: {exc}")
         return False, "Password could not be reset. Please try again."
+
+
+def set_employee_active(employee_id, active, actor_id=None):
+    """Revoke all LAN sessions atomically, retaining immutable staff history."""
+    allowed, message = _admin_actor(actor_id)
+    if not allowed:
+        return False, message
+    if not isinstance(active, bool):
+        return False, "Choose an active or inactive account state."
+    try:
+        employee_id = int(employee_id)
+        if employee_id == int(actor_id) and not active:
+            raise ValueError("You cannot deactivate your own signed-in account.")
+        with get_db(immediate=True) as (_, cur):
+            cur.execute("SELECT occupation,is_active FROM Employee WHERE Employee_id=%s", (employee_id,))
+            row = cur.fetchone()
+            if not row:
+                raise ValueError("Staff account was not found.")
+            if not active and str(row[0]).lower() in {'admin','administrator'}:
+                cur.execute("SELECT COUNT(*) FROM Employee WHERE is_active=1 AND lower(occupation) IN ('admin','administrator')")
+                if row[1] and cur.fetchone()[0] <= 1:
+                    raise ValueError("Keep at least one active administrator account.")
+            cur.execute("UPDATE Employee SET is_active=%s WHERE Employee_id=%s", (int(active),employee_id))
+            cur.execute("DELETE FROM Shop_Session WHERE employee_id=%s", (employee_id,))
+            cur.execute("DELETE FROM Manager_Approval WHERE manager_id=%s OR operator_id=%s", (employee_id, employee_id))
+            from core.business_time import business_now
+            cur.execute("INSERT INTO Audit_Log(timestamp,user_id,action,details) VALUES(%s,%s,'STAFF_ACCESS_CHANGED',%s)",
+                        (business_now().isoformat(),str(actor_id),f"Account {employee_id}; active={active}"))
+        from core.permission_service import clear_permission_cache
+        clear_permission_cache(employee_id)
+        return True, "Staff access updated. Existing shop sessions were revoked."
+    except (ValueError, TypeError) as exc:
+        return False, str(exc)

@@ -151,6 +151,9 @@ def _copy_external(snapshot):
         if not valid:
             raise ValueError(reason)
         os.replace(temporary, target)
+        from core.backup_trust import verify_snapshot
+        if verify_snapshot(snapshot):
+            shutil.copyfile(str(snapshot) + '.hmac', str(target) + '.hmac')
         _COPIED_SNAPSHOTS[target] = (os.stat(snapshot).st_mtime_ns, os.stat(snapshot).st_size,
                                     os.stat(target).st_mtime_ns, os.stat(target).st_size)
     finally:
@@ -179,8 +182,9 @@ def _validate_sqlite_database(path: str) -> tuple[bool, str]:
                 folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "migrations")
                 known = {os.path.basename(path) for path in MigrationManager._migration_catalog(folder)}
                 applied = {row[0] for row in conn.execute("SELECT version FROM schema_migrations")}
-                if applied - known:
-                    return False, "This backup requires a different application version."
+                MigrationManager.canonical_history(applied, known)
+                from core.schema_validation import validate_declared_schema
+                validate_declared_schema(conn, applied)
         return True, "ok"
     except (sqlite3.Error, OSError, ValueError) as exc:
         return False, str(exc)
@@ -210,6 +214,8 @@ def backup_database(prefix="pharmacy_db_backup"):
             raise sqlite3.DatabaseError(f"Backup integrity check failed: {reason}")
 
         os.replace(temp_path, dest_path)
+        from core.backup_trust import sign_snapshot
+        sign_snapshot(dest_path)
         try:
             _copy_external(dest_path)
         except (OSError, ValueError) as exc:
@@ -272,6 +278,7 @@ def ensure_daily_backup(retention=14, max_age_seconds=3600):
             continue
         try:
             os.remove(old_path)
+            Path(str(old_path) + ".hmac").unlink(missing_ok=True)
         except OSError as exc:
             logger.warning("Could not prune automatic backup %s: %s", old_path, exc)
     external = backup_destination()
@@ -282,6 +289,7 @@ def ensure_daily_backup(retention=14, max_age_seconds=3600):
                 try:
                     if os.path.getmtime(old_path) < cutoff:
                         os.remove(old_path)
+                        Path(str(old_path) + ".hmac").unlink(missing_ok=True)
                         _COPIED_SNAPSHOTS.pop(old_path, None)
                 except OSError as exc:
                     logger.warning("Could not prune second automatic backup: %s", exc)

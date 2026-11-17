@@ -344,6 +344,45 @@ def generate_invoice_text(
     return "\n".join(lines)
 
 
+def _print_document(document, printer) -> bool:
+    """Check paint-engine start, pagination and submission instead of a void API."""
+    from PySide6.QtCore import QRectF, QSizeF
+    from PySide6.QtGui import QPainter, QAbstractTextDocumentLayout
+    from PySide6.QtPrintSupport import QPrinter
+
+    painter = QPainter()
+    if not painter.begin(printer):
+        logger.warning("Receipt printer could not start the print job. The sale remains saved.")
+        return False
+    try:
+        page = printer.pageRect(QPrinter.DevicePixel)
+        if page.width() <= 0 or page.height() <= 0:
+            return False
+        document.documentLayout().setPaintDevice(printer)
+        document.setDocumentMargin(0)
+        document.setPageSize(QSizeF(page.width(), page.height()))
+        for number in range(document.pageCount()):
+            if number and not printer.newPage():
+                logger.warning("Receipt printer failed while starting another page.")
+                return False
+            painter.save()
+            try:
+                painter.setClipRect(QRectF(0, 0, page.width(), page.height()))
+                painter.translate(0, -number * page.height())
+                context = QAbstractTextDocumentLayout.PaintContext()
+                context.clip = QRectF(0, number * page.height(), page.width(), page.height())
+                document.documentLayout().draw(painter, context)
+            finally:
+                painter.restore()
+        submitted = painter.end()
+        return submitted and printer.printerState() not in (QPrinter.Error, QPrinter.Aborted)
+    finally:
+        if painter.isActive():
+            # A partially rendered receipt must not continue as a successful job.
+            printer.abort()
+            painter.end()
+
+
 def print_receipt_spooler(receipt_text: str, printer_name: str | None = None) -> bool:
     """Send receipt text to a configured OS printer without affecting sale state."""
     try:
@@ -377,7 +416,9 @@ def print_receipt_spooler(receipt_text: str, printer_name: str | None = None) ->
         width_mm = 58.0 if template == "compact_58" else 80.0
         printer.setPageSize(QPageSize(QSizeF(width_mm, 297.0), QPageSize.Millimeter, "Receipt"))
         printer.setPageMargins(QMarginsF(2, 2, 2, 2), QPageLayout.Millimeter)
-        document.print_(printer)
+        if not _print_document(document, printer):
+            logger.warning("Receipt was not submitted successfully. Check the printer before reprinting.")
+            return False
         logger.info("Receipt sent to OS print spooler%s.", f" ({chosen})" if chosen else "")
         return True
     except Exception as exc:
