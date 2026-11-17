@@ -1,12 +1,16 @@
 # Pharma Khaato
 
-**A pharmacy billing app for Windows and Linux. It works without internet.**
+**Offline-first pharmacy point-of-sale software for Windows and Linux.**
 
 [**Download**](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/latest) · [First-use guide](docs/TRY_IT.md) · [Get help](https://github.com/aazannoorkhuwaja/Pharma-Khaato/issues/new/choose)
 
 Make bills, check stock and expiry, record customer dues, and count the cash in your drawer.
 
 Built and led by **Azaan Noor Khuwaja**, with contributions from **Atif Khan**.
+
+**Engineering overview:** A PySide6 desktop interface connects to Qt-independent Python services through controllers. SQLite (WAL) supports transactional checkout, expiry checks and FEFO stock allocation. [Architecture](docs/ARCHITECTURE.md) · [System flow diagram](docs/diagrams/pharma_khaato_system_flows.svg) · [Verification and acceptance](docs/REAL_WORLD_READINESS.md).
+
+**Release readiness:** The application is an engineering build awaiting pharmacy and hardware acceptance; use practice data until those checks are complete.
 
 ## Install the app
 
@@ -70,10 +74,6 @@ Tell us what you were trying to do, what happened, and the app version. Do not s
 
 [Credits](CREDITS.md) · [MIT License](LICENSE)
 
-For the Windows / Ubuntu pharmacy trial, follow [the simple shop checklist](docs/SHOP_TRIAL.md). <!-- coderabbit-ai-generated:v1 -->
+For the Windows / Ubuntu pharmacy trial, follow [the shop checklist](docs/SHOP_TRIAL.md).
 
-<!-- coderabbit-ai-generated-section:v1:a1033c519c65fedbbc2ffdfd5bb821c2e8e8af3055b37acfb86a63be4a623121 -->
-
-For the first 2.5.0 test release, use [the test handoff](docs/FIRST_TEST_RELEASE.md) and [release notes](docs/releases/2.5.0.md).
-
-<!-- /coderabbit-ai-generated:v1 -->
+For the first 2.5.0 test release, use the [test handoff](docs/FIRST_TEST_RELEASE.md) and [release notes](docs/releases/2.5.0.md).
