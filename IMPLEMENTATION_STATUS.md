@@ -1,6 +1,6 @@
 # Audit implementation checkpoint
 
-Updated 2026-11-17. Working branch: `fix/audit-integrity`, based on `1dd242cebae3ca792750fc8dc91f03b84a7705ec`. Candidate version metadata: **2.5.1**. This is a review candidate, not an approved production release.
+Updated 2026-11-17. Working branch: `fix/audit-integrity`, based on `1dd242cebae3ca792750fc8dc91f03b84a7705ec`. Newer `main` changes through `0c5ad8566ad75f7bd682dfd6042045702f39ee36` have been reconciled in draft [PR #20](https://github.com/aazannoorkhuwaja/Pharma-Khaato/pull/20). Candidate version metadata: **2.5.1**. This is a review candidate, not an approved production release.
 
 The six original audit reports remain historical findings against their pinned baseline. Implementation was subsequently authorized. The supplied UI ZIP and extracted samples are preserved. No live pharmacy migrations, automatic merge or deployment have been performed.
 
@@ -19,7 +19,7 @@ The six original audit reports remain historical findings against their pinned b
 
 ## Current verification
 
-- Full local run on 2026-11-17: **397 passed, 12 setup errors**, 139.88 seconds. Every error is in `tests/test_lan_service.py`, where the sandbox denies socket creation. There are no assertion failures. No tests were removed or skipped to obtain this result.
+- Before the main-branch integration, full local run on 2026-11-17: **397 passed, 12 setup errors**, 139.88 seconds. Every error is in `tests/test_lan_service.py`, where the sandbox denies socket creation. There are no assertion failures. No tests were removed or skipped to obtain this result.
 - Qt test fixtures are now installed; the earlier missing-fixture errors no longer apply to this run.
 - Incident-focused run on 2026-11-15: 83 passed, one then-unavailable GUI fixture deselected. This is historical evidence, not the current full-suite count.
 - Source functional smoke exercises setup/login, checkout/retry, receipts, fresh and legacy-history backups, TLS certificate creation and eight main screens.
@@ -29,7 +29,7 @@ The six original audit reports remain historical findings against their pinned b
 
 ## Work that is not completed
 
-1. Build and validate the corrected installer against the exact release dependency environment. Local PyInstaller is unavailable and shell DNS/package downloads remain blocked. A review branch/PR is being prepared for connected CI; success must be checked on its exact commit.
+1. Build and validate the corrected installer against the exact release dependency environment. Local PyInstaller is unavailable and shell DNS/package downloads remain blocked. Draft PR #20 (`review/audit-recovery-20261117`) carries the source and installer workflow; success must be checked on its exact integrated commit.
 2. Execute the 12 socket tests and real LAN fault/load acceptance outside the restricted sandbox.
 3. Run the full dependency/native-component vulnerability and licensing review on shipped artifacts. Local cryptography differs from the selected release pin; local tests do not validate that upgrade.
 4. Complete Windows/Linux installation, update, interrupted-upgrade and restore-based rollback acceptance using the actual artifacts; verify signing, filesystem ACLs and target Windows DPI.
@@ -49,3 +49,7 @@ Your installed 2.5.0 does not receive source edits automatically. It remains aff
 - [Target-machine UI and hardware acceptance](docs/UI_HARDWARE_ACCEPTANCE.md)
 
 The entire commercial roadmap is **not yet complete**. No production-readiness claim is made from CI or local test counts alone.
+
+## Main-branch integration verification
+
+The integration retains newer backup-volume warnings, asynchronous backup-location setup, literal batch searches, stock-correction refresh, and unavailable-data UI states. All 60 affected regression tests passed on 2026-11-17. The draft PR incorporates the newer main history; main itself has not been changed.

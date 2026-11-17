@@ -44,3 +44,20 @@ def test_counter_backup_actions_do_not_open_local_database(monkeypatch):
     assert 'main shop computer' in controller.backup_destination()
     assert not controller.configure_backup_destination('/tmp/not-used')[0]
     assert not controller.restore_backup('/tmp/not-used', 1)[0]
+
+
+def test_counter_health_reads_main_computer_backup_diagnostics(monkeypatch):
+    from controllers.application_controller import ApplicationController
+    from core import lan_config, health_service
+    calls = []
+    class CounterClient:
+        def call(self, model, method, *args, **kwargs):
+            calls.append((model, method))
+            return {'backup_destination_status': 'different_volume', 'issues': []}
+    monkeypatch.setattr(lan_config, 'enabled_counter_client', lambda: CounterClient())
+    def unexpected():
+        raise AssertionError('Counter must not diagnose a local business database')
+    monkeypatch.setattr(health_service.SystemHealthService, 'run_diagnostics', unexpected)
+    result = ApplicationController().health()
+    assert result['backup_destination_status'] == 'different_volume'
+    assert calls == [('AppModel', 'health')]

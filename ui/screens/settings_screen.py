@@ -375,6 +375,9 @@ class SettingsScreen(QWidget):
         self.lbl_backup_destination = QLabel("Second backup copy: " + (_SETTINGS_CONTROLLER.backup_destination() or "Not configured"))
         self.lbl_backup_destination.setWordWrap(True)
         backup_layout.addWidget(self.lbl_backup_destination)
+        self.lbl_backup_protection = QLabel("Check System Again to verify the second backup location.")
+        self.lbl_backup_protection.setWordWrap(True)
+        backup_layout.addWidget(self.lbl_backup_protection)
         self.btn_backup_destination = QPushButton("Choose Second Backup Location")
         self.btn_backup_destination.clicked.connect(self.choose_backup_destination)
         backup_layout.addWidget(self.btn_backup_destination)
@@ -597,6 +600,7 @@ class SettingsScreen(QWidget):
 
     def _apply_system_snapshot(self, payload):
         health, backups = payload
+        self.lbl_backup_protection.setText(health.get("backup_destination_message", "Backup location has not been verified."))
         self._backup_rows = list(backups)
         issues = list(health.get("issues") or [])
         healthy = bool(
@@ -654,11 +658,17 @@ class SettingsScreen(QWidget):
         self.lbl_health_info.setText("Could not complete the system check. Try again.")
 
     def trigger_backup(self):
+        if not self.btn_trigger_backup.isEnabled():
+            return
         self.btn_trigger_backup.setEnabled(False)
+        self.btn_backup_destination.setEnabled(False)
+        self._update_restore_button()
         self.btn_trigger_backup.setText("Creating Backup…")
 
         def complete(result):
             self.btn_trigger_backup.setEnabled(True)
+            self.btn_backup_destination.setEnabled(True)
+            self._update_restore_button()
             self.btn_trigger_backup.setText("Create Backup Now")
             ok, value = result
             if ok:
@@ -671,6 +681,8 @@ class SettingsScreen(QWidget):
 
         def failed(_details):
             self.btn_trigger_backup.setEnabled(True)
+            self.btn_backup_destination.setEnabled(True)
+            self._update_restore_button()
             self.btn_trigger_backup.setText("Create Backup Now")
             if self.show_message_box:
                 QMessageBox.critical(self, "Could Not Create Backup", "The backup operation failed. Try again.")
@@ -678,21 +690,43 @@ class SettingsScreen(QWidget):
         self._tasks.run(_SETTINGS_CONTROLLER.create_backup, complete, failed)
 
     def choose_backup_destination(self):
+        if not self.btn_trigger_backup.isEnabled():
+            return
         destination = QFileDialog.getExistingDirectory(self, "Choose Protected Backup Folder")
         if not destination:
             return
-        ok, message = _SETTINGS_CONTROLLER.configure_backup_destination(destination)
-        if ok:
-            self.lbl_backup_destination.setText("Second backup copy: " + destination)
-            self.trigger_backup()
-        elif self.show_message_box:
-            QMessageBox.warning(self, "Backup Location", str(message))
+        self.btn_backup_destination.setEnabled(False)
+        self.btn_trigger_backup.setEnabled(False)
+        self._update_restore_button()
+
+        def complete(result):
+            self.btn_backup_destination.setEnabled(True)
+            self.btn_trigger_backup.setEnabled(True)
+            self._update_restore_button()
+            ok, message = result
+            self.lbl_backup_protection.setText(str(message))
+            if ok:
+                self.lbl_backup_destination.setText("Second backup copy: " + _SETTINGS_CONTROLLER.backup_destination())
+                self.trigger_backup()
+            elif self.show_message_box:
+                QMessageBox.warning(self, "Backup Location", str(message))
+
+        def failed(_details):
+            self.btn_backup_destination.setEnabled(True)
+            self.btn_trigger_backup.setEnabled(True)
+            self._update_restore_button()
+            self.lbl_backup_destination.setText("Second backup copy: " + (_SETTINGS_CONTROLLER.backup_destination() or "Not configured"))
+            self.lbl_backup_protection.setText("Could not save the backup location. Check the device and try again.")
+
+        self._tasks.run(lambda: _SETTINGS_CONTROLLER.configure_backup_destination(destination), complete, failed)
 
     def _update_restore_button(self):
         row = self.tbl_backups.currentRow() if hasattr(self, "tbl_backups") else -1
-        self.btn_restore_backup.setEnabled(0 <= row < len(self._backup_rows))
+        self.btn_restore_backup.setEnabled(self.btn_trigger_backup.isEnabled() and 0 <= row < len(self._backup_rows))
 
     def restore_selected_backup(self):
+        if not self.btn_trigger_backup.isEnabled():
+            return
         row = self.tbl_backups.currentRow()
         if row < 0 or row >= len(self._backup_rows):
             if self.show_message_box:

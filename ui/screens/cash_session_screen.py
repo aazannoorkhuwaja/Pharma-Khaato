@@ -512,6 +512,8 @@ class CashSessionScreen(QWidget):
         self.pill_status.setText("Could Not Check")
         self.pill_status.set_pill_type(BadgePill.TYPE_DANGER)
         self.lbl_session_info.setText("Could not read the current cash shift. Try again.")
+        for label in self.cash_metrics.values():
+            label.setText("Unavailable")
         self.tbl_movements.setRowCount(0)
 
     def populate_movements_table(self, rows=None):

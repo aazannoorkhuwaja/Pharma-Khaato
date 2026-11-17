@@ -222,3 +222,130 @@ def test_returns_preview_tracks_quantity_and_clears_stale_sale(reference_ui):
     assert 'Credit Card' in screen.lbl_return_tender.text()
     screen.clear_sale()
     assert screen.lbl_refund_preview.text() == 'Estimated Refund: Rs. 0.00'
+
+
+def test_failed_cash_and_product_reads_leave_loading_state(reference_ui, monkeypatch):
+    from ui.screens import cash_session_screen as cash, inventory_screen as inventory
+    app, state, windows = reference_ui
+    def unavailable(*_args, **_kwargs):
+        raise OSError('test connection interrupted')
+    monkeypatch.setattr(cash._CASH_CONTROLLER, 'active_session', unavailable)
+    drawer = cash.CashSessionScreen(show_message_box=False)
+    windows.append(drawer)
+    drawer.refresh_all_data()
+    settle(app)
+    assert all(label.text() == 'Unavailable' for label in drawer.cash_metrics.values())
+    screen = inventory.InventoryScreen(show_message_box=False)
+    windows.append(screen)
+    screen.show()
+    settle(app)
+    monkeypatch.setattr(inventory._INVENTORY_CONTROLLER, 'product_details', unavailable)
+    screen.tbl_products.selectRow(0)
+    settle(app)
+    assert screen.lbl_product_name.text() == 'Medicine details unavailable'
+    screen.tbl_products.clearSelection()
+    assert screen.lbl_product_name.text() == 'Select a medicine'
+
+
+def test_batch_correction_refreshes_catalog_and_invalidates_intake(reference_ui, monkeypatch):
+    from PySide6.QtWidgets import QDialog
+    from ui.screens import inventory_screen as inventory
+    from core.inventory_service import set_batch_count
+    app, state, windows = reference_ui
+    screen = inventory.InventoryScreen(show_message_box=False)
+    windows.append(screen)
+    screen.show()
+    settle(app)
+    assert screen.all_products_raw[0][3] == 100
+    screen._intake_loaded = True
+    screen.tabs.setCurrentWidget(screen.batch_browser)
+    settle(app)
+    screen.batch_browser.table.selectRow(0)
+    def correction(dialog):
+        ok, message = set_batch_count(1, 93, 'Physical recount', employee_id=state.current_user['id'], expected_quantity=100)
+        assert ok, message
+        return QDialog.Accepted
+    monkeypatch.setattr(inventory.StockCorrectionDialog, 'exec', correction)
+    screen.batch_browser._adjust_selected()
+    settle(app)
+    assert screen.batch_browser._rows[0]['quantity'] == 93
+    assert screen.all_products_raw[0][3] == 93
+    assert not screen._intake_loaded
+
+
+@pytest.mark.parametrize('invalid', [None, 'not a number', float('nan'), float('inf')])
+def test_invalid_chart_amounts_are_unavailable_not_zero(reference_ui, invalid):
+    from ui.widgets.report_chart import ReportChart
+    app, state, windows = reference_ui
+    chart = ReportChart('trend')
+    windows.append(chart)
+    chart.set_values([('Good', 10), ('Unknown', invalid)])
+    assert chart.values == []
+    assert chart.accessibleDescription() == 'Report data unavailable'
+    chart.set_values([('Good', 12.5)])
+    assert chart.values == [('Good', 12.5)]
+
+
+def test_failed_batch_page_keeps_back_navigation(reference_ui):
+    from ui.screens.batches_screen import BatchesScreen
+    app, state, windows = reference_ui
+    screen = BatchesScreen()
+    windows.append(screen)
+    screen._page = 1
+    screen.previous.setEnabled(False)
+    screen._failed('unavailable')
+    assert screen.previous.isEnabled()
+    assert not screen.adjust.isEnabled()
+
+
+def test_backup_destination_setup_serializes_manual_backups(reference_ui, monkeypatch, tmp_path):
+    from ui.screens import settings_screen as settings
+    app, state, windows = reference_ui
+    screen = settings.SettingsScreen(show_message_box=False)
+    windows.append(screen)
+    settle(app)
+    scheduled = []
+    monkeypatch.setattr(screen._tasks, 'run', lambda fn, done, failed: scheduled.append((fn, done, failed)))
+    monkeypatch.setattr(settings.QFileDialog, 'getExistingDirectory', lambda *_: str(tmp_path))
+    screen.choose_backup_destination()
+    assert not screen.btn_trigger_backup.isEnabled()
+    assert not screen.btn_backup_destination.isEnabled()
+    screen.trigger_backup()
+    screen.choose_backup_destination()
+    assert len(scheduled) == 1
+    scheduled[0][2]('write failure')
+    assert screen.btn_trigger_backup.isEnabled()
+    screen.trigger_backup()
+    screen.trigger_backup()
+    assert len(scheduled) == 2
+    assert not screen.btn_backup_destination.isEnabled()
+    scheduled[1][2]('backup failure')
+    assert screen.btn_trigger_backup.isEnabled() and screen.btn_backup_destination.isEnabled()
+
+
+def test_account_preview_uses_selected_row_with_missing_contact_cells(reference_ui, monkeypatch):
+    from PySide6.QtCore import Qt, QItemSelectionModel
+    from PySide6.QtWidgets import QTableWidgetItem
+    from ui.screens import khatoo_screen as credit
+    app, state, windows = reference_ui
+    monkeypatch.setattr(credit._KHATOO_CONTROLLER, 'statement', lambda *_: 'Practice statement')
+    screen = credit.KhatooScreen(show_message_box=False)
+    windows.append(screen)
+    settle(app)
+    table = screen.tbl_ledger
+    table.blockSignals(True)
+    table.setRowCount(2)
+    for row in range(2):
+        item = QTableWidgetItem('Customer '+str(row))
+        item.setData(Qt.UserRole, 'practice-'+str(row))
+        item.setData(Qt.UserRole+1, 10.0)
+        table.setItem(row, 0, item)
+    table.setItem(1, 1, QTableWidgetItem('Other phone'))
+    table.setItem(1, 2, QTableWidgetItem('Other area'))
+    table.selectRow(0)
+    table.selectionModel().setCurrentIndex(table.model().index(1, 0), QItemSelectionModel.NoUpdate)
+    table.blockSignals(False)
+    screen._update_payment_action()
+    settle(app)
+    assert screen.account_name.text() == 'Customer 0'
+    assert screen.account_contact.text() == 'Phone: —\nArea: —'

@@ -97,4 +97,11 @@ class SystemHealthService:
         except OSError:
             results["issues"].append("The backup folder could not be checked.")
 
+        from core.backup_service import backup_destination_status
+        status, message = backup_destination_status()
+        results["backup_destination_status"] = status
+        results["backup_destination_message"] = message
+        if status != "different_volume":
+            results["issues"].append(message)
+
         return results

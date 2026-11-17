@@ -21,9 +21,15 @@
 
 ### Critical physical display limitation to test
 
-At **1366×768 physical pixels with Windows scaling at 150%**, a Qt app sees roughly **911×512 logical pixels** before taskbar space, but the current minimum application height is **600 logical pixels**. This combination may *not fit*. Treat it as a potential blocker until verified on an actual Windows workstation. Do not interpret headless `QT_SCALE_FACTOR=1.5` screenshots of a 1366×768 **logical** window as proof that this physical configuration works.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:1b7581536cd62197f7b9b5378221f5d6bf4723d449ebed4cbc5dc98957aa9e81 -->
+
+At **1366×768 physical pixels with Windows scaling at 150%**, Qt sees roughly **911×512 logical pixels** before taskbar space. The minimum application height is **440 logical pixels**. The layout adapts to short windows, but actual taskbar space, fonts and driver scaling still need verification on a Windows workstation. Headless `QT_SCALE_FACTOR=1.5` screenshots of a 1366×768 **logical** window do not prove that this physical configuration works.
 
 ## Actual on-site test protocol
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 Use at least two operators (one experienced cashier and one novice), a supervisor, and a spare shop workstation. Time the unprompted task and record whether the correct result appeared in the database, receipt, dashboard and cash drawer.
 
