@@ -8,6 +8,13 @@ import os
 import sys
 import argparse
 
+# Select isolated storage before importing modules that open logs or databases.
+if __name__ == "__main__" and "--practice" in sys.argv[1:]:
+    from run_practice import main as launch_practice
+    practice_args = sys.argv[1:]
+    practice_args.remove("--practice")
+    raise SystemExit(launch_practice(practice_args))
+
 from core.error_handler import install_global_exception_hook
 from core.logger import get_logger
 

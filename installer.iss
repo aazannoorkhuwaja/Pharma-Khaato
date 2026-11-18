@@ -53,6 +53,7 @@ Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription
 
 [Icons]
 Name: "{autoprograms}\Pharma Khaato - Owner Recovery"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--recovery-tool"; WorkingDir: "{app}"
+Name: "{autoprograms}\Pharma Khaato - Practice Shop"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--practice"; WorkingDir: "{app}"
 Name: "{autoprograms}\Pharma Khaato"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{autodesktop}\Pharma Khaato"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 

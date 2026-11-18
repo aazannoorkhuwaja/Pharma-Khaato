@@ -7,11 +7,11 @@ import sys
 from uuid import uuid4
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--new', action='store_true', help='Create and select a fresh practice shop')
     parser.add_argument('--self-check', action='store_true', help='Check the selected practice shop and exit')
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if os.name == 'nt':
         parent = Path(os.environ.get('LOCALAPPDATA') or Path.home())
     else:
@@ -33,7 +33,9 @@ def main():
                PHARMA_KHAATO_BACKUP_DIR='', PHARMA_KHAATO_SERVER_URL='', PHARMA_KHAATO_SERVER_CERT='',
                PHARMA_KHAATO_PRACTICE='1', PYTHON_DOTENV_DISABLED='1')
     source = Path(__file__).resolve().parent
-    command = [sys.executable, str(source / 'main.py')]
+    command = [sys.executable]
+    if not getattr(sys, 'frozen', False):
+        command.append(str(source / 'main.py'))
     if args.self_check:
         command.extend(['--self-check', '--headless'])
     return subprocess.call(command, env=env, cwd=source)
