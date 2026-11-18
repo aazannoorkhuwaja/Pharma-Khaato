@@ -115,6 +115,10 @@ def search_catalog_products(term: str, limit: int = 150):
     Exact barcode/SKU matches are placed first. This differs from POS search,
     which intentionally returns only sellable batches. Reorder level travels
     with every result so status remains authoritative outside the first page.
+
+    Search matching retains the historical substring behavior. Stock totals are
+    now computed only for matching products, rather than aggregating every
+    product's batches before applying the search predicate.
     """
     value = str(term or "").strip()
     if not value:
@@ -122,18 +126,27 @@ def search_catalog_products(term: str, limit: int = 150):
     limit = _safe_limit(limit, 150, 10, 300)
     safe = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     like = f"%{safe}%"
+    today = business_date().isoformat()
     try:
         with get_db() as (_conn, cur):
             cur.execute(
-                _STOCK_CTE + "SELECT id,product_name,price,sellable_stock,min_stock,base_unit,is_active "
-                "FROM catalog "
-                "WHERE barcode = %s OR sku = %s OR alternate_barcode = %s "
-                "   OR product_name LIKE %s OR formula LIKE %s OR generic_name LIKE %s "
-                "   OR id IN (SELECT product_id FROM Product_Code WHERE code=%s) "
-                "ORDER BY CASE WHEN barcode = %s OR sku = %s OR alternate_barcode = %s "
-                "              THEN 0 ELSE 1 END, product_name ASC "
-                + f"LIMIT {limit}",
-                (business_date().isoformat(),value, value, value, like, like, like,value, value, value, value),
+                "WITH matched_products AS ("
+                " SELECT p.id FROM Products p "
+                " WHERE p.barcode=%s OR p.sku=%s OR p.alternate_barcode=%s "
+                " OR p.product_name LIKE %s ESCAPE '\\' "
+                " OR p.formula LIKE %s ESCAPE '\\' "
+                " OR p.generic_name LIKE %s ESCAPE '\\' "
+                " OR p.id IN (SELECT product_id FROM Product_Code WHERE code=%s)"
+                ") "
+                "SELECT p.id,p.product_name,p.price,COALESCE(("
+                " SELECT SUM(b.quantity) FROM Batch b "
+                " WHERE b.product_id=p.id AND b.quantity>0 AND b.expiry_date>=%s "
+                " AND b.stock_status='SELLABLE'"
+                "),0) AS sellable_stock,p.min_stock,p.base_unit,p.is_active "
+                "FROM matched_products m JOIN Products p ON p.id=m.id "
+                "ORDER BY CASE WHEN p.barcode=%s OR p.sku=%s OR p.alternate_barcode=%s "
+                " THEN 0 ELSE 1 END,p.product_name ASC LIMIT " + str(limit),
+                (value, value, value, like, like, like, value, today, value, value, value),
             )
             return cur.fetchall()
     except Exception as exc:

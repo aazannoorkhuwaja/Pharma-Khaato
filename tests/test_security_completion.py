@@ -174,3 +174,23 @@ def test_staff_offboarding_revokes_existing_session_and_core_permissions(seeded_
     assert not set_employee_active(1,False,actor_id=1)[0]
     assert set_employee_active(actor,True,actor_id=1)[0]
     assert login_user('counterstaff','secret123') is not None
+
+
+def test_host_recovery_does_not_use_configured_paths(seeded_shop, tmp_path):
+    from core.recovery_bundle_service import export_bundle, import_bundle
+    from core.path_manager import PathManager
+    from core.lan_config import save_host_config
+    save_host_config('127.0.0.1')
+    config = Path(PathManager.get_config_dir()) / 'counter_connection.json'
+    values = json.loads(config.read_text())
+    values['certificate_path'] = '../../outside.pem'
+    values['key_path'] = 'C:\\outside\\secret.pem'
+    config.write_text(json.dumps(values))
+    bundle = tmp_path / 'owner.pkrecovery'
+    phrase = 'long recovery password'
+    export_bundle(bundle, 'admin', 'secret123', phrase)
+    target = tmp_path / 'recovered'
+    import_bundle(bundle, target, phrase)
+    restored = json.loads((target / 'config/counter_connection.json').read_text())
+    assert restored['certificate_path'] == str(target / 'config/shop-tls/shop-certificate.pem')
+    assert restored['key_path'] == str(target / 'config/shop-tls/shop-private-key.pem')

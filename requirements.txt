@@ -6,4 +6,4 @@ python-dotenv==1.2.4
 cryptography==50.0.2
 
 # Shop dates must work on Windows and minimal Linux installations.
-tzdata>=2025.2
+tzdata==2026.6

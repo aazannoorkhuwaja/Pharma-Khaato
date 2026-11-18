@@ -135,7 +135,9 @@ def import_bundle(bundle, destination, passphrase):
                 content = archive.read(member)
                 if not hmac.compare_digest(hashlib.sha256(content).hexdigest(), manifest['files'][member.filename]):
                     raise ValueError('Recovery file failed integrity verification.')
-                path = stage / member.filename
+                path = (stage / member.filename).resolve()
+                if not path.is_relative_to(stage.resolve()):
+                    raise ValueError('Invalid recovery entry path.')
                 path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
                 _atomic_new_file(path, content)
         database = stage / 'data/pharmacy_db.sqlite'
@@ -150,10 +152,11 @@ def import_bundle(bundle, destination, passphrase):
         if connection_file.exists():
             values = json.loads(connection_file.read_text(encoding='utf-8'))
             if values.get('mode') == 'host':
-                for field in ('certificate_path', 'key_path'):
-                    # Preserve only known exported TLS identities, never arbitrary paths.
-                    name = Path(values[field]).name
-                    relative = Path('config/shop-tls') / name
+                # Host identities have fixed names assigned by ensure_shop_certificate.
+                # Never derive a filesystem path from decrypted configuration text.
+                for field, filename in (('certificate_path', 'shop-certificate.pem'),
+                                        ('key_path', 'shop-private-key.pem')):
+                    relative = Path('config/shop-tls') / filename
                     if not (stage / relative).is_file():
                         raise ValueError('The host TLS recovery identity is incomplete.')
                     values[field] = str(destination / relative)
