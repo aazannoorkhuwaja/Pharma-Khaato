@@ -118,8 +118,7 @@ def run_app():
             app_controller.initialize()
             break
         except Exception as exc:
-            from core.business_time import ShopClockError
-            if isinstance(exc, ShopClockError):
+            if app_controller.is_configuration_error(exc):
                 QMessageBox.critical(None, "Shop Timezone Needs Attention", str(exc))
                 return 1
             if app_controller.is_remote():

@@ -13,6 +13,11 @@ class ApplicationController:
         self.model.initialize_database()
 
     @staticmethod
+    def is_configuration_error(error):
+        from core.business_time import ShopClockError
+        return isinstance(error, ShopClockError)
+
+    @staticmethod
     def is_remote():
         from core.lan_config import load_counter_config
         return bool(load_counter_config())
