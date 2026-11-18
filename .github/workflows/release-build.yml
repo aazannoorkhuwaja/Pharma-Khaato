@@ -262,11 +262,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
-      - name: Source runtime checks
-        run: |
-          python -m pip install -r requirements.txt -r requirements-dev.txt
-          python -m pytest -q
-          python scripts/test_gui_auto.py
+      - name: Install compatibility dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Compatibility test suite
+        run: python -m pytest -q
+      - name: Compatibility GUI smoke
+        run: python scripts/test_gui_auto.py
 
   release-draft:
     name: Prepare reviewed release draft
