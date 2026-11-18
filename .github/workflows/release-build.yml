@@ -25,9 +25,6 @@ jobs:
   build:
     name: Windows installer
     runs-on: windows-latest
-    env:
-      WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
-      WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -58,6 +55,9 @@ jobs:
 
       - name: Require signing identity for tagged Windows releases
         if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         shell: powershell
         run: |
           if (-not $env:WINDOWS_CERT_BASE64 -or -not $env:WINDOWS_CERT_PASSWORD) {
@@ -88,7 +88,10 @@ jobs:
         run: python scripts/build_release.py
 
       - name: Sign the application before creating Setup
-        if: env.WINDOWS_CERT_BASE64 != ''
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         shell: powershell
         run: ./packaging/windows/sign-release.ps1 -Target dist/pharma_khaato/pharma_khaato.exe
 
@@ -104,7 +107,10 @@ jobs:
         run: ./packaging/windows/build-installer.ps1 -UseExistingBuild
 
       - name: Sign Setup before its checksum and install test
-        if: env.WINDOWS_CERT_BASE64 != ''
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
         shell: powershell
         run: |
           $version = (python -c "from config import ApplicationSettings as A; print(A.APP_VERSION)").Trim()
@@ -113,7 +119,7 @@ jobs:
       - name: Record signing status
         shell: powershell
         run: |
-          if ($env:WINDOWS_CERT_BASE64) {
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
             Set-Content release/Windows-SIGNING.txt 'App and Setup signatures were validated by the Windows build. See the file properties for the certificate publisher.'
           } else {
             Set-Content release/Windows-SIGNING.txt 'UNSIGNED PILOT BUILD. Arrange trusted Windows code signing before broad public distribution. Do not disable Windows protection.'
