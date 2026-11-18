@@ -19,6 +19,7 @@ concurrency:
 env:
   QT_QPA_PLATFORM: offscreen
   PYTHONUTF8: "1"
+  PIP_ONLY_BINARY: ":all:"
 
 jobs:
   build:

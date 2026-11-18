@@ -106,7 +106,14 @@ def test_concurrent_counter_last_unit_cannot_oversell(seeded_shop):
         assert cur.fetchone()[0] == 1
 
 
-def test_encrypted_new_host_bundle_roundtrip(seeded_shop, tmp_path):
+@pytest.fixture
+def stable_certificate_host(monkeypatch):
+    from core import lan_service
+    monkeypatch.setattr(lan_service.socket, 'gethostname', lambda: 'recovery-test')
+    monkeypatch.setattr(lan_service.socket, 'gethostbyname_ex', lambda _: ('recovery-test', [], ['127.0.0.1']))
+
+
+def test_encrypted_new_host_bundle_roundtrip(seeded_shop, tmp_path, stable_certificate_host):
     from scripts.recovery_bundle import export_bundle, import_bundle
     from core.path_manager import PathManager
     from core.lan_config import save_host_config
@@ -176,7 +183,7 @@ def test_staff_offboarding_revokes_existing_session_and_core_permissions(seeded_
     assert login_user('counterstaff','secret123') is not None
 
 
-def test_host_recovery_does_not_use_configured_paths(seeded_shop, tmp_path):
+def test_host_recovery_does_not_use_configured_paths(seeded_shop, tmp_path, stable_certificate_host):
     from core.recovery_bundle_service import export_bundle, import_bundle
     from core.path_manager import PathManager
     from core.lan_config import save_host_config

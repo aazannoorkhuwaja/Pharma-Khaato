@@ -2,11 +2,26 @@
 
 import os
 from datetime import datetime
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+
+class ShopClockError(ValueError):
+    """The configured business clock cannot be used safely."""
+
+
+def business_timezone():
+    name = os.environ.get("PHARMA_KHAATO_TIMEZONE", "Asia/Karachi")
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ShopClockError(
+            "Invalid shop timezone. Set PHARMA_KHAATO_TIMEZONE to a valid timezone "
+            "such as Asia/Karachi, then restart Pharma Khaato."
+        ) from exc
 
 
 def business_now():
-    return datetime.now(ZoneInfo(os.environ.get("PHARMA_KHAATO_TIMEZONE", "Asia/Karachi")))
+    return datetime.now(business_timezone())
 
 
 def business_date():
