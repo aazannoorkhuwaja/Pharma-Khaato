@@ -74,12 +74,22 @@ def generate(output, *, artifact_dir=None):
     for name, dist in sorted(dependency_closure(runtime_names()).items()):
         expression = dist.metadata.get('License-Expression') or dist.metadata.get('License') or ''
         texts = []
+        sources = []
         for entry in dist.files or []:
             if not re.search(r'(^|[/\\])(licen[cs]e[^/\\]*|copying[^/\\]*|notice[^/\\]*)([/\\]|$)', str(entry), re.I):
                 continue
             source = Path(dist.locate_file(entry))
             if not source.is_file():
                 continue
+            sources.append(source)
+        if name in {'pyside6-essentials', 'shiboken6'}:
+            # The wheels declare these alternatives but omit their full texts.
+            license_names = {'LGPL-3.0-only': 'LGPL-3', 'GPL-2.0-only': 'GPL-2', 'GPL-3.0-only': 'GPL-3'}
+            declared = set(expression.split(' OR '))
+            if declared != set(license_names):
+                raise ValueError(f'Review the changed Qt license declaration for {name}: {expression}')
+            sources.extend(ROOT / 'packaging' / 'licenses' / filename for filename in license_names.values())
+        for source in sources:
             digest = file_hash(source)
             relative = Path('licenses') / name / (digest[:12] + '-' + source.name)
             target = output / relative
