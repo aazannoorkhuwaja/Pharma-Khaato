@@ -258,6 +258,10 @@ def test_split_cash_retries_compare_posted_minor_units(seeded_shop, admin_emp_id
     conn.commit()
     sale = request(admin_emp_id, customer_id="1234567890123", payment_method="Cash + Khatoo",
                    cash_received="10.005")
+    rejected = POSTransactionEngine.process_checkout(sale)
+    assert not rejected.success and "whole paisa" in rejected.message
+    assert query(seeded_shop, "SELECT COUNT(*) FROM Checkout_Request")[0] == 0
+    sale.cash_received = "10.01"
     first = POSTransactionEngine.process_checkout(sale)
     assert first.success, first.message
     if legacy_cash:
@@ -266,6 +270,7 @@ def test_split_cash_retries_compare_posted_minor_units(seeded_shop, admin_emp_id
         cur.execute("UPDATE Checkout_Request SET request_fingerprint=%s WHERE token=%s",
                     (request_fingerprint(previous), sale.checkout_token))
         conn.commit()
+    sale.cash_received = "10.005"
     replay = POSTransactionEngine.process_checkout(sale)
     assert replay.success and replay.duplicate and replay.purchase_id == first.purchase_id
     sale.cash_received = "10.01"
@@ -273,3 +278,14 @@ def test_split_cash_retries_compare_posted_minor_units(seeded_shop, admin_emp_id
     sale.cash_received = "10.004"
     assert not POSTransactionEngine.process_checkout(sale).success
     assert tuple(query(seeded_shop, "SELECT COUNT(*),SUM(amount_minor) FROM Credit_Payment")) == (1, 1001)
+
+def test_cash_checkout_rejects_fractional_paisa_before_posting(seeded_shop, admin_emp_id, cash_shift):
+    from core.pos_service import POSTransactionEngine
+
+    sale = request(admin_emp_id, payment_method="Cash", cash_received="4000.005")
+    result = POSTransactionEngine.process_checkout(sale)
+    assert not result.success and "whole paisa" in result.message
+    assert query(seeded_shop, "SELECT COUNT(*) FROM Purchase")[0] == 0
+    sale.cash_received = "4000.00"
+    result = POSTransactionEngine.process_checkout(sale)
+    assert result.success and result.cash_received == 4000

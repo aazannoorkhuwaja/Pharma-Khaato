@@ -442,6 +442,11 @@ def _execute_checkout(request):
             duplicate = claim_checkout(cur, request)
             if duplicate is not None:
                 return duplicate
+            cash = None
+            if request.cash_received is not None and payment_method in ("Cash", "Cash + Khatoo"):
+                cash = _finite_money(request.cash_received, "Cash received")
+                if Decimal(str(request.cash_received)) != cash:
+                    raise ValueError("Enter cash received in whole paisa (up to two decimal places).")
             final_items = _validate_and_allocate_cart(cur,request.cart,customer_id,request.employee_id,request.total,pay_label,conn)
             tax_rate = SettingsService.get_tax_rate()
             discount = _finite_money(request.discount, "Discount")
@@ -473,7 +478,7 @@ def _execute_checkout(request):
             payable = Decimal(str(financials.price_with_tax))
             paid_now = Decimal("0.00")
             if split:
-                paid_now = _finite_money(request.cash_received, "Partial cash payment")
+                paid_now = cash if cash is not None else Decimal("0.00")
                 if not 0 < paid_now < payable:
                     raise ValueError("Partial cash must be greater than zero and less than the bill total.")
             if pay_label == "Credit":
@@ -492,7 +497,7 @@ def _execute_checkout(request):
                 if not session:
                     raise ValueError("Start a cash shift before accepting cash payments.")
                 session_id = int(session[0])
-                received_dec = Decimal(str(financials.price_with_tax)) if request.cash_received is None else _finite_money(request.cash_received,"Cash received")
+                received_dec = payable if cash is None else cash
                 if not split and received_dec < payable:
                     raise ValueError("Cash received is less than the payable amount. Choose customer credit or enter the full cash amount.")
                 received = float(received_dec)
