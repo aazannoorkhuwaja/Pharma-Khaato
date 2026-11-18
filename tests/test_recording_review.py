@@ -112,8 +112,19 @@ def test_total_and_change_stay_with_checkout_and_customer_id_stays_internal(owne
     assert not scroll.isAncestorOf(screen.lbl_total)
     assert screen.lbl_total.parent() == screen.btn_checkout.parent()
     assert screen.lbl_total.isVisible()
-    screen.cust_search_data = [('CUST_internal_example', 'Ali', 'Khan', '', 'Town')]
-    screen.on_cust_table_double_clicked(0)
+    screen.txt_customer.setFocus()
+    screen.txt_customer.setText("Ali")
+    screen.cust_search_timer.stop()
+    screen._apply_customer_search("Ali", [
+        ("other", "Ali", "Shah", "", "Town"),
+        ("CUST_internal_example", "Ali", "Khan", "", "Town"),
+    ])
+    qtbot.keyClick(screen.txt_customer, Qt.Key_Down)
+    assert screen.cust_table.hasFocus()
+    qtbot.keyClick(screen.cust_table, Qt.Key_Down)
+    qtbot.keyClick(screen.cust_table, Qt.Key_Return)
+    assert screen.txt_search.hasFocus()
+    assert not screen.session.active_cart
     assert screen.txt_customer.text() == 'Ali Khan'
     assert screen.selected_customer_cnic == 'CUST_internal_example'
     settle(qtbot, screen)

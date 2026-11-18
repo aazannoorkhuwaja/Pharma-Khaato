@@ -91,12 +91,12 @@ class POSScreen(QWidget):
         search_layout.setContentsMargins(10, 8, 10, 8)
         search_layout.setSpacing(8)
 
-        self.lbl_shortcuts = QLabel("F1 Search  ·  F12 Sale")
+        self.lbl_shortcuts = QLabel("F1 Medicine · F2 Customer · F7 Cart · F12 Checkout")
         self.lbl_shortcuts.setObjectName("caption")
         set_tone(self.lbl_shortcuts, "muted")
         self.lbl_shortcuts.setToolTip(
             "Keyboard shortcuts: F1 product search, F2 customer, F3 discount, "
-            "F4 payment method, F5 hold, F6 held sales, F10/F12 complete sale."
+            "F4 payment method, F5 hold, F6 held sales, F7 cart (+/- quantity, Delete removes a line), F10/F12 complete sale."
         )
         self.lbl_shortcuts.setObjectName("shortcutStrip")
 
@@ -303,7 +303,8 @@ class POSScreen(QWidget):
         summary_layout.addWidget(summary_title)
 
         customer_label = QLabel("Customer (optional):")
-        self.txt_customer = QLineEdit()
+        self.txt_customer = SearchLineEdit(on_down_callback=self._focus_customer_results)
+        self.txt_customer.setToolTip("F2 to find a customer. Use Down to browse matches and Enter to select.")
         self.txt_customer.setPlaceholderText("For credit: search name or phone")
         self.txt_customer.setAccessibleName("Find customer")
         self.txt_customer.textChanged.connect(self.on_cust_text_changed)
@@ -548,7 +549,6 @@ class POSScreen(QWidget):
         # The final amount must stay with checkout at every window size,
         # including when the operator scrolls through the payment details.
         self._reference_wide = wide
-        self.lbl_shortcuts.setText("F1 Search · F12 Sale")
 
     def _resize_cart_controls(self):
         self._reflow_reference_layout()
@@ -577,12 +577,22 @@ class POSScreen(QWidget):
         self.sc_f4 = QShortcut(QKeySequence("F4"), self, activated=self.toggle_pay_method)
         self.sc_f5 = QShortcut(QKeySequence("F5"), self, activated=self.on_hold_sale)
         self.sc_f6 = QShortcut(QKeySequence("F6"), self, activated=self.on_recall_sale)
+        self.sc_f7 = QShortcut(QKeySequence("F7"), self, activated=self._focus_cart)
         self.sc_f10 = QShortcut(QKeySequence("F10"), self, activated=self.on_checkout)
         self.sc_f12 = QShortcut(QKeySequence("F12"), self, activated=self.on_checkout)
         self.sc_esc = QShortcut(QKeySequence("Esc"), self, activated=self._on_escape)
         self.sc_clear = QShortcut(
             QKeySequence("Ctrl+Delete"), self, activated=self.on_clear_cart_requested
         )
+
+        for shortcut in (self.sc_f4, self.sc_f5, self.sc_f6, self.sc_f10, self.sc_f12, self.sc_clear):
+            shortcut.setAutoRepeat(False)
+
+    def _focus_cart(self):
+        if self.cart_table.rowCount():
+            self.cart_table.setFocus()
+            if self.cart_table.currentRow() < 0:
+                self.cart_table.selectRow(0)
 
     def _current_employee_id(self) -> int | None:
         user = self.session.current_user
@@ -867,6 +877,13 @@ class POSScreen(QWidget):
             return
         self.cust_search_timer.start(120)
 
+    def _focus_customer_results(self):
+        if not self.cust_table.isVisible() or not self.cust_search_data:
+            return False
+        self.cust_table.setFocus()
+        self.cust_table.selectRow(0)
+        return True
+
     def perform_customer_search(self):
         value = self.txt_customer.text().strip()
         if not value:
@@ -918,6 +935,7 @@ class POSScreen(QWidget):
             self.txt_customer.setText(f"{first_name} {last_name}".strip())
             self.txt_customer.blockSignals(False)
             self.cust_table.hide()
+            self.txt_search.setFocus()
             self.lbl_cust_status.setText(
                 f"{first_name} {last_name}".strip() + " • Checking balance…"
             )
