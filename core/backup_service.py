@@ -230,6 +230,10 @@ def backup_database(prefix="pharmacy_db_backup"):
             with closing(sqlite3.connect(temp_path)) as dst_conn:
                 _snapshot(src_conn, dst_conn)
                 dst_conn.commit()
+                # A portable snapshot must be readable without WAL sidecar files.
+                mode = dst_conn.execute("PRAGMA journal_mode=DELETE").fetchone()[0]
+                if mode.lower() != "delete":
+                    raise sqlite3.DatabaseError("Could not finalize standalone snapshot.")
 
         valid, reason = _validate_sqlite_database(temp_path)
         if not valid:

@@ -106,6 +106,9 @@ def test_automatic_backup_refreshes_during_uptime(seeded_shop):
     from core.backup_service import ensure_daily_backup
     ok, first = ensure_daily_backup()
     assert ok
+    with sqlite3.connect(first) as snapshot:
+        assert snapshot.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+    assert not list(Path(first).parent.glob("*.partial-*"))
     stale = time.time() - 3700
     os.utime(first, (stale, stale))
     ok, second = ensure_daily_backup()
