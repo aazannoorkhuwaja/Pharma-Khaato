@@ -1,0 +1,13 @@
+# Recovery authority and host ownership
+
+New backups have a `.sqlite.hmac` companion file authenticated using `config/recovery.key`. Pre-login recovery requires both a valid companion signature for this shop and the snapshot's administrator/manager credential. Credentials in an arbitrary uploaded database no longer establish recovery authority by themselves.
+
+Keep an owner-controlled offline copy of the 32-byte recovery key separate from normal backup storage. Protect it as an administrative credential. The application never sends it to counters or includes it in the backup signature. For clean-machine disaster recovery, the packaged Owner Recovery utility exports/imports an encrypted bundle containing the same key; see [Commercial operations](COMMERCIAL_OPERATIONS.md). For standalone snapshot recovery, the owner must securely provision that same key into the new application's private config directory before attempting pre-login recovery. Copy the backup and its `.hmac` together. Do not regenerate the key to recover an older backup: a new key cannot authenticate old signatures.
+
+An unsigned historical backup cannot be used for pre-login recovery. An already authenticated administrator can use the ordinary restore workflow after checking provenance and integrity. Do not bypass the recovery gate or sign an untrusted backup merely to make it pass. Key loss with an unreadable live database requires an owner-controlled support recovery procedure; automated recovery deliberately fails closed.
+
+Pre-login recovery stages a private copy before authentication and restore, so a removable/network source cannot swap the selected file after verification. A matching signature verifies provenance/integrity, not accounting correctness; reconcile balances and stock after every recovery drill.
+
+The application holds `.shop-owner.lock` in the database directory for the process lifetime. All application-managed GUI and CLI database entry points acquire the same OS lock. Close the existing process before starting a second host on that data directory. Do not delete the lock file: OS locks release on process exit/crash, while deleting the filename can defeat ownership. Independent shops may use different data directories. Third-party SQLite tools do not honor this application lock and must never write to a running shop store.
+
+On POSIX systems application data/config/receipt/log/backup/export directories are restricted to the owning account. Windows ACLs and offline key storage must be validated on the deployment host. A user with complete control of the OS account can access the database and recovery key; these protections do not replace separate OS accounts or disk encryption.

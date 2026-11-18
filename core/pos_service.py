@@ -165,10 +165,12 @@ def _validate_and_allocate_cart(cur, cart, customer_id, employee_id, total, pay_
     for item in cart:
         qty_selected = whole_quantity(item.get("qty", 0))
         prod_id = whole_quantity(item.get("prod_id", item.get("id")))
-        cur.execute("SELECT product_name,price,is_active,base_unit,strength,dosage_form FROM Products WHERE id=%s", (prod_id,))
+        cur.execute("SELECT product_name,price,is_active,base_unit,strength,dosage_form,requires_prescription FROM Products WHERE id=%s", (prod_id,))
         product = cur.fetchone()
         if not product or not product[2]:
             raise ValueError("A product in this cart is no longer available. Remove it and search again.")
+        if product[6]:
+            raise ValueError("Prescription verification is required for this medicine. Sales are blocked until the owner approves a verification workflow.")
         unit = resolve_unit(prod_id, item.get("unit_code", "base"), cur=cur)
         multiplier = int(unit["multiplier"])
         if "unit_multiplier" in item and whole_quantity(item["unit_multiplier"]) != multiplier:
@@ -184,7 +186,7 @@ def _validate_and_allocate_cart(cur, cart, customer_id, employee_id, total, pay_
                 raise ValueError("This medicine does not match its batch. Remove the item and search again.")
             if str(batch[1]) < today or batch[2] != "SELLABLE":
                 raise ValueError(f"{product[0]} is expired, recalled, or quarantined and cannot be sold.")
-        cur.execute("SELECT id,quantity,expiry_date,COALESCE(sale_price,%s) FROM Batch "
+        cur.execute("SELECT id,quantity,expiry_date,COALESCE(sale_price,%s),mrp FROM Batch "
                     "WHERE product_id=%s AND expiry_date>=%s AND quantity>0 AND stock_status='SELLABLE' "
                     "ORDER BY CASE WHEN id=%s THEN 0 ELSE 1 END,expiry_date,id",
                     (product[1], prod_id, today, specific or -1))
@@ -192,13 +194,24 @@ def _validate_and_allocate_cart(cur, cart, customer_id, employee_id, total, pay_
         remaining = qty_base
         allocations = []
         expected_price = None
-        for bid, stock, expiry, base_price in batches:
+        for bid, stock, expiry, base_price, mrp in batches:
+            from datetime import date
+            try:
+                parsed_expiry = date.fromisoformat(str(expiry))
+                if parsed_expiry.isoformat() != str(expiry):
+                    continue
+            except ValueError:
+                continue
+            if specific and int(bid) != specific:
+                continue
             available = int(stock) - reserved.get(int(bid), 0)
             if available <= 0:
                 continue
             selected_price = (Decimal(str(base_price)) * multiplier).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             if not selected_price.is_finite() or selected_price <= 0:
                 raise ValueError("The selling price needs an owner review before this medicine can be sold.")
+            if mrp is not None and selected_price > Decimal(str(mrp)) * multiplier:
+                raise ValueError("Selling price exceeds this batch's MRP. Ask the owner to correct the price.")
             if expected_price is None:
                 expected_price = selected_price
                 if supplied != selected_price:

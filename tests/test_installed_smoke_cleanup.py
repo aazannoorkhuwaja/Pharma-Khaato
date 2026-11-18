@@ -41,6 +41,10 @@ class WindowsTemporaryDirectory(OriginalTemporaryDirectory):
         for connection in connections:
             if not connection.check_closed and Path(connection.check_path).resolve().is_relative_to(directory):
                 raise PermissionError('Windows cannot delete an open SQLite database: ' + connection.check_path)
+        from core.store_ownership import _HANDLES
+        for store, (_pid, handle) in _HANDLES.items():
+            if not handle.closed and Path(store).resolve().is_relative_to(directory):
+                raise PermissionError('Windows cannot delete an open store ownership lock: ' + store)
         super().cleanup()
 tempfile.TemporaryDirectory = WindowsTemporaryDirectory
 from core.installed_smoke import run
@@ -56,6 +60,26 @@ raise SystemExit(result)
     result = subprocess.run([sys.executable, '-c', script, str(root)], cwd=tmp_path,
                             env=environment, capture_output=True, text=True, timeout=45)
     assert result.returncode == 0, result.stderr[-8000:]
+
+
+def test_release_disposable_store_keeps_other_store_owned(tmp_path):
+    from core.store_ownership import acquire_store, release_store, _HANDLES
+    disposable = tmp_path / 'disposable' / 'shop.sqlite'
+    other = tmp_path / 'other' / 'shop.sqlite'
+    acquire_store(disposable)
+    acquire_store(other)
+    disposable_handle = _HANDLES[str(disposable.resolve())][1]
+    other_handle = _HANDLES[str(other.resolve())][1]
+    try:
+        release_store(disposable)
+        release_store(disposable)  # Cleanup is safe to repeat after partial failure.
+        assert disposable_handle.closed
+        assert not other_handle.closed
+        assert (disposable.parent / '.shop-owner.lock').exists()
+        assert str(other.resolve()) in _HANDLES
+    finally:
+        release_store(disposable)
+        release_store(other)
 
 
 def test_cleanup_keeps_logs_outside_disposable_shop(tmp_path):

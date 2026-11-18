@@ -133,6 +133,8 @@ class AppRouter(QStackedWidget):
             )
 
         target = self._screens[name]
+        from ui.widgets.accessibility import label_form_controls
+        label_form_controls(target)
         self.setCurrentWidget(target)
         self._current_key = name
 

@@ -136,7 +136,7 @@ def get_customer_total_debt(customer_ref, conn=None):
     """A failed balance read raises; unavailable credit must never look like zero."""
     with _cursor(conn) as cur:
         ref = resolve_customer_ref(customer_ref, conn)
-        cur.execute('SELECT COALESCE(SUM(amount_due),0) FROM Customer_Khatoo WHERE customer_id=%s', (ref,))
+        cur.execute('SELECT COALESCE((SUM(amount_due_minor)/100.0),0) FROM Customer_Khatoo WHERE customer_id=%s', (ref,))
         return Decimal(str(cur.fetchone()[0])).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
 

@@ -71,6 +71,9 @@ class SettingsController:
             touch("staff")
         return result
 
+    def set_active(self, employee_id, active):
+        return self.auth.set_active(employee_id, active, actor_id=self._actor_id())
+
     def reset_password(self, employee_id, new_password):
         result = self.auth.reset_password(employee_id, new_password, actor_id=self._actor_id())
         if isinstance(result, tuple) and result and result[0]:

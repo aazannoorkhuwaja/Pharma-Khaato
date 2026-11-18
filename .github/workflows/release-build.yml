@@ -2,6 +2,8 @@ name: Build Windows and Linux installers
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
   push:
     branches: [main, "pharmacy-pilot-*"]
     tags:
@@ -11,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -40,6 +42,27 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Audit release dependencies and generate SBOM
+        run: |
+          python -m pip install pip-audit
+          python -m pip_audit --strict --format cyclonedx-json --output dependency-sbom.json -r requirements.txt
+
+      - name: Retain dependency audit evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: dependency-audit-${{ runner.os }}
+          path: dependency-sbom.json
+          if-no-files-found: warn
+
+      - name: Require signing identity for tagged Windows releases
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: powershell
+        run: |
+          if (-not $env:WINDOWS_CERT_BASE64 -or -not $env:WINDOWS_CERT_PASSWORD) {
+            throw "Tagged commercial releases require a configured Windows signing identity."
+          }
 
       - name: Validate tag/version consistency
         run: python -c "import os; from config import ApplicationSettings as A; tag=os.getenv('GITHUB_REF_NAME',''); assert not tag.startswith('v') or tag == 'v' + A.APP_VERSION, f'Tag {tag} does not match app version v{A.APP_VERSION}'"
@@ -100,6 +123,16 @@ jobs:
         shell: powershell
         run: ./packaging/windows/smoke-installer.ps1
 
+      - name: Inventory signed application files and bundled licenses
+        run: python scripts/release_inventory.py --output release/runtime-inventory --artifact-dir dist/pharma_khaato
+
+      - name: Retain Windows artifact inventory
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: runtime-inventory-Windows
+          path: release/runtime-inventory/
+          if-no-files-found: error
+
       - name: Keep installer failure details
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -146,6 +179,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xfixes0 libxcb-xinerama0 desktop-file-utils xvfb
           python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Audit release dependencies and generate SBOM
+        run: |
+          python -m pip install pip-audit
+          python -m pip_audit --strict --format cyclonedx-json --output dependency-sbom.json -r requirements.txt
+
+      - name: Retain dependency audit evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: dependency-audit-${{ runner.os }}
+          path: dependency-sbom.json
+          if-no-files-found: warn
+
       - name: Validate version tag
         run: python -c "import os; from config import ApplicationSettings as A; tag=os.getenv('GITHUB_REF_NAME',''); assert not tag.startswith('v') or tag == 'v' + A.APP_VERSION"
       - name: Source and business checks
@@ -164,6 +210,14 @@ jobs:
         run: python scripts/smoke_linux_installer.py
       - name: Verify Debian install, X11 runtime, reinstall and data retention
         run: python scripts/smoke_debian_installer.py
+      - name: Inventory packaged application files and bundled licenses
+        run: python scripts/release_inventory.py --output release/runtime-inventory --artifact-dir dist/pharma_khaato
+      - name: Retain Linux artifact inventory
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: runtime-inventory-Linux
+          path: release/runtime-inventory/
+          if-no-files-found: error
       - name: Keep Linux failure details
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
@@ -208,11 +262,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libegl1 libgl1 libxkbcommon-x11-0
-      - name: Source runtime checks
-        run: |
-          python -m pip install -r requirements.txt -r requirements-dev.txt
-          python -m pytest -q
-          python scripts/test_gui_auto.py
+      - name: Install compatibility dependencies
+        run: python -m pip install -r requirements.txt -r requirements-dev.txt
+      - name: Compatibility test suite
+        run: python -m pytest -q
+      - name: Compatibility GUI smoke
+        run: python scripts/test_gui_auto.py
 
   release-draft:
     name: Prepare reviewed release draft

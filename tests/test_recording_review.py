@@ -79,7 +79,8 @@ def test_stock_form_labels_rows_calendar_and_receiving(qapp, owner, qtbot, width
     screen.on_submit_intake()
     settle(qtbot, screen)
     assert not screen.txt_lot.text()
-    assert POSController().search_products('TestMed')[0][4] == 112
+    # Results now select individual lots, so total received stock spans both rows.
+    assert sum(row[4] for row in POSController().search_products('TestMed') if row[0] == 1) == 112
     qapp.setStyleSheet('')
     ThemeManager.set_theme('light', save=False)
 

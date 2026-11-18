@@ -301,12 +301,12 @@ class ReturnsScreen(QWidget):
             return Decimal("0")
         lines = self.current_sale["lines"]
         base = sum(Decimal(str(line["line_base"])) for line in lines)
-        selected_base = sum(Decimal(str(line["unit_price"])) * selected.get(line["batch_id"], 0) for line in lines)
+        selected_base = sum(Decimal(str(line["line_base"])) * selected.get(line["batch_id"], 0) / line["sold_qty"] for line in lines)
         remaining = sum(line["remaining_returnable"] - selected.get(line["batch_id"], 0) for line in lines)
-        refundable = Decimal(str(self.current_sale["gross_total"])) - Decimal(str(self.current_sale["already_refunded"]))
-        if remaining == 0:
-            return refundable
-        return min(refundable, (Decimal(str(self.current_sale["gross_total"])) * selected_base / base).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) if base else Decimal("0")
+        returned_base = sum((Decimal(str(line["line_base"])) * line.get("already_returned", 0) / line["sold_qty"]
+                             for line in lines), Decimal("0"))
+        return ReturnController.quote_refund(self.current_sale["gross_total"], base, returned_base, selected_base,
+                            self.current_sale["already_refunded"], remaining == 0)
 
     def _update_refund_preview(self, *_):
         selected = {batch: widget.value() for batch, widget in self._qty_widgets.items()}

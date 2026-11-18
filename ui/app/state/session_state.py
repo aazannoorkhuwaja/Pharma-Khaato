@@ -4,6 +4,7 @@ Maintains in-memory session state, current user context, cash register session,
 and the active POS cart/request identity.
 """
 
+from decimal import Decimal
 import copy
 import json
 import os
@@ -59,11 +60,10 @@ class SessionState(QObject):
             if (
                 (item.get("id") == p_id or item.get("prod_id") == p_id)
                 and item.get("unit_code", "base") == product_item.get("unit_code", "base")
+                and item.get("batch_id") == product_item.get("batch_id")
+                and Decimal(str(item.get("price", 0))) == Decimal(str(product_item.get("price", 0)))
             ):
-                # Multiple physical lots may be consolidated into one cart row.
-                # Never imply that the first scanned lot is guaranteed at checkout.
-                if item.get("batch_id") != product_item.get("batch_id"):
-                    item["expiry_date"] = "Verify at checkout"
+                # Only the same lot and quoted unit price may share a row.
                 item["qty"] += qty
                 item["subtotal"] = item["qty"] * item["price"]
                 return
@@ -79,6 +79,8 @@ class SessionState(QObject):
             "qty": qty,
             "subtotal": qty * float(product_item.get("price", 0.0)),
             "barcode": product_item.get("barcode", ""),
+            "lot_number": product_item.get("lot_number", ""),
+            "requires_prescription": bool(product_item.get("requires_prescription", False)),
             "unit_code": product_item.get("unit_code", "base"),
             "unit_label": product_item.get("unit_label", "unit"),
             "unit_multiplier": int(product_item.get("unit_multiplier", 1)),

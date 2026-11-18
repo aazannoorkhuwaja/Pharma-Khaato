@@ -57,6 +57,8 @@ backups/*
 !backups/.gitkeep
 .agents/
 .claude/
+.serena/
+.code-review-graph/
 
 release/
 dist_installer/

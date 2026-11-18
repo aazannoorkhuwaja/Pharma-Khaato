@@ -48,6 +48,7 @@ def perform(employee_id, kind, payload, callback, domain='cash'):
         # Transport exceptions preserve the exact intent; an acknowledged
         # success/rejection is definitive and can safely release the editor.
         result = callback(entry['operation_id'])
-        if isinstance(result,(tuple,list)) and result and isinstance(result[0],bool):
+        from core.operation_outcome import is_unknown_result
+        if isinstance(result,(tuple,list)) and result and isinstance(result[0],bool) and not is_unknown_result(result):
             path.unlink(missing_ok=True)
         return result

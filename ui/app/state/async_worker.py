@@ -1,11 +1,11 @@
-from PySide6.QtCore import QObject, Signal, Runnable, QThreadPool, Slot
+from PySide6.QtCore import QObject, Signal, QRunnable, QThreadPool, Slot
 
 class WorkerSignals(QObject):
     finished = Signal()
     error = Signal(tuple)
     result = Signal(object)
 
-class AsyncWorker(Runnable):
+class AsyncWorker(QRunnable):
     """
     QRunnable wrapper for executing backend tasks (search, checkout, reports, backups)
     asynchronously on background threads without stalling the PySide6 main GUI event loop.

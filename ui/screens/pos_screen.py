@@ -702,7 +702,7 @@ class POSScreen(QWidget):
         if add_single and len(results) == 1:
             self._add_result_tuple_to_cart(results[0])
             return
-        self._set_search_feedback()
+        self._set_search_feedback("Choose a lot and price. Earliest expiry is listed first." if len(results) > 1 else "")
         self.search_results_data = list(results)
         self.search_catalog_model.update_data(results)
         self.show_search_table()
@@ -737,7 +737,7 @@ class POSScreen(QWidget):
         self._set_search_feedback("Finding scanned product…")
         def resolve():
             exact = _POS_CONTROLLER.product_by_barcode(term)
-            return [exact] if exact else _POS_CONTROLLER.search_products(term)
+            return exact[6].get("batch_choices", [exact]) if exact and len(exact) > 6 else ([exact] if exact else _POS_CONTROLLER.search_products(term))
         def complete(results):
             self._product_submit_active = False
             if (generation == self._sale_generation and employee_id == self._current_employee_id()
@@ -762,6 +762,9 @@ class POSScreen(QWidget):
             return
         product_id, product_name, price, batch_id, batch_qty, batch_expiry = result[:6]
         metadata = result[6] if len(result) > 6 else {}
+        if metadata.get("requires_prescription"):
+            self._set_search_feedback("Prescription verification is not configured. This medicine cannot be sold yet.", "warning")
+            return
         product = {
             "prod_id": product_id,
             "name": product_name,
@@ -774,6 +777,8 @@ class POSScreen(QWidget):
             "unit_label": metadata.get("unit_label", "unit"),
             "unit_multiplier": metadata.get("unit_multiplier", 1),
             "units": metadata.get("units", []),
+            "lot_number": metadata.get("lot_number", ""),
+            "requires_prescription": metadata.get("requires_prescription", False),
         }
         self.session.add_to_cart(product, qty=1)
         if clear_search:
@@ -971,13 +976,12 @@ class POSScreen(QWidget):
         self.cart_table.setRowCount(len(self.session.active_cart))
 
         for row, item in enumerate(self.session.active_cart):
-            name_item = QTableWidgetItem(str(item["name"]) + "\nExp: " + str(item.get("expiry_date") or "Review") + "  ·  Available: " + str(item.get("stock", "—")))
+            name_item = QTableWidgetItem(str(item["name"]) + (" · Lot " + str(item["lot_number"]) if item.get("lot_number") else "") + "\nExp: " + str(item.get("expiry_date") or "Review") + "  ·  Available: " + str(item.get("stock", "—")))
             name_item.setToolTip(name_item.text())
             self.cart_table.setItem(row, 0, name_item)
-            # Show the selected batch expiry as a preview, not an allocation
-            # guarantee. The checkout service revalidates every allocated lot.
+            # Lot-specific rows are revalidated by the authoritative checkout.
             expiry_item = QTableWidgetItem(str(item.get("expiry_date") or "Review"))
-            expiry_item.setToolTip("Selected lot expiry preview; all lots are rechecked at checkout.")
+            expiry_item.setToolTip("Selected lot expiry; stock and price are rechecked at checkout.")
             self.cart_table.setItem(row, 1, expiry_item)
             self.cart_table.setItem(
                 row, 2, QTableWidgetItem(f"Rs. {float(item['price']):.2f}")

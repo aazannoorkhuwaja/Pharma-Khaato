@@ -96,7 +96,7 @@ def record_customer_payment(customer_ref,amount,employee_id,payment_method='Cash
                 cur.execute('INSERT INTO Credit_Payment(khatoo_id,customer_id,employee_id,session_id,amount,payment_method,paid_at,note,operation_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                             (khatoo_id,ref,employee_id,session_id,float(applied),method,now,note,operation_id))
                 ids.append(int(cur.lastrowid));remaining-=applied
-            cur.execute('SELECT COALESCE(SUM(amount_due),0) FROM Customer_Khatoo WHERE customer_id=%s',(ref,))
+            cur.execute('SELECT COALESCE((SUM(amount_due_minor)/100.0),0) FROM Customer_Khatoo WHERE customer_id=%s',(ref,))
             balance=_money(cur.fetchone()[0])
             cur.execute('UPDATE Credit_Payment_Operation SET balance_after=%s WHERE operation_id=%s',(float(balance),operation_id))
             _audit(cur,employee_id,'CUSTOMER_CREDIT_PAYMENT',f'Payment {operation_id}; {method}; Rs.{amount_dec:.2f}; {len(ids)} bill(s).',now)
@@ -105,7 +105,7 @@ def record_customer_payment(customer_ref,amount,employee_id,payment_method='Cash
         return False,str(exc),{'outcome':'not_recorded'}
     except Exception:
         logger.exception('Credit payment failed')
-        return False,'The payment could not be confirmed. Retry using the same payment form.',None
+        return False,'The payment could not be confirmed. Retry using the same payment form.',{'outcome':'unknown'}
 
 
 def record_credit_payment(ledger_id,amount,employee_id,payment_method='Cash',note='',*,operation_id=None,terminal_id=None):
@@ -155,7 +155,7 @@ def reverse_credit_payment(payment_id,employee_id,reason,*,operation_id=None,ter
             cur.execute('SELECT id FROM Credit_Payment_Reversal WHERE payment_id=%s',(payment_id,))
             if cur.fetchone():
                 raise ValueError('This payment has already been reversed.')
-            cur.execute('SELECT COALESCE(SUM(amount),0) FROM Refund_Transaction WHERE source_credit_payment_id=%s',(payment_id,))
+            cur.execute('SELECT COALESCE((SUM(amount_minor)/100.0),0) FROM Refund_Transaction WHERE source_credit_payment_id=%s',(payment_id,))
             if _money(cur.fetchone()[0])>0:
                 raise ValueError('This payment has already funded a return refund. Use the return history to reconcile it.')
             if _money(paid)<amount:
@@ -176,7 +176,7 @@ def reverse_credit_payment(payment_id,employee_id,reason,*,operation_id=None,ter
         return False,str(exc),None
     except Exception:
         logger.exception('Credit payment reversal failed')
-        return False,'The correction could not be confirmed. Retry with the same correction reference.',None
+        return False,'The correction could not be confirmed. Retry with the same correction reference.',{'outcome':'unknown'}
 
 
 def recent_credit_payments(limit=100,customer_ref=None,offset=0):
@@ -224,9 +224,9 @@ def customer_statement_text(customer_ref):
         entries=list(cur.fetchall())
         cur.execute("SELECT paid_at,'Payment: ' || payment_method,-amount FROM Credit_Payment WHERE customer_id=%s",(ref,));entries+=cur.fetchall()
         cur.execute("SELECT rv.created_at,'Payment correction',rv.amount FROM Credit_Payment_Reversal rv JOIN Credit_Payment cp ON cp.id=rv.payment_id WHERE cp.customer_id=%s",(ref,));entries+=cur.fetchall()
-        cur.execute("SELECT cr.return_date || ' ' || cr.return_time,'Return: credit reduced', -(cr.refund_amount-COALESCE((SELECT SUM(rt.amount) FROM Refund_Transaction rt WHERE rt.return_id=cr.id),0)) "
+        cur.execute("SELECT cr.return_date || ' ' || cr.return_time,'Return: credit reduced', -(cr.refund_amount-COALESCE((SELECT (SUM(rt.amount_minor)/100.0) FROM Refund_Transaction rt WHERE rt.return_id=cr.id),0)) "
                     "FROM Customer_Returns cr JOIN Purchase p ON p.id=cr.purchase_id WHERE cr.customer_id=%s AND p.payment_method='Khatoo Credit'",(ref,));entries+=cur.fetchall()
-        cur.execute('SELECT COALESCE(SUM(amount_due),0) FROM Customer_Khatoo WHERE customer_id=%s',(ref,));due=_money(cur.fetchone()[0])
+        cur.execute('SELECT COALESCE((SUM(amount_due_minor)/100.0),0) FROM Customer_Khatoo WHERE customer_id=%s',(ref,));due=_money(cur.fetchone()[0])
     lines=['CUSTOMER ACCOUNT STATEMENT',f'Customer: {name}',f'Area: {area or "—"}',f'Printed: {business_now():%Y-%m-%d %H:%M}', '-'*42]
     running=Decimal('0')
     for when,label,amount in sorted(entries,key=lambda entry:entry[0]):

@@ -36,7 +36,7 @@ class ProductCatalogModel(QAbstractTableModel):
 
         if role == Qt.DisplayRole:
             return row_data[column]
-        if role == Qt.ToolTipRole:
+        if role in (Qt.ToolTipRole, Qt.AccessibleTextRole, Qt.AccessibleDescriptionRole):
             return "\n".join(f"{label}: {value}" for label, value in zip(self.HEADERS, row_data))
         if role == Qt.TextAlignmentRole:
             if column in (2, 3):
@@ -53,7 +53,8 @@ class ProductCatalogModel(QAbstractTableModel):
             metadata = item[6] if len(item) > 6 else {}
             self._formatted_rows.append(
                 (
-                    str(product_name),
+                    str(product_name) + (" · Lot " + str(metadata["lot_number"]) if metadata.get("lot_number") else "")
+                    + (" · Prescription verification required" if metadata.get("requires_prescription") else ""),
                     str(batch_expiry),
                     str(batch_qty),
                     f"Rs. {float(price):,.2f}",

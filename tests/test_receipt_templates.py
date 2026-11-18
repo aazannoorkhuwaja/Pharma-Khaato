@@ -96,7 +96,7 @@ def test_receipt_renderer_uses_one_batched_settings_read(monkeypatch):
     assert len(calls) == 1
 
 
-def test_saved_receipt_uses_committed_tender_and_cashier(monkeypatch, tmp_path):
+def test_saved_receipt_uses_committed_tender_and_cashier(monkeypatch, tmp_path, fresh_db):
     _mock_settings(monkeypatch, "professional_80")
     monkeypatch.setattr(
         receipt_service.PathManager,

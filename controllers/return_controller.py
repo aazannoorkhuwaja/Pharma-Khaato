@@ -6,6 +6,11 @@ class ReturnController:
     def __init__(self, model=None):
         self.model = model or ReturnModel()
 
+    @staticmethod
+    def quote_refund(gross, base, returned_base, requested_base, already_refunded, final=False):
+        from core.refund_quote import quote_refund
+        return quote_refund(gross, base, returned_base, requested_base, already_refunded, final)
+
     def sale(self, purchase_id):
         try:
             purchase_id = int(str(purchase_id).strip().lstrip("#"))

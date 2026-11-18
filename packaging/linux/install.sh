@@ -28,6 +28,13 @@ rm -rf "$PREVIOUS"
 ln -sf "$INSTALL_DIR/pharma_khaato" "$BIN_DIR/pharma-khaato"
 # Desktop Exec has its own escaping rules, separate from shell quoting.
 DESKTOP_EXEC=$(printf '%s' "$BIN_DIR/pharma-khaato" | sed 's/\\/\\\\\\\\/g; s/"/\\\\"/g; s/\$/\\\\$/g; s/`/\\\\`/g')
-sed '/^Exec=/d' "$BASE_DIR/pharma-khaato.desktop" > "$DESKTOP_DIR/pharma-khaato.desktop"
-printf 'Exec="%s"\n' "$DESKTOP_EXEC" >> "$DESKTOP_DIR/pharma-khaato.desktop"
+# Keep Exec entries inside their own desktop/action groups. Append only the
+# fixed recovery switch; do not route desktop entries through a shell.
+while IFS= read -r line; do
+    case "$line" in
+        'Exec=pharma-khaato') printf 'Exec="%s"\n' "$DESKTOP_EXEC" ;;
+        'Exec=pharma-khaato --recovery-tool') printf 'Exec="%s" --recovery-tool\n' "$DESKTOP_EXEC" ;;
+        *) printf '%s\n' "$line" ;;
+    esac
+done < "$BASE_DIR/pharma-khaato.desktop" > "$DESKTOP_DIR/pharma-khaato.desktop"
 printf '%s\n' 'Installed. Open Pharma Khaato from your applications menu.'

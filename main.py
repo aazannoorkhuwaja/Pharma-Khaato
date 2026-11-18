@@ -48,6 +48,7 @@ def main():
     parser.add_argument("--headless", action="store_true", help="Run Qt application in offscreen headless mode")
     parser.add_argument("--platform", type=str, default=None, help="Specify Qt QPA platform plugin (e.g. xcb, wayland, offscreen)")
     parser.add_argument("--configure-network", action="store_true", help="Choose this computer's shop/counter connection")
+    parser.add_argument("--recovery-tool", action="store_true", help="Open the owner recovery bundle utility")
     parser.add_argument("--shop-server", action="store_true", help="Start the shop's shared-counter service")
     parser.add_argument(
         "--self-check",
@@ -71,6 +72,10 @@ def main():
         return run_server()
 
     check_gui()
+
+    if args.recovery_tool:
+        from ui.dialogs.recovery_bundle_dialog import run_recovery_tool
+        return run_recovery_tool()
 
     if args.functional_smoke:
         from core.installed_smoke import run

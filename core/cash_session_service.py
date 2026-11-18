@@ -61,7 +61,7 @@ def open_session(employee_id, opening_cash=0.0, terminal_id=None, operation_id=N
         return False, str(exc)
     except Exception as exc:
         logger.error("Open cash session error: %s", exc)
-        return False, "The cash shift could not be started. Please try again."
+        raise RuntimeError("Cash shift outcome is unknown. Retry the same operation to reconcile it.") from exc
 
 
 def get_active_session(employee_id, terminal_id=None):
@@ -123,7 +123,7 @@ def record_cash_movement(session_id, employee_id, movement_type, amount, reason=
         return False, str(exc)
     except Exception as exc:
         logger.error("Record cash movement error: %s", exc)
-        return False, "The cash entry could not be saved. Please try again."
+        raise RuntimeError("Cash entry outcome is unknown. Retry the same operation to reconcile it.") from exc
 
 
 def _session_summary(cur, session_id):
@@ -132,11 +132,11 @@ def _session_summary(cur, session_id):
     if not row:
         return None
     opening=_money(row[0])
-    cur.execute("SELECT COALESCE(SUM(price_with_tax),0) FROM Purchase WHERE session_id=%s AND payment_method='Cash'",(session_id,))
+    cur.execute("SELECT COALESCE((SUM(price_with_tax_minor)/100.0),0) FROM Purchase WHERE session_id=%s AND payment_method='Cash'",(session_id,))
     sales=_money(cur.fetchone()[0])
-    cur.execute("SELECT COALESCE(SUM(amount),0) FROM Credit_Payment WHERE session_id=%s AND payment_method='Cash'",(session_id,))
+    cur.execute("SELECT COALESCE((SUM(amount_minor)/100.0),0) FROM Credit_Payment WHERE session_id=%s AND payment_method='Cash'",(session_id,))
     collections=_money(cur.fetchone()[0])
-    cur.execute("SELECT movement_type,COALESCE(SUM(amount),0) FROM Cash_Movement WHERE session_id=%s GROUP BY movement_type",(session_id,))
+    cur.execute("SELECT movement_type,COALESCE((SUM(amount_minor)/100.0),0) FROM Cash_Movement WHERE session_id=%s GROUP BY movement_type",(session_id,))
     movements={kind:_money(amount) for kind,amount in cur.fetchall()}
     cash_in=movements.get("CASH_IN",Decimal(0));cash_out=movements.get("CASH_OUT",Decimal(0));refunds=movements.get("REFUND",Decimal(0))
     return {"session_id":int(session_id),"status":row[1],"opening_cash":float(opening),"cash_sales":float(sales),
@@ -195,7 +195,7 @@ def close_session(session_id, closing_cash_actual, notes="", employee_id=None, t
         return False,str(exc) if employee_id is not None else "Sign in again before closing this cash shift."
     except Exception:
         logger.exception("Cash shift result could not be confirmed")
-        return False,"Cash shift result could not be confirmed. Refresh its status before trying again."
+        raise RuntimeError("Cash shift outcome is unknown. Retry the same operation to reconcile it.")
 
 
 def _terminal(terminal_id):

@@ -44,6 +44,10 @@ class AuthModel:
         from core.auth_service import create_employee
         return create_employee(username, password, first_name, last_name, occupation=occupation, actor_id=actor_id)
 
+    def set_active(self, employee_id, active, actor_id=None):
+        from core.auth_service import set_employee_active
+        return set_employee_active(employee_id, active, actor_id)
+
     def reset_password(self, employee_id: int, new_password: str, actor_id=None):
         from core.auth_service import update_employee_password
         return update_employee_password(employee_id, new_password, actor_id=actor_id)
