@@ -49,9 +49,9 @@ try {
         $env:LOCALAPPDATA = Join-Path $testRoot 'Practice user data'
         Invoke-CheckedProcess $shortcut.TargetPath @($shortcut.Arguments, '--self-check')
         $practiceRoot = Join-Path $env:LOCALAPPDATA 'Pharma-Khaato-Practice'
-        $profile = Get-Content (Join-Path $practiceRoot 'current') -Raw
-        if ($profile -cnotmatch '^[a-f0-9]{32}$') { throw "Invalid practice profile." }
-        if (-not (Test-Path (Join-Path $practiceRoot "$profile\data\pharmacy_db.sqlite"))) {
+        $practiceProfileId = Get-Content (Join-Path $practiceRoot 'current') -Raw
+        if ($practiceProfileId -cnotmatch '^[a-f0-9]{32}$') { throw "Invalid practice profile." }
+        if (-not (Test-Path (Join-Path $practiceRoot "$practiceProfileId\data\pharmacy_db.sqlite"))) {
             throw "Practice Shop did not initialize its separate database."
         }
         if ((Get-FileHash $database -Algorithm SHA256).Hash -ne $beforeHash) {
