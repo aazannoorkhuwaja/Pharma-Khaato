@@ -235,7 +235,9 @@ def _get_sqlite_connection():
 def get_conn():
     """Main database connection factory for the local SQLite database."""
     from core.business_time import business_timezone
-    business_timezone()  # Refuse mutations before an invalid clock can lose audit evidence.
+    # Fail closed before touching the store, including interrupted-restore recovery.
+    # Correct the timezone and restart; the pending restore marker remains intact.
+    business_timezone()
     with _DB_GATE:
         if PathManager.get_db_path() in _RESTART_PATHS:
             raise RuntimeError("Recovery completed. Restart Pharma Khaato before continuing work.")

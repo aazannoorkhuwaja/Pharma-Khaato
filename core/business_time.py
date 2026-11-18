@@ -16,7 +16,8 @@ def business_timezone():
     except (ZoneInfoNotFoundError, ValueError) as exc:
         raise ShopClockError(
             "Invalid shop timezone. Set PHARMA_KHAATO_TIMEZONE to a valid timezone "
-            "such as Asia/Karachi, then restart Pharma Khaato."
+            "such as Asia/Karachi, then restart Pharma Khaato. "
+            "Database access and interrupted-restore recovery wait until the timezone is corrected."
         ) from exc
 
 
