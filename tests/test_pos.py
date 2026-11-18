@@ -213,5 +213,8 @@ def test_configured_price_authority(seeded_shop, admin_emp_id):
     cart = [{"prod_id":1,"price":15,"qty":10}]
     ok, _ = pos_service.confirm_sale(None,cashier,cart,owner_discount_percent=99)
     assert not ok
+    ok, msg = pos_service.confirm_sale(None, cashier, cart, discount=-10)
+    assert not ok
+    assert "negative" in msg.lower()
     ok, msg = pos_service.confirm_sale(None,cashier,cart,expected_total=127.50)
     assert ok, msg

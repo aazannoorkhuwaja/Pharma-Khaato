@@ -445,6 +445,8 @@ def _execute_checkout(request):
             final_items = _validate_and_allocate_cart(cur,request.cart,customer_id,request.employee_id,request.total,pay_label,conn)
             tax_rate = SettingsService.get_tax_rate()
             discount = _finite_money(request.discount, "Discount")
+            if discount < 0:
+                raise ValueError("Discount cannot be negative.")
             from pricing_discounts import discount_amounts
             cur.execute("SELECT setting_value FROM Pharmacy_Settings WHERE setting_key='government_discount_percent'")
             row = cur.fetchone()
