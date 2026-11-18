@@ -2,7 +2,7 @@
 
 **Offline-first pharmacy point-of-sale software for Windows and Linux.**
 
-[**Download**](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/latest) · [First-use guide](docs/TRY_IT.md) · [Get help](https://github.com/aazannoorkhuwaja/Pharma-Khaato/issues/new/choose)
+[**Releases and downloads**](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases) · [First-use guide](docs/TRY_IT.md) · [Get help](https://github.com/aazannoorkhuwaja/Pharma-Khaato/issues/new/choose)
 
 Make bills, check stock and expiry, record customer dues, and count the cash in your drawer.
 
@@ -12,21 +12,19 @@ Built and led by **Azaan Noor Khuwaja**, with contributions from **Atif Khan**.
 
 **Release readiness:** The application is an engineering build awaiting pharmacy and hardware acceptance; use practice data until those checks are complete.
 
-## Install the app
+## Releases and installer packages
 
-Open the [release downloads](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases). Choose the file for your computer:
+**[2.5.0 test release](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/tag/v2.5.0)** · [All releases](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases) · [SHA-256 checksums](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.0/SHA256SUMS)
 
-| Computer | File to download | What to do |
+| System | Package | How to run it |
 | --- | --- | --- |
-| Windows 10 or 11, 64-bit Intel/AMD | Ends in **Setup-Windows-x64.exe** | Double-click it, finish Setup, then open Pharma Khaato from your desktop. |
-| Ubuntu or Linux Mint, 64-bit Intel/AMD | Ends in **linux-amd64.deb** | Open it with your software installer, install, then open Pharma Khaato from the applications menu. |
-| Other compatible Linux desktops | Ends in **linux-x86_64.tar.gz** | Extract it and follow **START-HERE.html** inside. |
+| Windows 10 or 11 (Intel/AMD 64-bit) | [Download Windows Setup](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.0/Pharma-Khaato-2.5.0-Setup-Windows-x64.exe) | Open the installer, then launch Pharma Khaato from the Start menu. This test installer is unsigned. |
+| Ubuntu or Linux Mint (AMD64) | [Download Debian package](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.0/Pharma-Khaato-2.5.0-linux-amd64.deb) | Open the package in your software installer, then launch Pharma Khaato from the applications menu. |
+| Other compatible Linux desktops (x86-64) | [Download Linux archive](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.0/Pharma-Khaato-2.5.0-linux-x86_64.tar.gz) | Extract the archive and follow the included START-HERE guide. |
 
-**Python and Git are not needed.** Use the app download, not GitHub's “Source code” ZIP.
+Use practice data for this release. The installers include the runtime. [Windows getting-started guide](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.0/START-HERE.html) · [Linux getting-started guide](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.0/START-HERE-LINUX.html)
 
-If no stable release is listed yet, it is still being prepared. The owner can get a test build from [Build Windows and Linux installers](https://github.com/aazannoorkhuwaja/Pharma-Khaato/actions/workflows/release-build.yml): choose **Run workflow**, select **main**, and wait for every job to pass. Download **Windows-installer** or **Linux-installers** under **Artifacts**. Extract that ZIP, then use the Setup or Linux package inside. These test downloads last 30 days and do not publish a release.
-
-Your friend only needs the installer and its **START-HERE** guide. Use practice records until the pharmacy checks below are complete.
+The [2.5.1 release candidate](https://github.com/aazannoorkhuwaja/Pharma-Khaato/pull/22) is under review. Its test builds are available through [GitHub Actions](https://github.com/aazannoorkhuwaja/Pharma-Khaato/actions/workflows/release-build.yml).
 
 ## What can I do?
 
