@@ -65,6 +65,12 @@ def counter(fresh_db, monkeypatch):
         def active_session(self, _employee):
             return True
 
+        def government_discount_percent(self):
+            return 0
+
+        def owner_discount_percent(self):
+            return 0
+
         def tax_rate(self):
             return 0
 

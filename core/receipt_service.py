@@ -428,7 +428,7 @@ def print_receipt_spooler(receipt_text: str, printer_name: str | None = None) ->
 
 def create_receipt_snapshot(
     cur, purchase_id, customer_id, items, total, tax, discount,
-    payment_method, employee_id, amount_received=None, change=None,
+    payment_method, employee_id, amount_received=None, change=None, discount_details="",
 ):
     """Capture the exact receipt inside the caller's sale transaction."""
     cur.execute("SELECT receipt_text FROM Receipt_Snapshot WHERE purchase_id = %s", (purchase_id,))
@@ -451,6 +451,9 @@ def create_receipt_snapshot(
         payment_method, cashier, amount_received, change, template,
         sale_datetime=stamp,
     )
+    text += discount_details
+    if payment_method == "Cash + Khatoo":
+        text += f"\nPaid now: Rs. {amount_received:,.2f}\nBalance due: Rs. {total - amount_received:,.2f}\n"
     cur.execute(
         "INSERT INTO Receipt_Snapshot (purchase_id, receipt_text, template, created_at) VALUES (%s,%s,%s,%s)",
         (purchase_id, text, template, stamp),

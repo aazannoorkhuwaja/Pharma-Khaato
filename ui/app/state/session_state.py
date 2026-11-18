@@ -40,11 +40,13 @@ class SessionState(QObject):
         return cls._instance
 
     def set_user(self, user_dict: Dict[str, Any]):
+        self.last_completed_sale = None
         self.current_user = user_dict
         self.pending_checkout = None
         self.load_pending_checkout()
 
     def clear_user(self):
+        self.last_completed_sale = None
         self.current_user = None
         self.active_cash_session = None
         self.clear_cart()

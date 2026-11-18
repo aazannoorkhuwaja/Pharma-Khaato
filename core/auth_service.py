@@ -494,3 +494,50 @@ def set_employee_active(employee_id, active, actor_id=None):
         return True, "Staff access updated. Existing shop sessions were revoked."
     except (ValueError, TypeError) as exc:
         return False, str(exc)
+
+
+def enroll_owner_recovery(username, password):
+    """Rotate an administrator's single-use code after password authentication."""
+    import secrets
+    user = login_user(username, password)
+    if not user or user[3] != "Admin":
+        return False, "Administrator sign-in required."
+    code = secrets.token_hex(20)
+    with get_db(immediate=True) as (_, cur):
+        cur.execute("SELECT password FROM Employee WHERE Employee_id=%s AND occupation='Admin' AND is_active=1", (user[0],))
+        row = cur.fetchone()
+        if not row or not _verify_password(password, row[0]):
+            return False, "Administrator sign-in required."
+        cur.execute("INSERT OR REPLACE INTO Owner_Access_Recovery(employee_id,code_digest) VALUES(%s,%s)",
+                    (user[0], hashlib.sha256(code.encode()).hexdigest()))
+        from core.business_time import business_now
+        cur.execute("INSERT INTO Audit_Log(timestamp,user_id,action,details) VALUES(%s,%s,'OWNER_CODE_ENROLLED','Offline recovery code rotated')",
+                    (business_now().isoformat(), str(user[0])))
+    return True, code
+
+
+def recover_owner_access(username, code, new_password):
+    valid, message = validate_new_password(new_password)
+    if not valid:
+        return False, message
+    denial = (False, "Recovery unavailable. Check your username and code, or try later.")
+    with get_db(immediate=True) as (_, cur):
+        cur.execute("SELECT e.Employee_id,r.code_digest,r.failed_attempts,r.retry_after FROM Employee e "
+                    "JOIN Owner_Access_Recovery r ON r.employee_id=e.Employee_id "
+                    "WHERE e.username=%s AND e.occupation='Admin' AND e.is_active=1", (username.strip(),))
+        row = cur.fetchone()
+        if not row or row[3] > time.time():
+            return denial
+        if not hmac.compare_digest(hashlib.sha256(code.strip().encode()).hexdigest(), row[1]):
+            attempts = row[2] + 1
+            cur.execute("UPDATE Owner_Access_Recovery SET failed_attempts=%s,retry_after=%s WHERE employee_id=%s",
+                        (attempts % 5, time.time()+60 if attempts >= 5 else 0, row[0]))
+            return denial
+        cur.execute("UPDATE Employee SET password=%s WHERE Employee_id=%s", (_hash_password(new_password), row[0]))
+        cur.execute("DELETE FROM Owner_Access_Recovery WHERE employee_id=%s", (row[0],))
+        cur.execute("DELETE FROM Shop_Session WHERE employee_id=%s", (row[0],))
+        _clear_failed_attempt(cur, username.strip())
+        from core.business_time import business_now
+        cur.execute("INSERT INTO Audit_Log(timestamp,user_id,action,details) VALUES(%s,%s,'OWNER_ACCESS_RECOVERED','Single-use recovery code consumed')",
+                    (business_now().isoformat(), str(row[0])))
+    return True, "Password changed. Sign in and save a new recovery code."

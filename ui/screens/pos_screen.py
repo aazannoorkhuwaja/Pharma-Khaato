@@ -48,6 +48,8 @@ class POSScreen(QWidget):
         self._search_term = None
         self._customer_search_term = None
         self._cash_shift_open = False
+        self._owner_rate = 0.0
+        self._government_rate = 0.0
         self._tax_rate = 0.0
         self._tax_ready = False
         self._pending_retry_ready = False
@@ -420,6 +422,9 @@ class POSScreen(QWidget):
 
         fin_layout.addWidget(self.lbl_subtotal)
         fin_layout.addLayout(discount_row)
+        self.discount_breakdown = QLabel()
+        self.discount_breakdown.setWordWrap(True)
+        fin_layout.addWidget(self.discount_breakdown)
         self.chk_exact_cash = QCheckBox("Exact Cash")
         self.chk_exact_cash.setChecked(True)
         self.chk_exact_cash.setToolTip("The customer pays exactly the amount due")
@@ -590,13 +595,13 @@ class POSScreen(QWidget):
         def loaded(payload):
             if self._current_employee_id() != employee_id:
                 return
-            self._cash_shift_open, self._tax_rate = payload
+            self._cash_shift_open, self._tax_rate, self._government_rate, self._owner_rate = payload
             self._tax_ready = True
             self.shift_banner.setVisible(not self._cash_shift_open)
             self.refresh_cart_display()
         self._tasks.run_latest(
             "counter-state",
-            lambda: (bool(_POS_CONTROLLER.active_session(employee_id)), float(_POS_CONTROLLER.tax_rate())),
+            lambda: (bool(_POS_CONTROLLER.active_session(employee_id)), float(_POS_CONTROLLER.tax_rate()), _POS_CONTROLLER.government_discount_percent(), _POS_CONTROLLER.owner_discount_percent()),
             loaded,
             lambda _details: self._set_checkout_notice("Could not check shift and tax settings. Try opening New Sale again.", "danger"),
         )
@@ -645,7 +650,7 @@ class POSScreen(QWidget):
         self.spn_cash_received.setVisible(is_cash)
         self.lbl_cash_received.setVisible(is_cash)
         self.lbl_change.setVisible(is_cash)
-        self.btn_add_customer.setVisible((self.cmb_pay_method.currentData() or "") == "Khatoo Credit")
+        self.btn_add_customer.setVisible(True)
         if not is_cash and self.spn_cash_received.value() != 0.0:
             self.spn_cash_received.setValue(0.0)
         self.spn_cash_received.setToolTip(
@@ -1045,7 +1050,10 @@ class POSScreen(QWidget):
     def refresh_payment_totals(self):
         """Update payment math without rebuilding cart editors on each keystroke."""
         subtotal = self.session.get_cart_subtotal()
-        self.session.discount_amount = self.spn_discount.value()
+        from pricing_discounts import discount_amounts
+        government, owner = discount_amounts(subtotal, self._government_rate, self._owner_rate)
+        self.discount_breakdown.setText(f"Government ({self._government_rate:g}%): Rs. {government:.2f}   Owner ({self._owner_rate:g}%): Rs. {owner:.2f}")
+        self.session.discount_amount = float(government + owner + Decimal(str(self.spn_discount.value())))
         net_total = self.session.get_cart_total()
 
         tax_rate = self._tax_rate
@@ -1323,7 +1331,7 @@ class POSScreen(QWidget):
                 self._start_shift_from_pos()
             self._set_checkout_notice("Start a cash shift, then complete the sale.")
             return
-        discount = self.spn_discount.value()
+        discount = self.session.discount_amount
         subtotal = self.session.get_cart_subtotal()
         if discount > subtotal:
             self._set_checkout_notice("Discount cannot be greater than the sale subtotal.", "danger")
@@ -1337,10 +1345,19 @@ class POSScreen(QWidget):
             cash_received = self.spn_cash_received.value()
             amount_due = self._displayed_total
             if round(cash_received, 2) < round(amount_due, 2):
-                self._set_checkout_notice(f"Cash is short by Rs. {amount_due-cash_received:,.2f}. Enter the cash received or use Exact Cash.", "danger")
-                self.spn_cash_received.setFocus()
-                return
+                if self.is_customer_verified and self.selected_customer_cnic and cash_received > 0:
+                    answer = QMessageBox.question(self, "Record customer credit",
+                        f"Receive Rs. {cash_received:,.2f} cash and add Rs. {amount_due-cash_received:,.2f} to this customer's Khatoo?",
+                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                    if answer != QMessageBox.Yes:
+                        return
+                    payment_method = "Cash + Khatoo"
+                else:
+                    self._set_checkout_notice(f"Cash is short by Rs. {amount_due-cash_received:,.2f}. Enter the cash received or use Exact Cash.", "danger")
+                    self.spn_cash_received.setFocus()
+                    return
         approval_token = None
+        discount = self.spn_discount.value()
         if subtotal > 0 and discount / subtotal * 100 > _POS_CONTROLLER.discount_threshold_pct:
             from ui.widgets.manager_auth_modal import ManagerAuthModal
             dialog = ManagerAuthModal(discount, subtotal, parent=self, employee_id=employee_id)
@@ -1352,7 +1369,7 @@ class POSScreen(QWidget):
         try:
             request = _POS_CONTROLLER.checkout_request(
                 customer_id=self.selected_customer_cnic or "WALKIN", employee_id=employee_id,
-                cart=copy.deepcopy(self.session.active_cart), discount=discount,
+                cart=copy.deepcopy(self.session.active_cart), discount=self.spn_discount.value(),
                 payment_method=payment_method, total=self.session.get_cart_total(),
                 cash_received=cash_received, held_sale_id=self.session.held_sale_id,
                 manager_approval_token=approval_token,
@@ -1405,6 +1422,7 @@ class POSScreen(QWidget):
                 self._set_checkout_notice("The bill is saved, but the last step did not finish. Choose Check This Bill before making another bill.", "danger")
                 return
             self._last_sale_id = result.purchase_id
+            self.session.last_completed_sale = result.purchase_id
             self.btn_toolbar_reprint.setEnabled(True)
             total = float(getattr(result, "total", 0) or request.total * (1 + self._tax_rate))
             tender = getattr(result, "payment_method", None) or request.payment_method

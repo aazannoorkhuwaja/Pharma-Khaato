@@ -31,6 +31,8 @@ def request_fingerprint(request):
                "cash_received": None if request.cash_received is None else money(request.cash_received),
                "expected_total": None if request.expected_total is None else money(request.expected_total),
                "hold": request.held_sale_id, "terminal": request.terminal_id}
+    if request.owner_discount_percent:
+        payload["owner_discount_percent"] = str(request.owner_discount_percent)
     return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 

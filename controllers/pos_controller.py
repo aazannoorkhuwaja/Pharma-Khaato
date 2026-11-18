@@ -39,6 +39,12 @@ class POSController:
     def customer_total_debt(self, cnic):
         return self.customer.total_debt(cnic)
 
+    def government_discount_percent(self):
+        return self.pos.government_discount_percent()
+
+    def owner_discount_percent(self):
+        return self.pos.owner_discount_percent()
+
     def tax_rate(self):
         """Return tax without re-reading Settings on every cart repaint."""
         revision = current("settings")

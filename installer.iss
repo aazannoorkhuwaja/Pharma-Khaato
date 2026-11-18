@@ -10,6 +10,7 @@
 #define MyAppExeName "pharma_khaato.exe"
 
 [Setup]
+SetupIconFile=packaging\windows\pharma-khaato.ico
 AppId={{AFC574CD-9CD5-4F3A-A209-CB3320E04F40}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}

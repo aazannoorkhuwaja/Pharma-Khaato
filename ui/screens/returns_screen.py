@@ -65,6 +65,9 @@ class ReturnsScreen(QWidget):
         self.btn_find.clicked.connect(self.find_sale)
         lookup_row.addWidget(self.txt_sale_id, 1)
         lookup_row.addWidget(self.btn_find)
+        last_sale = QPushButton("Find my last sale")
+        last_sale.clicked.connect(self.find_last_sale)
+        lookup_row.addWidget(last_sale)
         lookup_layout.addLayout(lookup_row)
 
         self.lbl_sale_summary = QLabel("Enter a sale number to begin.")
@@ -212,6 +215,14 @@ class ReturnsScreen(QWidget):
         self.btn_find.setText("Find Sale")
         self.lbl_sale_summary.setText("Press Find Sale to load this receipt.")
         self._update_refund_preview()
+
+    def find_last_sale(self):
+        sale = getattr(SessionState.get_instance(), "last_completed_sale", None)
+        if sale:
+            self.txt_sale_id.setText(str(sale))
+            self.find_sale()
+        else:
+            self.lbl_sale_summary.setText("No sale completed in this sign-in. Enter the receipt number.")
 
     def find_sale(self):
         if self._processing or self._pending_return:

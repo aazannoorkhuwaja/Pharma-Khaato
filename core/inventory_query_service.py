@@ -85,7 +85,7 @@ def catalog_snapshot(product_limit: int = 400, alert_limit: int = 100) -> dict:
             near_count = int(row[0] or 0) if row else 0
 
             cur.execute(
-                "SELECT b.id, p.product_name, s.supplier_name, b.quantity, b.expiry_date "
+                "SELECT b.id, p.product_name, s.supplier_name, b.quantity, b.expiry_date, b.lot_number "
                 "FROM Batch b "
                 "JOIN Products p ON b.product_id = p.id "
                 "JOIN Supplier s ON b.supplier_id = s.id "

@@ -29,7 +29,9 @@ _ROLE_PERMISSIONS = {
         "credit.read", "credit.collect", "cash.own_shift",
         "inventory.read", "inventory.manage", "reports.read", "returns.process",
     },
-    "manager": {"*"},
+    "manager": {"pos.sell", "pos.hold", "customer.read", "customer.create", "credit.read",
+                "credit.collect", "cash.own_shift", "inventory.read", "inventory.manage",
+                "reports.read", "returns.process"},
     "admin": {"*"},
     "administrator": {"*"},
 }

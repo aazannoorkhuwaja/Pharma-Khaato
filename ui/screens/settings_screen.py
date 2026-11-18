@@ -159,6 +159,14 @@ class SettingsScreen(QWidget):
         form = QFormLayout()
         form.setSpacing(12)
         form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+        self.spn_government = QDoubleSpinBox()
+        self.spn_owner_rate = QDoubleSpinBox()
+        self.spn_government.setRange(0, 100)
+        self.spn_owner_rate.setRange(0, 100)
+        self.spn_government.setSuffix(" %")
+        self.spn_owner_rate.setSuffix(" %")
+        self.spn_government.setAccessibleName("Government discount on all medicines before tax")
+        self.spn_owner_rate.setAccessibleName("Owner customer discount after government discount")
         self.spn_tax = QDoubleSpinBox()
         self.spn_tax.setRange(0.0, 50.0)
         self.spn_tax.setSuffix(" %")
@@ -193,6 +201,8 @@ class SettingsScreen(QWidget):
             "Compact reduces spacing without reducing your chosen text size."
         )
 
+        form.addRow("Government discount on all medicines:", self.spn_government)
+        form.addRow("Owner customer discount:", self.spn_owner_rate)
         form.addRow("Sales tax:", self.spn_tax)
         form.addRow("Customer credit limit:", self.spn_credit_limit)
         form.addRow("Warn about expiry:", self.spn_expiry_threshold)
@@ -425,7 +435,8 @@ class SettingsScreen(QWidget):
 
     def load_settings(self):
         keys = [
-            "default_tax_rate",
+            "government_discount_percent", "default_tax_rate",
+            "owner_discount_percent",
             "max_customer_credit_limit",
             "near_expiry_days",
             "expiry_warning_threshold_days",
@@ -488,6 +499,8 @@ class SettingsScreen(QWidget):
         self._set_settings_busy(False)
         self.btn_save_settings.setText("Save Pharmacy Settings")
         self.btn_save_receipt.setText("Save Receipt Settings")
+        self.spn_government.setValue(float(settings.get("government_discount_percent") or 0))
+        self.spn_owner_rate.setValue(float(settings.get("owner_discount_percent") or 0))
         tax_raw = settings.get("default_tax_rate", "0.00")
         limit_raw = settings.get("max_customer_credit_limit", "25000.00")
         expiry_raw = settings.get("near_expiry_days") or settings.get("expiry_warning_threshold_days", "30")
@@ -549,6 +562,8 @@ class SettingsScreen(QWidget):
             return
         values = {
             "default_tax_rate": str(self.spn_tax.value()),
+            "government_discount_percent": str(self.spn_government.value()),
+            "owner_discount_percent": str(self.spn_owner_rate.value()),
             "max_customer_credit_limit": f"{self.spn_credit_limit.value():.2f}",
             "near_expiry_days": str(self.spn_expiry_threshold.value()),
             "expiry_warning_threshold_days": str(self.spn_expiry_threshold.value()),
