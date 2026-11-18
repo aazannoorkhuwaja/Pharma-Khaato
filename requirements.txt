@@ -1,7 +1,7 @@
 # One Qt ABI selected for Python 3.12/3.14 release and CI hosts.
 # Review official Qt advisories as well as the Python dependency scan.
 PySide6-Essentials==6.12.0
-python-dotenv==1.0.1
+python-dotenv==1.2.4
 # Generate shop TLS certificates inside the installed app, including Windows.
 cryptography==50.0.2
 

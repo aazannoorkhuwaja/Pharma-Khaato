@@ -42,6 +42,19 @@ def acquire_store(path):
         _HANDLES[target] = (os.getpid(), handle)
 
 
+def release_store(path):
+    """Release one quiesced store; callers must stop workers and close its DB first.
+
+    Used for disposable smoke stores. Do not unlink the lock file or release
+    unrelated stores that the process may still own.
+    """
+    target = str(Path(path).resolve())
+    with _LOCK:
+        existing = _HANDLES.pop(target, None)
+        if existing:
+            existing[1].close()
+
+
 @atexit.register
 def _release_at_exit():
     for _, handle in _HANDLES.values():

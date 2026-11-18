@@ -199,6 +199,8 @@ def run():
             if app is not None and widgets:
                 _dispose_windows(app, widgets)
             db_engine.close_all_connections()
+            from core.store_ownership import release_store
+            release_store(Path(directory) / 'data' / 'pharmacy_db.sqlite')
             _close_temporary_log_handlers(directory)
             PathManager._BASE_DATA_DIR = None
             if previous_server is None:

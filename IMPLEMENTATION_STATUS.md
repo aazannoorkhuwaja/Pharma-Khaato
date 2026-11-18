@@ -1,6 +1,6 @@
 # Audit implementation checkpoint
 
-Updated 2026-11-17. Working branch: `fix/audit-integrity`, based on `1dd242cebae3ca792750fc8dc91f03b84a7705ec`. Newer `main` changes through `0c5ad8566ad75f7bd682dfd6042045702f39ee36` have been reconciled in draft [PR #20](https://github.com/aazannoorkhuwaja/Pharma-Khaato/pull/20). Candidate version metadata: **2.5.1**. This is a review candidate, not an approved production release.
+Updated 2026-11-18. Working branch: `fix/audit-integrity`, based on `1dd242cebae3ca792750fc8dc91f03b84a7705ec`. Newer `main` changes through `0c5ad8566ad75f7bd682dfd6042045702f39ee36` have been reconciled in draft [PR #20](https://github.com/aazannoorkhuwaja/Pharma-Khaato/pull/20). Candidate version metadata: **2.5.1**. This is a review candidate, not an approved production release.
 
 The six original audit reports remain historical findings against their pinned baseline. Implementation was subsequently authorized. The supplied UI ZIP and extracted samples are preserved. No live pharmacy migrations, automatic merge or deployment have been performed.
 
@@ -53,3 +53,7 @@ The entire commercial roadmap is **not yet complete**. No production-readiness c
 ## Main-branch integration verification
 
 The integration retains newer backup-volume warnings, asynchronous backup-location setup, literal batch searches, stock-correction refresh, and unavailable-data UI states. All 60 affected regression tests passed on 2026-11-17. The draft PR incorporates the newer main history; main itself has not been changed.
+
+## Connected CI follow-up
+
+At integrated revision `9d6758f733d6724a8eea713ee2e84e197bf4402f`, Linux Python 3.12/3.14 quality jobs passed, and UI Acceptance Evidence passed. Local integrated suite: **414 passed, 12 socket-restricted setup errors**. Windows quality jobs exposed a retained ownership handle during disposable smoke cleanup; the smoke now releases only its temporary store after workers and database connections stop. The regression now detects this on Linux too (failed before correction). Dependency audit blocked installer creation due to python-dotenv 1.0.1; requirement upgraded to 1.2.4 using the upstream advisory. Updated CI evidence is pending. No installer has been approved or installed.
