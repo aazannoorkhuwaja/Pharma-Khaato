@@ -549,6 +549,9 @@ class POSScreen(QWidget):
         # The final amount must stay with checkout at every window size,
         # including when the operator scrolls through the payment details.
         self._reference_wide = wide
+        self.lbl_shortcuts.setText(
+            "F1 Medicine · F2 Customer · F7 Cart · F12 Checkout" if wide else "F1 Search · F12 Sale"
+        )
 
     def _resize_cart_controls(self):
         self._reflow_reference_layout()
