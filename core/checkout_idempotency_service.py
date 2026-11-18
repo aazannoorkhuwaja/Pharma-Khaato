@@ -4,7 +4,7 @@ from core.business_time import business_date, business_now
 import hashlib
 import json
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, ROUND_HALF_EVEN
 from core.db_engine import get_db
 
 
@@ -13,13 +13,17 @@ def _clean_token(token):
     return value if 0 < len(value) <= 80 and all(c.isalnum() or c in "-_" for c in value) else ""
 
 
-def request_fingerprint(request):
-    from core.pos_service import _normalize_payment_method
+def request_fingerprint(request, *, legacy_cash=False):
+    from core.pos_service import _finite_money, _normalize_payment_method
     def money(value):
-        d = Decimal(str(value))
-        if not d.is_finite():
-            raise ValueError("Enter a valid finite amount.")
-        return format(d.quantize(Decimal("0.01")), ".2f")
+        return format(_finite_money(value), ".2f")
+
+    cash = None if request.cash_received is None else money(request.cash_received)
+    if legacy_cash and cash is not None:
+        # For positive posted cash, only the lower half-cent tie can produce
+        # a different half-even hash for this exact posted allocation.
+        lower_tie = Decimal(cash) - Decimal("0.005")
+        cash = format(lower_tie.quantize(Decimal("0.01"), rounding=ROUND_HALF_EVEN), ".2f")
     cart = [{"product": str(i.get("prod_id", i.get("id"))),
              "batch": str(i.get("batch_id") or ""),
              "qty": str(i.get("qty")), "price": money(i.get("price", 0)),
@@ -28,7 +32,7 @@ def request_fingerprint(request):
     payload = {"employee": int(request.employee_id), "customer": str(request.customer_id or "WALKIN"),
                "cart": cart, "discount": money(request.discount),
                "tender": _normalize_payment_method(request.payment_method)[0],
-               "cash_received": None if request.cash_received is None else money(request.cash_received),
+               "cash_received": cash,
                "expected_total": None if request.expected_total is None else money(request.expected_total),
                "hold": request.held_sale_id, "terminal": request.terminal_id}
     if request.owner_discount_percent:
@@ -61,10 +65,22 @@ def claim_checkout(cur, request):
     if row:
         if int(row[0]) != int(request.employee_id):
             raise ValueError("Checkout request belongs to another staff member.")
-        if row[3] and row[3] != fingerprint:
-            raise ValueError("This checkout request was already used for a different sale. Restore the original sale or start a new sale.")
+        conflict = "This checkout request was already used for a different sale. Check the saved request before starting another sale."
         if row[1] == "COMPLETED" and row[2] is not None:
-            return _result_from_purchase(cur, row[2], True)
+            result = _result_from_purchase(cur, row[2], True)
+            # Older fingerprints rounded half-cent cash ties differently from posting.
+            # Compare the actual saved allocation before accepting an older hash.
+            has_recorded_cash = request.cash_received is not None and result.cash_received is not None
+            if has_recorded_cash:
+                from core.pos_service import _finite_money
+                if _finite_money(request.cash_received) != _finite_money(result.cash_received):
+                    raise ValueError(conflict)
+            if row[3] and row[3] != fingerprint:
+                if not has_recorded_cash or row[3] != request_fingerprint(request, legacy_cash=True):
+                    raise ValueError(conflict)
+            return result
+        if row[3] and row[3] != fingerprint:
+            raise ValueError(conflict)
         if row[1] == "CANCELLED":
             raise ValueError("Checkout request was cancelled. Start a new sale.")
         cur.execute("UPDATE Checkout_Request SET request_fingerprint=%s WHERE token=%s", (fingerprint, token))
