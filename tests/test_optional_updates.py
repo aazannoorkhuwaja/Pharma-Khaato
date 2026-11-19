@@ -1,5 +1,6 @@
 """Offline-first, release authenticity and non-disruptive update notices."""
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -236,4 +237,4 @@ def test_verified_update_requires_second_click_and_clear_checkout(qtbot, fresh_d
     state.pending_checkout = None
     qtbot.mouseClick(dialog.install_button, Qt.LeftButton)
     open_file.assert_called_once()
-    assert open_file.call_args.args[0].toLocalFile() == str(installer)
+    assert Path(open_file.call_args.args[0].toLocalFile()) == installer
