@@ -8,6 +8,11 @@ class UpdateController:
         return check_update_status(force=force)
 
     @staticmethod
+    def download(info):
+        from core.update_download import download_package
+        return download_package(info)
+
+    @staticmethod
     def enabled():
         from core.counter_preferences import read
         try:

@@ -62,11 +62,14 @@ def _release_info(data):
     if not isinstance(assets, list):
         return None
     names = {asset.get('name') for asset in assets if isinstance(asset, dict)}
+    deb = f'Pharma-Khaato-{version}-linux-amd64.deb'
+    if system == 'Linux' and Path('/etc/debian_version').is_file() and {deb, deb + '.sha256'} <= names:
+        expected = deb
     if not {expected, expected + '.sha256'} <= names:
         return None  # Do not offer a release before its platform package is ready.
     tag = str(data['tag_name'])
     return {'has_update': True, 'current_version': ApplicationSettings.APP_VERSION,
-            'latest_version': version, 'release_notes': str(data.get('body') or 'See the release page for the changes in this version.')[:20000],
+            'latest_version': version, 'tag': tag, 'package_name': expected, 'release_notes': str(data.get('body') or 'See the release page for the changes in this version.')[:20000],
             'download_url': f'https://github.com/{REPOSITORY}/releases/tag/{tag}'}
 
 
