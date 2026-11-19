@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_navigation_uses_task_language_and_has_help_text():
     labels = [item.label for item in NAV_ITEMS]
     assert labels == [
-        "New Sale", "Customers", "Customer Credit", "Stock & Products",
+        "New Sale", "Customers", "Customer Dues", "Stock & Products",
         "Shift & Cash", "Reports", "Settings", "Returns & Refunds",
     ]
     assert all(item.help_text.strip() for item in NAV_ITEMS)
@@ -20,7 +20,7 @@ def test_navigation_uses_task_language_and_has_help_text():
 
 def test_friendly_payment_labels_are_decoupled_from_backend_values():
     mapping = dict(PAYMENT_OPTIONS)
-    assert mapping["Customer Credit"] == "Khatoo Credit"
+    assert mapping["Pay Later"] == "Khatoo Credit"
     assert mapping["Card"] == "Credit Card"
     assert "Khatoo Credit" not in mapping
 

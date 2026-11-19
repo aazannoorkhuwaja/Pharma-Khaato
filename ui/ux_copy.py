@@ -21,7 +21,7 @@ class NavItem:
 NAV_ITEMS = (
     NavItem("pos", "New Sale", "Sale", "Alt+1", "Start a sale and take payment."),
     NavItem("customers", "Customers", "Cust.", "Alt+2", "Find customers and view what they owe."),
-    NavItem("khatoo", "Customer Credit", "Credit", "Alt+3", "View customer credit and record payments."),
+    NavItem("khatoo", "Customer Dues", "Dues", "Alt+3", "View customer credit and record payments."),
     NavItem("inventory", "Stock & Products", "Stock", "Alt+4", "Manage products, batches, stock, and expiry alerts."),
     NavItem("cash_session", "Shift & Cash", "Shift", "Alt+5", "Open or close the cash shift and record drawer cash."),
     NavItem("reports", "Reports", "Report", "Alt+6", "Review sales, payment mix, stock, expiry, and activity."),
@@ -36,7 +36,7 @@ PAYMENT_OPTIONS = (
     ("Card", "Credit Card"),
     ("Easypaisa", "Easypaisa"),
     ("JazzCash", "JazzCash"),
-    ("Customer Credit", "Khatoo Credit"),
+    ("Pay Later", "Khatoo Credit"),
 )
 
 CASH_MOVEMENT_OPTIONS = (

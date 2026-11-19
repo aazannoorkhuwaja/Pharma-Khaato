@@ -215,7 +215,7 @@ def test_empty_accounts_and_preparation_routes(owner, qtbot, seeded_shop):
     credit = KhatooScreen(show_message_box=False)
     qtbot.addWidget(credit)
     settle(qtbot, credit)
-    assert 'No customer credit accounts yet' in credit.lbl_empty.text()
+    assert 'No customer dues yet' in credit.lbl_empty.text()
     window = MainWindow()
     qtbot.addWidget(window)
     window.router.register_screen_factory('inventory', lambda: InventoryScreen(show_message_box=False))

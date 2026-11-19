@@ -60,7 +60,7 @@ class ReportsScreen(QWidget):
         shortcuts.setVerticalSpacing(8)
         for column, (label, destination) in enumerate((
             ("Review Stock Alerts", "inventory"),
-            ("Customer Credit", "khatoo"),
+            ("Customer Dues", "khatoo"),
             ("Shift & Cash", "cash_session"),
             ("System & Backup", "settings"),
         )):

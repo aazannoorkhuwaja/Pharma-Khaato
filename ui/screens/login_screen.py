@@ -1,6 +1,11 @@
 from ui.widgets.semantic_style import set_tone
 """Pharma Khaato sign-in dialog."""
 
+import os
+from pathlib import Path
+import subprocess
+import sys
+
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QLabel, QLineEdit, QPushButton, QFrame, QWidget, QMessageBox
 )
@@ -19,7 +24,7 @@ _AUTH_CONTROLLER = AuthController()
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle(f"{ApplicationSettings.DISPLAY_NAME} — Sign In")
+        self.setWindowTitle("Sign In")
         configure_dialog(self, 520, 620, minimum_width=400, minimum_height=500)
         self.setModal(True)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
@@ -119,12 +124,16 @@ class LoginDialog(QDialog):
         btn_submit.setCursor(Qt.PointingHandCursor)
         btn_submit.clicked.connect(self.handle_login)
         login_layout.addWidget(btn_submit)
-        self.btn_sign_in_help = QPushButton("First time here or can’t sign in?")
+        self.btn_sign_in_help = QPushButton("Sign-in help")
         self.btn_sign_in_help.clicked.connect(self.show_sign_in_help)
         login_layout.addWidget(self.btn_sign_in_help)
         self.btn_recover = QPushButton("Owner recovery code…")
         self.btn_recover.clicked.connect(self.owner_recovery)
         login_layout.addWidget(self.btn_recover)
+        self.btn_new_practice = QPushButton("Create a fresh practice shop…")
+        self.btn_new_practice.setAutoDefault(False)
+        self.btn_new_practice.clicked.connect(self.create_practice_shop)
+        login_layout.addWidget(self.btn_new_practice)
         login_layout.addStretch()
 
         card_layout.addWidget(login_container)
@@ -140,6 +149,24 @@ class LoginDialog(QDialog):
         card_layout.addWidget(footer)
 
         layout.addWidget(card)
+
+    def create_practice_shop(self):
+        answer = QMessageBox.question(
+            self, "Create a practice shop?",
+            "Open setup in a separate window with empty practice records and a new owner account? "
+            "Your existing shop and its records stay available.",
+            QMessageBox.Yes | QMessageBox.Cancel, QMessageBox.Cancel,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        command = [sys.executable]
+        if not getattr(sys, "frozen", False):
+            command.append(str(Path(__file__).resolve().parents[2] / "main.py"))
+        try:
+            subprocess.Popen(command + ["--practice", "--new"],
+                             env=dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT="1"))
+        except OSError:
+            QMessageBox.warning(self, "Practice shop", "The practice setup window could not open.")
 
     def owner_recovery(self):
         from PySide6.QtWidgets import QInputDialog

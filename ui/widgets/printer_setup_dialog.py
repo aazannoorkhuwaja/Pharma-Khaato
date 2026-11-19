@@ -117,7 +117,7 @@ class PrinterSetupDialog(QDialog):
 
         wanted = self.saved_printer or str(preferred or "")
         index = self.cmb_printer.findData(wanted)
-        if index >= 0:
+        if printers and index >= 0:
             self.cmb_printer.setCurrentIndex(index)
             self.lbl_status.setText(f"{len(printers)} printer(s) available to Pharma Khaato.")
         elif wanted:
@@ -131,7 +131,7 @@ class PrinterSetupDialog(QDialog):
                 "No OS printer was detected. You can save with automatic printing off and continue using saved receipt files until the printer is installed."
             )
 
-        self.btn_test.setEnabled(bool(printers) or self.cmb_printer.currentData() == "")
+        self.btn_test.setEnabled(bool(printers))
 
     def print_test(self):
         printer_name = str(self.cmb_printer.currentData() or "")
@@ -139,7 +139,8 @@ class PrinterSetupDialog(QDialog):
         self.btn_test.setText("Sending Test…")
         self.lbl_status.setText("Sending a sample receipt through the operating-system print spooler…")
 
-        def complete(ok):
+        def complete(result):
+            ok, detail = result
             self.btn_test.setEnabled(True)
             self.btn_test.setText("Print Test Receipt")
             if ok:
@@ -149,13 +150,13 @@ class PrinterSetupDialog(QDialog):
                 QMessageBox.warning(
                     self,
                     "Printer Test Failed",
-                    "Pharma Khaato could not send the test receipt. Sales can still be recorded safely; automatic printing should remain off until the printer test succeeds.",
+                    f"Printer: {printer_name or self.cmb_printer.currentText()}\n{detail}\nKeep automatic printing off until the test succeeds.",
                 )
 
         self.tasks.run(
             lambda: self.controller.print_test_receipt(printer_name, self.receipt_template),
             complete,
-            lambda _details: complete(False),
+            lambda details: complete((False, str(details))),
         )
 
     def save_and_accept(self):

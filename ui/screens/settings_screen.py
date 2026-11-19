@@ -886,8 +886,8 @@ class SettingsScreen(QWidget):
         staff_help.setWordWrap(True)
         set_tone(staff_help, "muted")
         list_layout.addWidget(staff_help)
-        self.tbl_users = QTableWidget(0, 3)
-        self.tbl_users.setHorizontalHeaderLabels(["Username", "Staff Member", "Role"])
+        self.tbl_users = QTableWidget(0, 4)
+        self.tbl_users.setHorizontalHeaderLabels(["Username", "Staff Member", "Role", "Status"])
         self.tbl_users.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.tbl_users.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         self.tbl_users.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -904,7 +904,8 @@ class SettingsScreen(QWidget):
         self.btn_reset_selected.setEnabled(False)
         self.btn_reset_selected.clicked.connect(self.on_reset_selected_password)
         staff_actions.addWidget(self.btn_reset_selected)
-        self.btn_toggle_access = QPushButton("Activate / Deactivate")
+        self.btn_toggle_access = QPushButton("Change access")
+        self.btn_toggle_access.setEnabled(False)
         self.btn_toggle_access.clicked.connect(self.on_toggle_staff_access)
         staff_actions.addWidget(self.btn_toggle_access)
         list_layout.addLayout(staff_actions)
@@ -931,7 +932,8 @@ class SettingsScreen(QWidget):
                 _employee_id, username, first_name, last_name, occupation = item[:5]
                 self.tbl_users.setItem(row, 0, QTableWidgetItem(str(username)))
                 self.tbl_users.setItem(row, 1, QTableWidgetItem(f"{first_name} {last_name}".strip()))
-                self.tbl_users.setItem(row, 2, QTableWidgetItem(role_label(str(occupation)) + (" · Inactive" if len(item)>5 and not item[5] else "")))
+                self.tbl_users.setItem(row, 2, QTableWidgetItem(role_label(str(occupation))))
+                self.tbl_users.setItem(row, 3, QTableWidgetItem("Inactive" if len(item)>5 and not item[5] else "Active"))
         finally:
             self.tbl_users.setUpdatesEnabled(True)
         self.tbl_users.clearSelection()
@@ -940,7 +942,15 @@ class SettingsScreen(QWidget):
 
     def _update_staff_actions(self):
         row = self.tbl_users.currentRow() if hasattr(self, "tbl_users") else -1
-        self.btn_reset_selected.setEnabled(0 <= row < len(self._staff_rows))
+        selected = bool(self.tbl_users.selectedItems()) and 0 <= row < len(self._staff_rows)
+        self.btn_reset_selected.setEnabled(selected)
+        self.btn_toggle_access.setEnabled(selected)
+        if selected:
+            staff = self._staff_rows[row]
+            action = "Reactivate" if len(staff) > 5 and not staff[5] else "Deactivate"
+            self.btn_toggle_access.setText(f"{action} {staff[1]}")
+        else:
+            self.btn_toggle_access.setText("Change access")
 
     def _staff_load_failed(self, _details: str):
         self._staff_loaded = False

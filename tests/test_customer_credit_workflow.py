@@ -182,3 +182,22 @@ def test_credit_and_directory_paging_expose_totals(seeded_shop,admin_emp_id):
     assert count_customers()>=3
     assert len(search_customers_with_debt('Credit Customer',limit=2))==2
     assert len(search_customers_with_debt('Credit Customer',limit=2,offset=2))==1
+
+
+def test_statement_orders_local_sale_and_offset_payment_by_time(seeded_shop, admin_emp_id):
+    from core.cash_session_service import open_session
+    from core.credit_payment_service import customer_statement_text, record_customer_payment
+
+    ref = _account()
+    first = _sale(ref, admin_emp_id, 2)
+    assert open_session(admin_emp_id, 0)[0]
+    assert record_customer_payment(ref, 10, admin_emp_id, operation_id=uuid.uuid4().hex)[0]
+    second = _sale(ref, admin_emp_id, 3)
+    with seeded_shop.get_db() as (_, cur):
+        for receipt, time in ((first, '15:40:04'), (second, '15:42:19')):
+            cur.execute("UPDATE Receipt SET printing_date='2026-11-19', time=%s WHERE purchase_id=%s", (time, receipt))
+        cur.execute("UPDATE Credit_Payment SET paid_at='2026-11-19T15:40:04.650000+05:00' WHERE customer_id=%s", (ref,))
+    statement = customer_statement_text(ref)
+    assert statement.index(f'Credit sale #{first}') < statement.index('Payment: Cash') < statement.index(f'Credit sale #{second}')
+    assert 'Balance: Rs. 20.00' in statement
+    assert 'CURRENT AMOUNT DUE: Rs. 65.00' in statement

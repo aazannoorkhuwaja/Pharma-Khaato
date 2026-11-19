@@ -48,6 +48,7 @@ class POSScreen(QWidget):
         self._search_term = None
         self._customer_search_term = None
         self._cash_shift_open = False
+        self._shift_revision = 0
         self._owner_rate = 0.0
         self._government_rate = 0.0
         self._tax_rate = 0.0
@@ -325,7 +326,7 @@ class POSScreen(QWidget):
         customer_layout.addWidget(self.cust_table)
         self.txt_customer.returnPressed.connect(self.on_customer_lookup)
 
-        self.btn_add_customer = QPushButton("Add Credit Customer")
+        self.btn_add_customer = QPushButton("Add Customer")
         self.btn_add_customer.setToolTip("Add a customer without leaving this sale")
         self.btn_add_customer.clicked.connect(self._quick_add_customer)
         customer_layout.addWidget(self.btn_add_customer)
@@ -343,7 +344,7 @@ class POSScreen(QWidget):
             self.cmb_pay_method.addItem(display_label, backend_value)
         self.cmb_pay_method.setAccessibleName("Payment method")
         self.cmb_pay_method.setToolTip(
-            "Customer Credit requires a registered customer."
+            "Pay Later requires a registered customer."
         )
         self.cmb_pay_method.currentIndexChanged.connect(self._on_payment_method_changed)
         customer_layout.addStretch(1)
@@ -360,7 +361,7 @@ class POSScreen(QWidget):
         choices.setColumnStretch(0, 1)
         choices.setColumnStretch(1, 1)
         for index, (display_label, _backend_value) in enumerate(PAYMENT_OPTIONS):
-            label = "Credit" if display_label == "Customer Credit" else display_label
+            label = display_label
             button = PaymentTile(label)
             button.setObjectName("paymentOption")
             button.setCheckable(True)
@@ -369,7 +370,7 @@ class POSScreen(QWidget):
             button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             button.setAccessibleName(display_label)
             button.setToolTip(
-                "Requires a registered credit customer" if display_label == "Customer Credit"
+                "Requires a registered credit customer" if display_label == "Pay Later"
                 else "Pay with " + display_label
             )
             button.clicked.connect(
@@ -501,6 +502,7 @@ class POSScreen(QWidget):
             button.setIcon(icon(name, ThemeTokens.ACCENT))
             button.setIconSize(QSize(18, 18))
         self.toast = Toast(self)
+        self.session.cash_session_changed.connect(self._apply_cash_shift)
         self.setup_hotkeys()
         self._on_payment_method_changed()
         self._refresh_shift_state()
@@ -601,20 +603,27 @@ class POSScreen(QWidget):
         user = self.session.current_user
         return int(user["id"]) if user and user.get("id") is not None else None
 
+    def _apply_cash_shift(self, session):
+        self._shift_revision += 1
+        self._cash_shift_open = bool(session)
+        self.shift_banner.setVisible(not self._cash_shift_open)
+
     def _refresh_shift_state(self) -> bool:
         employee_id = self._current_employee_id()
         if employee_id is None:
             return False
+        revision = self._shift_revision
         def loaded(payload):
             if self._current_employee_id() != employee_id:
                 return
-            self._cash_shift_open, self._tax_rate, self._government_rate, self._owner_rate = payload
+            shift, self._tax_rate, self._government_rate, self._owner_rate = payload
+            if self._shift_revision == revision:
+                self.session.set_cash_session(shift)
             self._tax_ready = True
-            self.shift_banner.setVisible(not self._cash_shift_open)
             self.refresh_cart_display()
         self._tasks.run_latest(
             "counter-state",
-            lambda: (bool(_POS_CONTROLLER.active_session(employee_id)), float(_POS_CONTROLLER.tax_rate()), _POS_CONTROLLER.government_discount_percent(), _POS_CONTROLLER.owner_discount_percent()),
+            lambda: (_POS_CONTROLLER.active_session(employee_id), float(_POS_CONTROLLER.tax_rate()), _POS_CONTROLLER.government_discount_percent(), _POS_CONTROLLER.owner_discount_percent()),
             loaded,
             lambda _details: self._set_checkout_notice("Could not check shift and tax settings. Try opening New Sale again.", "danger"),
         )
@@ -658,9 +667,9 @@ class POSScreen(QWidget):
         ) == "Cash"
         exact = self.chk_exact_cash.isChecked()
         self.spn_cash_received.setEnabled(is_cash and not exact)
-        self.lbl_cash_received.setEnabled(is_cash and not exact)
+        self.lbl_cash_received.setEnabled(is_cash)
         self.chk_exact_cash.setVisible(is_cash)
-        self.spn_cash_received.setVisible(is_cash)
+        self.spn_cash_received.setVisible(is_cash and not exact)
         self.lbl_cash_received.setVisible(is_cash)
         self.lbl_change.setVisible(is_cash)
         self.btn_add_customer.setVisible(True)
@@ -671,6 +680,8 @@ class POSScreen(QWidget):
             if is_cash
             else "Cash received is only used for cash payments."
         )
+
+        self.refresh_payment_totals()
 
     def toggle_pay_method(self):
         index = (self.cmb_pay_method.currentIndex() + 1) % self.cmb_pay_method.count()
@@ -754,8 +765,7 @@ class POSScreen(QWidget):
         self._product_submit_active = True
         self._set_search_feedback("Finding scanned product…")
         def resolve():
-            exact = _POS_CONTROLLER.product_by_barcode(term)
-            return exact[6].get("batch_choices", [exact]) if exact and len(exact) > 6 else ([exact] if exact else _POS_CONTROLLER.search_products(term))
+            return _POS_CONTROLLER.search_products(term)
         def complete(results):
             self._product_submit_active = False
             if (generation == self._sale_generation and employee_id == self._current_employee_id()
@@ -865,6 +875,7 @@ class POSScreen(QWidget):
         self._customer_search_term = None
         self.selected_customer_cnic = None
         self.is_customer_verified = False
+        self.refresh_payment_totals()
         self.cust_search_data = []
         self.cust_table.hide()
         self.lbl_cust_status.setText("Choose a customer from the results" if text.strip() else "Walk-in customer")
@@ -909,7 +920,7 @@ class POSScreen(QWidget):
             self.selected_customer_cnic = None
             self.is_customer_verified = False
             self.lbl_cust_status.setText(
-                "Customer not found. Use Add Credit Customer to create an account."
+                "Customer not found. Use Add Customer to create an account."
             )
             set_tone(self.lbl_cust_status, "danger", "semibold")
             return
@@ -934,6 +945,7 @@ class POSScreen(QWidget):
             cnic, first_name, last_name, _email, _city = self.cust_search_data[row]
             self.selected_customer_cnic = cnic
             self.is_customer_verified = True
+            self.refresh_payment_totals()
             self.txt_customer.blockSignals(True)
             self.txt_customer.setText(f"{first_name} {last_name}".strip())
             self.txt_customer.blockSignals(False)
@@ -994,8 +1006,9 @@ class POSScreen(QWidget):
         self.txt_customer.blockSignals(False)
         self.selected_customer_cnic = customer_id
         self.is_customer_verified = True
+        self.refresh_payment_totals()
         self.cust_table.hide()
-        self.lbl_cust_status.setText(name + " • New credit customer")
+        self.lbl_cust_status.setText(name + " • New customer")
 
     def refresh_cart_display(self):
         self.cart_table.blockSignals(True)
@@ -1063,6 +1076,8 @@ class POSScreen(QWidget):
         self.cart_table.blockSignals(False)
 
         has_items = bool(self.session.active_cart)
+        if has_items and getattr(self, "_notice_for_previous_sale", False):
+            self._set_checkout_notice()
         self.lbl_cart_empty.setVisible(not has_items)
         self.cart_table.setVisible(has_items)
         self.lbl_cart_count.setText(f"{len(self.session.active_cart)} items")
@@ -1091,8 +1106,13 @@ class POSScreen(QWidget):
         self.lbl_tax.setText(f"Tax ({tax_rate * 100:.2f}%): Rs. {tax_amount:,.2f}" if self._tax_ready else "Tax: checking settings…")
         self.lbl_total.setText(f"Total: Rs. {total_with_tax:,.2f}")
         shortfall = max(0.0, total_with_tax - cash_value)
-        self.lbl_change.setText(f"Short: Rs. {shortfall:,.2f}" if shortfall > 0 else f"Change: Rs. {change_due:,.2f}")
-        set_tone(self.lbl_change, "danger" if shortfall > 0 else "success", "bold")
+        if self.chk_exact_cash.isChecked():
+            self.lbl_cash_received.setText(f"Receiving exact cash: Rs. {total_with_tax:,.2f}")
+        else:
+            self.lbl_cash_received.setText("Cash received:")
+        partial = shortfall > 0 and cash_value > 0 and self.is_customer_verified and self.selected_customer_cnic
+        self.lbl_change.setText(f"Add to customer dues: Rs. {shortfall:,.2f}" if partial else f"Short: Rs. {shortfall:,.2f}" if shortfall > 0 else f"Change: Rs. {change_due:,.2f}")
+        set_tone(self.lbl_change, "danger" if shortfall > 0 and not partial else "success", "bold")
 
     def _change_cart_unit(self, row, unit):
         if self.session.pending_checkout or not (0 <= row < len(self.session.active_cart)):
@@ -1190,7 +1210,8 @@ class POSScreen(QWidget):
         self.cust_table.hide()
         self.refresh_cart_display()
 
-    def _set_checkout_notice(self, text="", tone="warning"):
+    def _set_checkout_notice(self, text="", tone="warning", *, previous_sale=False):
+        self._notice_for_previous_sale = previous_sale
         self.lbl_checkout_state.setText(text)
         self.lbl_checkout_state.setVisible(bool(text))
         set_tone(self.lbl_checkout_state, tone, "semibold")
@@ -1350,7 +1371,6 @@ class POSScreen(QWidget):
         if payment_method == "Cash" and not self._cash_shift_open:
             if self.show_message_box:
                 self._start_shift_from_pos()
-            self._set_checkout_notice("Start a cash shift, then complete the sale.")
             return
         discount = self.session.discount_amount
         subtotal = self.session.get_cart_subtotal()
@@ -1367,8 +1387,8 @@ class POSScreen(QWidget):
             amount_due = self._displayed_total
             if round(cash_received, 2) < round(amount_due, 2):
                 if self.is_customer_verified and self.selected_customer_cnic and cash_received > 0:
-                    answer = QMessageBox.question(self, "Record customer credit",
-                        f"Receive Rs. {cash_received:,.2f} cash and add Rs. {amount_due-cash_received:,.2f} to this customer's Khatoo?",
+                    answer = QMessageBox.question(self, "Add to customer dues",
+                        f"Receive Rs. {cash_received:,.2f} cash and add Rs. {amount_due-cash_received:,.2f} to this customer’s dues?",
                         QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
                     if answer != QMessageBox.Yes:
                         return
@@ -1446,18 +1466,19 @@ class POSScreen(QWidget):
             self.session.last_completed_sale = result.purchase_id
             self.btn_toolbar_reprint.setEnabled(True)
             total = float(getattr(result, "total", 0) or request.total * (1 + self._tax_rate))
-            tender = getattr(result, "payment_method", None) or request.payment_method
+            tender = request.payment_method if request.payment_method == "Cash + Khatoo" else (getattr(result, "payment_method", None) or request.payment_method)
+            tender_label = {"Cash + Khatoo": "Cash + customer dues", "Khatoo Credit": "Pay Later"}.get(tender, tender)
             change = float(getattr(result, "change_due", 0) or 0)
-            self.lbl_last_sale.setText(f"Sale #{result.purchase_id} saved • Rs. {total:,.2f}\n{tender}" +
+            self.lbl_last_sale.setText(f"Previous receipt #{result.purchase_id} • Rs. {total:,.2f}\n{tender_label}" +
                                        (f" • Change: Rs. {change:,.2f}" if tender == "Cash" else ""))
             self.last_sale_frame.show()
             self._set_checkout_locked(False)
             self.on_clear_cart()
             self.btn_checkout.setText("Complete Sale (F12)")
-            self._set_checkout_notice("Sale saved. Use Reprint Last Receipt if the printer needs another copy.", "success")
+            self._set_checkout_notice("Sale saved. Use Reprint Last Receipt if the printer needs another copy.", "success", previous_sale=True)
             self._load_last_receipt_status(result.purchase_id)
             if getattr(result,'receipt_status','SAVED')=='PRINT_PENDING':
-                self._set_checkout_notice(f'Sale #{result.purchase_id} saved. Receipt not printed: check this printer and use Reprint Last Receipt.','warning')
+                self._set_checkout_notice(f'Sale #{result.purchase_id} saved. Receipt not printed: check this printer and use Reprint Last Receipt.','warning', previous_sale=True)
             self._refresh_shift_state()
         elif getattr(result, "outcome", "unknown") in {"rejected", "failed", "cancelled"}:
             try:
@@ -1522,11 +1543,13 @@ class POSScreen(QWidget):
 
     def _load_last_receipt_status(self, purchase_id):
         def complete(saved):
-            if self._last_sale_id != purchase_id:
+            if self._last_sale_id != purchase_id or self.session.active_cart:
                 return
-            if saved.get("print_status") == "PRINT_PENDING":
-                self._set_checkout_notice(f"Sale #{purchase_id} saved. Receipt not printed: check the printer and use Reprint Last Receipt.")
+            if saved is None:
+                self._set_checkout_notice(f"Previous receipt #{purchase_id}: print status unavailable.", previous_sale=True)
+            elif saved.get("print_status") == "PRINT_PENDING":
+                self._set_checkout_notice(f"Sale #{purchase_id} saved. Receipt not printed: check the printer and use Reprint Last Receipt.", previous_sale=True)
             elif saved.get("print_status") == "SENT_TO_PRINTER":
-                self._set_checkout_notice(f"Sale #{purchase_id} saved. Receipt sent to the printer.", "success")
+                self._set_checkout_notice(f"Sale #{purchase_id} saved. Receipt sent to the printer.", "success", previous_sale=True)
         self._tasks.run(lambda: _POS_CONTROLLER.receipt_for_sale(purchase_id), complete,
-                        lambda _details: self._set_checkout_notice(f"Sale #{purchase_id} saved. Receipt status unavailable; use Reprint Last Receipt if needed."))
+                        lambda _details: complete(None))

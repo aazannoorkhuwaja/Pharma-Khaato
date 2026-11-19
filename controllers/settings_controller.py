@@ -115,7 +115,7 @@ class SettingsController:
     @staticmethod
     def print_test_receipt(printer_name=None, template=None):
         from core.receipt_service import print_test_receipt
-        return print_test_receipt(printer_name, template)
+        return print_test_receipt(printer_name, template, detailed=True)
 
     @staticmethod
     def receipt_preview(template):

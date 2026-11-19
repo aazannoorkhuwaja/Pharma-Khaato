@@ -2,6 +2,7 @@ from ui.widgets.semantic_style import set_tone
 """Customer-credit ledger and repayment workflow."""
 
 import uuid
+from decimal import Decimal
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
@@ -220,10 +221,10 @@ class KhatooScreen(QWidget):
         layout.setSpacing(14)
 
         header_card = ScreenHeader(
-            title="Customer Credit",
+            title="Customer Dues",
             subtitle="Receive one payment across unpaid bills, print statements, and review payment history."
         )
-        self.pill_total_ledger = BadgePill("Open Credits: …", BadgePill.TYPE_INFO)
+        self.pill_total_ledger = BadgePill("Accounts with dues: …", BadgePill.TYPE_INFO)
         self.pill_total_due = BadgePill("Total Due: …", BadgePill.TYPE_WARNING)
         header_card.add_pill(self.pill_total_ledger)
         header_card.add_pill(self.pill_total_due)
@@ -282,7 +283,7 @@ class KhatooScreen(QWidget):
         self.account_name = QLabel("Select a customer")
         self.account_name.setObjectName("h2")
         self.account_name.setWordWrap(True)
-        self.account_balance = QLabel("Current Balance: —")
+        self.account_balance = QLabel("Amount Due: —")
         self.account_balance.setObjectName("posTotal")
         self.account_balance.setWordWrap(True)
         self.account_contact = QLabel("Contact and account details appear here.")
@@ -320,7 +321,7 @@ class KhatooScreen(QWidget):
 
     def refresh_all_data(self):
         term = self.txt_search.text().strip() if hasattr(self, "txt_search") else ""
-        self.pill_total_ledger.setText("Open Credits: …")
+        self.pill_total_ledger.setText("Accounts with dues: …")
         self.pill_total_due.setText("Total Due: …")
 
         def load():
@@ -340,7 +341,7 @@ class KhatooScreen(QWidget):
         self.lbl_empty.setText(
             "No customers match this search. Try a different name or phone."
             if not records and self.txt_search.text().strip() else
-            "No customer credit accounts yet. A sale paid with Customer Credit appears here; record repayments here when the customer pays."
+            "No customer dues yet. A sale with an unpaid balance appears here; record repayments here when the customer pays."
             if not records else "")
         self.populate_ledger_table(records)
         offset = self._page * self._page_size
@@ -352,7 +353,7 @@ class KhatooScreen(QWidget):
 
     def _credit_load_failed(self):
         self.lbl_empty.setText("Could not load customer credit. Check the connection and refresh this screen.")
-        self.pill_total_ledger.setText("Open Credits: unavailable")
+        self.pill_total_ledger.setText("Accounts with dues: unavailable")
         self.pill_total_due.setText("Total Due: unavailable")
         if self.show_message_box:
             show_toast(self, "Could not load customer credit. Try again.", ToastType.WARNING)
@@ -401,7 +402,7 @@ class KhatooScreen(QWidget):
         if hasattr(self, "account_name"):
             self._tasks.invalidate("account-preview")
             self.account_name.setText(context[1] if context else "Select a customer")
-            self.account_balance.setText(f"Current Balance\nRs. {context[2]:,.2f}" if context else "Current Balance: —")
+            self.account_balance.setText(f"Amount Due\nRs. {context[2]:,.2f}" if context else "Amount Due: —")
             self.account_statement.clear()
             self.account_contact.setText("")
             if context:
@@ -519,7 +520,7 @@ class CreditHistoryDialog(QDialog):
         self._records = []
         self._saving = False
         self._correction_id = None
-        self.setWindowTitle("Customer Payment History")
+        self.setWindowTitle("Payment History — All Customers")
         configure_dialog(self, 950, 620, minimum_width=600, minimum_height=380)
         layout = QVBoxLayout(self)
         self.lbl_count = QLabel("Loading history…")
@@ -528,6 +529,7 @@ class CreditHistoryDialog(QDialog):
         self.table.setHorizontalHeaderLabels(["Date", "Customer", "Received", "Method", "Staff", "Status"])
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
         polish_table(self.table)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
@@ -537,7 +539,7 @@ class CreditHistoryDialog(QDialog):
         actions = QHBoxLayout()
         self.btn_slip = QPushButton("Payment Slip")
         self.btn_statement = QPushButton("Customer Statement")
-        self.btn_reverse = QPushButton("Owner: Correct Payment")
+        self.btn_reverse = QPushButton("Reverse Payment…")
         self.btn_slip.clicked.connect(self._receipt)
         self.btn_statement.clicked.connect(self._statement)
         self.btn_reverse.clicked.connect(self._reverse)
@@ -583,13 +585,13 @@ class CreditHistoryDialog(QDialog):
         self._records, total = payload
         self.table.setRowCount(len(self._records))
         for row, record in enumerate(self._records):
-            payment_id, ledger, amount, method, when, staff, note, name, operation_id, reversal_id, ref = record
+            payment_id, ledger, amount, method, when, staff, note, name, operation_id, reversal_id, ref = record[:11]
             values = [when, name, f"Rs. {float(amount):.2f}", method, staff, "Corrected" if reversal_id else "Received"]
             for col, value in enumerate(values):
                 self.table.setItem(row, col, QTableWidgetItem(str(value)))
         offset = self._page * self._size
         first = offset + 1 if self._records else 0
-        self.lbl_count.setText(f"Payments: {first}–{offset + len(self._records)} of {total}")
+        self.lbl_count.setText(f"All customers · Payments: {first}–{offset + len(self._records)} of {total}")
         self.btn_previous.setEnabled(offset > 0)
         self.btn_next.setEnabled(offset + len(self._records) < total)
         self._selection_changed()
@@ -608,7 +610,9 @@ class CreditHistoryDialog(QDialog):
         record = self._selected()
         self.btn_slip.setEnabled(bool(record and record[8]) and not self._saving)
         self.btn_statement.setEnabled(bool(record) and not self._saving)
-        self.btn_reverse.setEnabled(bool(record and not record[9]) and not self._saving)
+        user = SessionState.get_instance().current_user or {}
+        owner = str(user.get("occupation", "")).lower() in {"admin", "administrator"}
+        self.btn_reverse.setEnabled(owner and bool(record and not record[9]) and not self._saving)
 
     def _receipt(self):
         record = self._selected()
@@ -631,9 +635,19 @@ class CreditHistoryDialog(QDialog):
         employee_id = (SessionState.get_instance().current_user or {}).get("id")
         if not record or employee_id is None:
             return
-        reason, accepted = QInputDialog.getText(self, "Correct Customer Payment",
-            f"{record[7]} — Rs. {float(record[2]):.2f}\nThis restores the debt and records the money returned.\nAn owner or manager must be signed in. Reason:")
-        if not accepted or not reason.strip():
+        dialog = QInputDialog(self)
+        amount = f"Rs. {float(record[2]):,.2f}"
+        dialog.setWindowTitle("Reverse Customer Payment")
+        projected = ""
+        if len(record) > 11:
+            due = Decimal(record[11]) / 100 + Decimal(str(record[2]))
+            projected = f" Estimated dues after reversal: Rs. {due:,.2f}."
+        dialog.setLabelText(f"Return {amount} to {record[7]} and increase their dues by {amount}.{projected}\nOwner approval required. Enter a reason:")
+        dialog.setOkButtonText(f"Reverse {amount} payment")
+        if not dialog.exec():
+            return
+        reason = dialog.textValue()
+        if not reason.strip():
             return
         self._correction_id = self._correction_id or uuid.uuid4().hex
         self._saving = True

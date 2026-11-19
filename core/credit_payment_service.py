@@ -1,5 +1,6 @@
 """Durable account repayments, printed statements and auditable corrections."""
-from core.business_time import business_now
+from datetime import datetime
+from core.business_time import business_now, business_timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import re
 import uuid
@@ -127,7 +128,7 @@ def record_credit_payment(ledger_id,amount,employee_id,payment_method='Cash',not
 
 
 def reverse_credit_payment(payment_id,employee_id,reason,*,operation_id=None,terminal_id=None):
-    """Owner/manager correction, with immutable original payment and audit trail."""
+    """Owner correction, with immutable original payment and audit trail."""
     try:
         payment_id=int(payment_id);employee_id=int(employee_id);operation_id=_token(operation_id)
         reason=str(reason or '').strip()
@@ -137,7 +138,7 @@ def reverse_credit_payment(payment_id,employee_id,reason,*,operation_id=None,ter
         return False,str(exc),None
     allowed,message=require_permission(employee_id,'credit.reverse')
     if not allowed:
-        return False,'An owner or manager must sign in to reverse a payment.',None
+        return False,'An owner must sign in to reverse a payment.',None
     try:
         with get_db(immediate=True) as (_conn,cur):
             cur.execute('SELECT id,payment_id,employee_id,reason FROM Credit_Payment_Reversal WHERE operation_id=%s',(operation_id,))
@@ -185,7 +186,8 @@ def recent_credit_payments(limit=100,customer_ref=None,offset=0):
         where='WHERE cp.customer_id=%s';params.append(resolve_customer_ref(customer_ref))
     with get_db() as (_conn,cur):
         cur.execute('SELECT cp.id,cp.khatoo_id,cp.amount,cp.payment_method,cp.paid_at,e.username,cp.note, '
-                    'c.display_name,cp.operation_id,COALESCE(rv.id,0),cp.customer_id FROM Credit_Payment cp '
+                    'c.display_name,cp.operation_id,COALESCE(rv.id,0),cp.customer_id, '
+                    '(SELECT COALESCE(SUM(k.amount_due_minor),0) FROM Customer_Khatoo k WHERE k.customer_id=cp.customer_id) FROM Credit_Payment cp '
                     'JOIN Employee e ON e.Employee_id=cp.employee_id JOIN Customers c ON c.id_card_number=cp.customer_id '
                     'LEFT JOIN Credit_Payment_Reversal rv ON rv.payment_id=cp.id '
                     f'{where} ORDER BY cp.id DESC LIMIT %s OFFSET %s',(*params,max(1,min(int(limit),500)),max(0,int(offset))))
@@ -229,7 +231,19 @@ def customer_statement_text(customer_ref):
         cur.execute('SELECT COALESCE((SUM(amount_due_minor)/100.0),0) FROM Customer_Khatoo WHERE customer_id=%s',(ref,));due=_money(cur.fetchone()[0])
     lines=['CUSTOMER ACCOUNT STATEMENT',f'Customer: {name}',f'Area: {area or "—"}',f'Printed: {business_now():%Y-%m-%d %H:%M}', '-'*42]
     running=Decimal('0')
-    for when,label,amount in sorted(entries,key=lambda entry:entry[0]):
+    zone = business_timezone()
+    def local_time(entry):
+        try:
+            stamp = datetime.fromisoformat(str(entry[0]).strip())
+        except ValueError:
+            return datetime.min
+        return stamp.astimezone(zone).replace(tzinfo=None) if stamp.tzinfo else stamp
+
+    for entry in sorted(entries, key=local_time):
+        when, label, amount = entry
+        stamp = local_time(entry)
+        if stamp != datetime.min:
+            when = stamp.strftime("%Y-%m-%d %H:%M:%S")
         running+=_money(amount)
         lines.extend([f'{when} {label}',f'  Rs. {_money(amount):+.2f}   Balance: Rs. {running:.2f}'])
     lines+=['-'*42,f'CURRENT AMOUNT DUE: Rs. {due:.2f}']

@@ -385,6 +385,10 @@ def _print_document(document, printer) -> bool:
 
 def print_receipt_spooler(receipt_text: str, printer_name: str | None = None) -> bool:
     """Send receipt text to a configured OS printer without affecting sale state."""
+    return _spool_result(receipt_text, printer_name)[0]
+
+
+def _spool_result(receipt_text, printer_name, *, use_saved_printer=True):
     try:
         from PySide6.QtGui import QTextDocument, QFont, QPageSize, QPageLayout
         from PySide6.QtCore import QSizeF, QMarginsF
@@ -395,19 +399,19 @@ def print_receipt_spooler(receipt_text: str, printer_name: str | None = None) ->
         remote_counter = load_counter_config() is not None
         preferences = local_preferences() if remote_counter else {}
         chosen = str(printer_name or "").strip()
-        if not chosen:
+        if not chosen and use_saved_printer:
             chosen = str(preferences.get("preferred_printer", "") if remote_counter else SettingsService.get_setting("preferred_printer", "") or "").strip()
 
         if chosen and chosen not in available_printers():
             logger.warning("Configured receipt printer is not currently available: %s", chosen)
-            return False
+            return False, "The selected printer is unavailable. Reconnect it and refresh the printer list."
 
         printer = QPrinter(QPrinter.HighResolution)
         if chosen:
             printer.setPrinterName(chosen)
         if not printer.isValid():
             logger.warning("No valid OS printer is configured for receipt printing.")
-            return False
+            return False, "There is no valid printer queue. Select an installed printer in system settings."
 
         document = QTextDocument()
         document.setDefaultFont(QFont("Courier New", 9))
@@ -418,12 +422,12 @@ def print_receipt_spooler(receipt_text: str, printer_name: str | None = None) ->
         printer.setPageMargins(QMarginsF(2, 2, 2, 2), QPageLayout.Millimeter)
         if not _print_document(document, printer):
             logger.warning("Receipt was not submitted successfully. Check the printer before reprinting.")
-            return False
+            return False, "Submission failed. Check the printer queue for offline, paused, or failed jobs."
         logger.info("Receipt sent to OS print spooler%s.", f" ({chosen})" if chosen else "")
-        return True
+        return True, ""
     except Exception as exc:
         logger.warning("Print spooler unavailable or printer not configured: %s", exc)
-        return False
+        return False, f"The operating-system print service reported: {exc}"
 
 
 def create_receipt_snapshot(
@@ -588,7 +592,7 @@ def generate_invoice_file(
         return None
 
 
-def print_test_receipt(printer_name: str | None = None, template: str | None = None) -> bool:
+def print_test_receipt(printer_name: str | None = None, template: str | None = None, *, detailed=False):
     sample = generate_invoice_text(
         "TEST",
         "Walk-in Customer",
@@ -605,4 +609,6 @@ def print_test_receipt(printer_name: str | None = None, template: str | None = N
         change=275.00,
         template=template,
     )
+    if detailed:
+        return _spool_result(sample, printer_name, use_saved_printer=False)
     return print_receipt_spooler(sample, printer_name)

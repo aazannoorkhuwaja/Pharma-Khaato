@@ -74,11 +74,8 @@ def counter(fresh_db, monkeypatch):
         def tax_rate(self):
             return 0
 
-        def product_by_barcode(self, term):
-            return self.a if term == "12345678" else (self.b if term == "1234567890123" else None)
-
         def search_products(self, term):
-            return [self.a] if term == "A" else [self.b]
+            return [self.a] if term in ("A", "12345678") else [self.b]
 
         def search_customers(self, _term):
             return [("CUST_one", "Ali", "Ahmed", "03001111111", "North"),
@@ -377,3 +374,33 @@ def test_pending_return_recovers_committed_result_without_another_refund(fresh_d
         widget.close()
         widget.deleteLater()
     app.processEvents()
+
+
+def test_checkout_preview_tracks_customer_and_clears_previous_success(counter):
+    screen, controller, _app = counter
+    screen._add_result_tuple_to_cart(controller.a)
+    assert screen.spn_cash_received.isHidden()
+    assert '10.00' in screen.lbl_cash_received.text()
+    screen.chk_exact_cash.setChecked(False)
+    screen.spn_cash_received.setValue(4)
+    screen.txt_customer.setText("Ali")
+    screen.perform_customer_search()
+    screen.on_cust_table_double_clicked(0)
+    assert screen.lbl_change.text() == "Add to customer dues: Rs. 6.00"
+    screen.txt_customer.clear()
+    assert screen.lbl_change.text() == "Short: Rs. 6.00"
+    screen.chk_exact_cash.setChecked(True)
+    screen.on_checkout()
+    screen._add_result_tuple_to_cart(controller.b)
+    assert not screen.lbl_checkout_state.text()
+    assert "Previous receipt #10" in screen.lbl_last_sale.text()
+
+
+def test_checkout_tracks_shift_open_and_close_without_leaving_pos(counter):
+    screen, _controller, _app = counter
+    screen.session.set_cash_session(None)
+    assert not screen._cash_shift_open
+    assert not screen.shift_banner.isHidden()
+    screen.session.set_cash_session({"id": 1})
+    assert screen._cash_shift_open
+    assert screen.shift_banner.isHidden()
