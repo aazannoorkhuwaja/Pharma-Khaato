@@ -203,3 +203,37 @@ def test_direct_download_verifies_package_before_handoff(monkeypatch, tmp_path, 
         assert not list(tmp_path.iterdir())
     else:
         assert Path(service.download_package(info)).read_bytes() == payload
+
+
+def test_verified_update_requires_second_click_and_clear_checkout(qtbot, fresh_db, monkeypatch, tmp_path):
+    from PySide6.QtCore import Qt
+    from ui.dialogs import update_dialog as ui
+    from core.version_service import _release_info
+
+    state = ui.SessionState.get_instance()
+    monkeypatch.setattr(state, 'active_cart', [])
+    monkeypatch.setattr(state, 'pending_checkout', None)
+    installer = tmp_path / 'Setup.exe'
+    installer.write_bytes(b'test fixture')
+    download = Mock(return_value=str(installer))
+    open_file = Mock(return_value=True)
+    monkeypatch.setattr(ui.UpdateController, 'download', download)
+    monkeypatch.setattr(ui.QDesktopServices, 'openUrl', open_file)
+    monkeypatch.setattr(ui.QMessageBox, 'information', Mock())
+
+    info = _release_info(release())
+    dialog = ui.UpdateDialog(info)
+    qtbot.addWidget(dialog)
+    dialog.show()
+    qtbot.mouseClick(dialog.install_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: dialog.install_button.text() == 'Start Installer')
+    download.assert_called_once_with(info)
+    open_file.assert_not_called()
+
+    state.pending_checkout = {'token': 'unconfirmed-sale'}
+    qtbot.mouseClick(dialog.install_button, Qt.LeftButton)
+    open_file.assert_not_called()
+    state.pending_checkout = None
+    qtbot.mouseClick(dialog.install_button, Qt.LeftButton)
+    open_file.assert_called_once()
+    assert open_file.call_args.args[0].toLocalFile() == str(installer)
