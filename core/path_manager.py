@@ -47,7 +47,9 @@ class PathManager:
         base = cls.get_base_data_dir()
         for sub in ["data", "logs", "backups", "receipts", "exports", "config"]:
             d = os.path.join(base, sub)
-            os.makedirs(d, exist_ok=True)
+            os.makedirs(d, mode=0o700, exist_ok=True)
+            if os.name == "posix" and os.stat(d).st_uid == os.getuid():
+                os.chmod(d, 0o700)
 
     @classmethod
     def get_db_path(cls):

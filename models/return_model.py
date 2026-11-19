@@ -10,7 +10,7 @@ class ReturnModel:
         from core.return_service import lookup_return_result
         return lookup_return_result(operation_id, employee_id)
 
-    def process(self, purchase_id: int, items: list, employee_id: int, reason: str, condition: str, operation_id=None):
+    def process(self, purchase_id: int, items: list, employee_id: int, reason: str, condition: str, operation_id=None, terminal_id="local"):
         from core.return_service import process_return
         return process_return(
             purchase_id,
@@ -19,6 +19,7 @@ class ReturnModel:
             reason=reason,
             condition=condition,
             operation_id=operation_id,
+            terminal_id=terminal_id,
         )
 
 

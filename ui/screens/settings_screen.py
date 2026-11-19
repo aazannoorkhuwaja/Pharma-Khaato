@@ -34,6 +34,11 @@ class SettingsScreen(QWidget):
         super().__init__(parent)
         self.show_message_box = show_message_box
         self._tasks = AsyncTaskRunner(self)
+        self._settings_busy = False
+        self._settings_loaded = False
+        self._settings_dirty = False
+        self._settings_applying = False
+        self._staff_mutating = False
         self._staff_loaded = False
         self._system_loaded = False
         self._staff_rows = []
@@ -62,6 +67,17 @@ class SettingsScreen(QWidget):
 
         # One batched settings read only. Staff, health, backup listing and
         # integrity checks are lazy so opening Settings is immediate.
+        for panel in (self.tab_general, self.tab_receipts):
+            for control in panel.findChildren(QLineEdit):
+                control.textEdited.connect(self._mark_settings_dirty)
+            for control in panel.findChildren(QDoubleSpinBox):
+                control.valueChanged.connect(self._mark_settings_dirty)
+            for control in panel.findChildren(QSpinBox):
+                control.valueChanged.connect(self._mark_settings_dirty)
+            for control in panel.findChildren(QComboBox):
+                control.currentIndexChanged.connect(self._mark_settings_dirty)
+        from ui.widgets.accessibility import label_form_controls
+        label_form_controls(self)
         self.load_settings()
         ThemeManager.events.changed.connect(self._sync_display_preferences)
 
@@ -143,6 +159,14 @@ class SettingsScreen(QWidget):
         form = QFormLayout()
         form.setSpacing(12)
         form.setRowWrapPolicy(QFormLayout.WrapLongRows)
+        self.spn_government = QDoubleSpinBox()
+        self.spn_owner_rate = QDoubleSpinBox()
+        self.spn_government.setRange(0, 100)
+        self.spn_owner_rate.setRange(0, 100)
+        self.spn_government.setSuffix(" %")
+        self.spn_owner_rate.setSuffix(" %")
+        self.spn_government.setAccessibleName("Government discount on all medicines before tax")
+        self.spn_owner_rate.setAccessibleName("Owner customer discount after government discount")
         self.spn_tax = QDoubleSpinBox()
         self.spn_tax.setRange(0.0, 50.0)
         self.spn_tax.setSuffix(" %")
@@ -177,6 +201,8 @@ class SettingsScreen(QWidget):
             "Compact reduces spacing without reducing your chosen text size."
         )
 
+        form.addRow("Government discount on all medicines:", self.spn_government)
+        form.addRow("Owner customer discount:", self.spn_owner_rate)
         form.addRow("Sales tax:", self.spn_tax)
         form.addRow("Customer credit limit:", self.spn_credit_limit)
         form.addRow("Warn about expiry:", self.spn_expiry_threshold)
@@ -409,7 +435,8 @@ class SettingsScreen(QWidget):
 
     def load_settings(self):
         keys = [
-            "default_tax_rate",
+            "government_discount_percent", "default_tax_rate",
+            "owner_discount_percent",
             "max_customer_credit_limit",
             "near_expiry_days",
             "expiry_warning_threshold_days",
@@ -424,25 +451,56 @@ class SettingsScreen(QWidget):
             "receipt_footer_text",
             "receipt_template",
         ]
-        settings = _SETTINGS_CONTROLLER.get_many(
-            keys,
-            {
-                "default_tax_rate": "0.10",
-                "max_customer_credit_limit": "25000.00",
-                "near_expiry_days": "30",
-                "expiry_warning_threshold_days": "30",
-                "pharmacy_name": "Pharma Khaato Pharmacy",
-                "slogan": "",
-                "address": "",
-                "phone": "",
-                "license_number": "",
-                "ntn_number": "",
-                "receipt_header_text": "Pharma Khaato Pharmacy",
-                "receipt_footer": "Thank you for trusting Pharma Khaato.",
-                "receipt_footer_text": "Thank you for trusting Pharma Khaato.",
-                "receipt_template": "standard_80",
-            },
-        )
+        if self._settings_busy:
+            return
+        self._set_settings_busy(True)
+        def read_settings():
+            return _SETTINGS_CONTROLLER.get_many(
+                keys,
+                {
+                    "default_tax_rate": "0.10",
+                    "max_customer_credit_limit": "25000.00",
+                    "near_expiry_days": "30",
+                    "expiry_warning_threshold_days": "30",
+                    "pharmacy_name": "Pharma Khaato Pharmacy",
+                    "slogan": "",
+                    "address": "",
+                    "phone": "",
+                    "license_number": "",
+                    "ntn_number": "",
+                    "receipt_header_text": "Pharma Khaato Pharmacy",
+                    "receipt_footer": "Thank you for trusting Pharma Khaato.",
+                    "receipt_footer_text": "Thank you for trusting Pharma Khaato.",
+                    "receipt_template": "standard_80",
+                },
+            )
+        self._tasks.run_latest("settings-load", read_settings, self._apply_settings, self._settings_failed)
+
+    def _mark_settings_dirty(self, *_args):
+        if self._settings_loaded and not self._settings_busy and not self._settings_applying:
+            self._settings_dirty = True
+
+    def _set_settings_busy(self, busy):
+        self._settings_busy = busy
+        self.tab_general.setEnabled(not busy)
+        self.tab_receipts.setEnabled(not busy)
+
+    def _settings_failed(self, _details):
+        self._set_settings_busy(False)
+        if not self._settings_loaded:
+            self.btn_save_settings.setText("Retry Settings Load")
+            self.btn_save_receipt.setText("Retry Settings Load")
+        if self.show_message_box:
+            show_toast(self, "Settings are unavailable. Your changes were kept; retry when the shop reconnects.", ToastType.WARNING)
+
+    def _apply_settings(self, settings):
+        self._settings_applying = True
+        self._settings_loaded = True
+        self._set_settings_busy(False)
+        self.btn_save_settings.setText("Save Pharmacy Settings")
+        self.btn_save_receipt.setText("Save Receipt Settings")
+        self.spn_government.setValue(float(settings.get("government_discount_percent") or 0))
+        self.spn_owner_rate.setValue(float(settings.get("owner_discount_percent") or 0))
         tax_raw = settings.get("default_tax_rate", "0.00")
         limit_raw = settings.get("max_customer_credit_limit", "25000.00")
         expiry_raw = settings.get("near_expiry_days") or settings.get("expiry_warning_threshold_days", "30")
@@ -486,8 +544,15 @@ class SettingsScreen(QWidget):
         density_index = self.cmb_density.findData(ThemeManager.get_density())
         if density_index >= 0:
             self.cmb_density.setCurrentIndex(density_index)
+        self._settings_dirty = False
+        self._settings_applying = False
 
     def save_settings(self):
+        if self._settings_busy:
+            return
+        if not self._settings_loaded:
+            self.load_settings()
+            return
         pharmacy_name = self.txt_pharmacy_name.text().strip()
         receipt_footer = self.txt_receipt_footer.text().strip()
         if not pharmacy_name:
@@ -497,6 +562,8 @@ class SettingsScreen(QWidget):
             return
         values = {
             "default_tax_rate": str(self.spn_tax.value()),
+            "government_discount_percent": str(self.spn_government.value()),
+            "owner_discount_percent": str(self.spn_owner_rate.value()),
             "max_customer_credit_limit": f"{self.spn_credit_limit.value():.2f}",
             "near_expiry_days": str(self.spn_expiry_threshold.value()),
             "expiry_warning_threshold_days": str(self.spn_expiry_threshold.value()),
@@ -511,17 +578,23 @@ class SettingsScreen(QWidget):
             "receipt_footer_text": receipt_footer,
             "receipt_template": str(self.cmb_receipt_template.currentData() or "standard_80"),
         }
-        if not _SETTINGS_CONTROLLER.update(values):
-            QMessageBox.critical(self, "Could Not Save Settings", "Some settings could not be saved. Your previous values were kept where possible.")
-            return
-        self.txt_receipt_header.setText(pharmacy_name)
         mode = self.cmb_theme_mode.currentData()
         scale = float(self.cmb_font_scale.currentData())
-        ThemeManager.set_theme(mode, save=True)
-        ThemeManager.set_font_scale(scale, save=True)
-        ThemeManager.set_density(str(self.cmb_density.currentData() or "standard"), save=True)
-        if self.show_message_box:
-            show_toast(self, "Pharmacy settings saved.", ToastType.SUCCESS)
+        density = str(self.cmb_density.currentData() or "standard")
+        self._set_settings_busy(True)
+        def complete(saved):
+            self._set_settings_busy(False)
+            if not saved:
+                self._settings_failed("Settings were not saved")
+                return
+            self._settings_dirty = False
+            self.txt_receipt_header.setText(pharmacy_name)
+            ThemeManager.set_theme(mode, save=True)
+            ThemeManager.set_font_scale(scale, save=True)
+            ThemeManager.set_density(density, save=True)
+            if self.show_message_box:
+                show_toast(self, "Pharmacy settings saved.", ToastType.SUCCESS)
+        self._tasks.run(lambda: _SETTINGS_CONTROLLER.update(values), complete, self._settings_failed)
 
     def refresh_db_health_and_backups(self):
         self._system_loaded = False
@@ -831,6 +904,9 @@ class SettingsScreen(QWidget):
         self.btn_reset_selected.setEnabled(False)
         self.btn_reset_selected.clicked.connect(self.on_reset_selected_password)
         staff_actions.addWidget(self.btn_reset_selected)
+        self.btn_toggle_access = QPushButton("Activate / Deactivate")
+        self.btn_toggle_access.clicked.connect(self.on_toggle_staff_access)
+        staff_actions.addWidget(self.btn_toggle_access)
         list_layout.addLayout(staff_actions)
         layout.addWidget(list_card, 7)
         layout.setStretch(0, 3)
@@ -852,10 +928,10 @@ class SettingsScreen(QWidget):
         try:
             self.tbl_users.setRowCount(len(employees))
             for row, item in enumerate(employees):
-                _employee_id, username, first_name, last_name, occupation = item
+                _employee_id, username, first_name, last_name, occupation = item[:5]
                 self.tbl_users.setItem(row, 0, QTableWidgetItem(str(username)))
                 self.tbl_users.setItem(row, 1, QTableWidgetItem(f"{first_name} {last_name}".strip()))
-                self.tbl_users.setItem(row, 2, QTableWidgetItem(role_label(str(occupation))))
+                self.tbl_users.setItem(row, 2, QTableWidgetItem(role_label(str(occupation)) + (" · Inactive" if len(item)>5 and not item[5] else "")))
         finally:
             self.tbl_users.setUpdatesEnabled(True)
         self.tbl_users.clearSelection()
@@ -872,6 +948,8 @@ class SettingsScreen(QWidget):
             show_toast(self, "Could not load staff accounts. Try again.", ToastType.WARNING)
 
     def on_create_user(self):
+        if self._staff_mutating:
+            return
         username = self.txt_new_user.text().strip()
         password = self.txt_new_pass.text()
         first_name = self.txt_new_fname.text().strip()
@@ -881,18 +959,54 @@ class SettingsScreen(QWidget):
             if self.show_message_box:
                 show_toast(self, "Enter a username, password, and first name.", ToastType.WARNING)
             return
-        ok, message = _SETTINGS_CONTROLLER.create_employee(username, password, first_name, last_name, occupation=role)
-        if ok:
-            if self.show_message_box:
-                show_toast(self, message, ToastType.SUCCESS)
-            self.txt_new_user.clear()
-            self.txt_new_pass.clear()
-            self.txt_new_fname.clear()
-            self.txt_new_lname.clear()
+        def complete(result):
+            ok, message = result
+            if ok:
+                if self.show_message_box:
+                    show_toast(self, message, ToastType.SUCCESS)
+                self.txt_new_user.clear()
+                self.txt_new_pass.clear()
+                self.txt_new_fname.clear()
+                self.txt_new_lname.clear()
+                self._staff_loaded = False
+                self.refresh_employee_table()
+            elif self.show_message_box:
+                QMessageBox.critical(self, "Could Not Add Staff", message)
+        self._run_staff_change(
+            lambda: _SETTINGS_CONTROLLER.create_employee(username, password, first_name, last_name, occupation=role),
+            complete)
+
+    def _run_staff_change(self, operation, on_result):
+        if self._staff_mutating:
+            return
+        self._staff_mutating = True
+        self.tab_users.setEnabled(False)
+        def complete(result):
+            self._staff_mutating = False
+            self.tab_users.setEnabled(True)
+            on_result(result)
+        def failed(_details):
+            self._staff_mutating = False
+            self.tab_users.setEnabled(True)
             self._staff_loaded = False
+            if self.show_message_box:
+                show_toast(self, "Staff change could not be confirmed. Refresh accounts before retrying.", ToastType.WARNING)
+        self._tasks.run(operation, complete, failed)
+
+    def on_toggle_staff_access(self):
+        row = self.tbl_users.currentRow()
+        if row < 0 or row >= len(self._staff_rows) or self._staff_mutating:
+            return
+        staff = self._staff_rows[row]
+        active = not bool(staff[5]) if len(staff)>5 else False
+        action = "Activate" if active else "Deactivate"
+        if QMessageBox.question(self, "Staff Access", f"{action} {staff[1]}? Existing shop sessions will be signed out.") != QMessageBox.Yes:
+            return
+        def complete(result):
+            if self.show_message_box:
+                show_toast(self, result[1], ToastType.SUCCESS if result[0] else ToastType.WARNING)
             self.refresh_employee_table()
-        elif self.show_message_box:
-            QMessageBox.critical(self, "Could Not Add Staff", message)
+        self._run_staff_change(lambda: _SETTINGS_CONTROLLER.set_active(staff[0], active), complete)
 
     def on_reset_selected_password(self):
         row = self.tbl_users.currentRow()
@@ -900,10 +1014,12 @@ class SettingsScreen(QWidget):
             if self.show_message_box:
                 show_toast(self, "Select a staff account first.", ToastType.WARNING)
             return
-        employee_id, username, _first_name, _last_name, _occupation = self._staff_rows[row]
+        employee_id, username, _first_name, _last_name, _occupation = self._staff_rows[row][:5]
         self.on_reset_user_password(employee_id, username)
 
     def on_reset_user_password(self, employee_id: int, username: str):
+        if self._staff_mutating:
+            return
         new_password, accepted = QInputDialog.getText(
             self,
             "Reset Password",
@@ -912,16 +1028,19 @@ class SettingsScreen(QWidget):
         )
         if not accepted or not new_password:
             return
-        ok, message = _SETTINGS_CONTROLLER.reset_password(employee_id, new_password)
-        if ok:
-            if self.show_message_box:
-                show_toast(self, message, ToastType.SUCCESS)
-        elif self.show_message_box:
-            QMessageBox.critical(self, "Could Not Reset Password", message)
+        def complete(result):
+            ok, message = result
+            if ok:
+                if self.show_message_box:
+                    show_toast(self, message, ToastType.SUCCESS)
+            elif self.show_message_box:
+                QMessageBox.critical(self, "Could Not Reset Password", message)
+        self._run_staff_change(lambda: _SETTINGS_CONTROLLER.reset_password(employee_id, new_password), complete)
 
     def on_screen_show(self):
-        # One small batched read keeps visible general/receipt controls fresh.
-        self.load_settings()
+        # Navigation must not discard unsaved input or a failed save draft.
+        if not self._settings_dirty:
+            self.load_settings()
         current = self.tabs.currentWidget()
         if current is self.tab_users:
             self._staff_loaded = False

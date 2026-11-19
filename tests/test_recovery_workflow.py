@@ -106,6 +106,9 @@ def test_automatic_backup_refreshes_during_uptime(seeded_shop):
     from core.backup_service import ensure_daily_backup
     ok, first = ensure_daily_backup()
     assert ok
+    with sqlite3.connect(first) as snapshot:
+        assert snapshot.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+    assert not list(Path(first).parent.glob("*.partial-*"))
     stale = time.time() - 3700
     os.utime(first, (stale, stale))
     ok, second = ensure_daily_backup()
@@ -120,6 +123,48 @@ def test_second_location_receives_verified_snapshot(seeded_shop, tmp_path):
     assert ok
     copy = second / Path(local).name
     assert copy.exists() and _validate_sqlite_database(str(copy))[0]
+
+
+def test_signing_failure_does_not_publish_snapshot(seeded_shop, monkeypatch):
+    from core import backup_service as backups
+
+    def fail_signing(path):
+        raise OSError("Simulated signing failure")
+
+    monkeypatch.setattr(backups, "sign_snapshot", fail_signing)
+    assert not backups.ensure_daily_backup()[0]
+    directory = Path(seeded_shop.PathManager.get_backups_dir())
+    assert not list(directory.glob(backups.AUTO_BACKUP_PREFIX + "_*"))
+
+
+def test_automatic_backup_replaces_interrupted_unsigned_snapshot(seeded_shop, tmp_path):
+    from core.backup_service import configure_backup_destination, ensure_daily_backup
+    from core.backup_trust import verify_snapshot
+
+    second = tmp_path / "second"
+    assert configure_backup_destination(str(second))[0]
+    ok, first = ensure_daily_backup()
+    assert ok
+    Path(first + ".hmac").unlink()
+    ok, replacement = ensure_daily_backup()
+    assert ok and replacement != first
+    assert verify_snapshot(replacement)
+    assert verify_snapshot(second / Path(replacement).name)
+    assert not verify_snapshot(first)
+
+
+def test_automatic_backup_repairs_missing_external_signature(seeded_shop, tmp_path):
+    from core.backup_service import configure_backup_destination, ensure_daily_backup
+    from core.backup_trust import verify_snapshot
+
+    second = tmp_path / "second"
+    assert configure_backup_destination(str(second))[0]
+    ok, first = ensure_daily_backup()
+    assert ok
+    copy = second / Path(first).name
+    Path(str(copy) + ".hmac").unlink()
+    assert ensure_daily_backup() == (True, first)
+    assert verify_snapshot(copy)
 
 
 def test_prelogin_recovery_authenticates_from_snapshot(seeded_shop):

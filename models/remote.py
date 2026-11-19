@@ -48,6 +48,8 @@ class RemoteModel:
                 if name == 'ensure_daily_backup':
                     return True, 'Backups are managed on the main shop computer.'
             if self.model_name == 'AuthModel':
+                if name in {'enroll_owner_recovery', 'recover_owner_access'}:
+                    return False, 'Use owner recovery on the main shop computer.'
                 if name == 'login':
                     return self.client.login(*args, **kwargs)
                 if name in {'register_initial_admin', 'complete_initial_setup'}:

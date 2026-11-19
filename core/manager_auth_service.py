@@ -90,7 +90,7 @@ def validate_discount_approval(cur, token, operator_id, discount_amount, subtota
             return False, "Manager approval expired or was already used. Ask for approval again."
         if (int(row[0]), int(row[2]), int(row[3])) != (int(operator_id), _minor(subtotal), _minor(discount_amount)):
             return False, "The cart changed. Ask for manager approval again."
-        cur.execute("SELECT occupation FROM Employee WHERE Employee_id=%s", (row[1],))
+        cur.execute("SELECT occupation FROM Employee WHERE Employee_id=%s AND is_active=1", (row[1],))
         manager = cur.fetchone()
         if not manager or str(manager[0]).lower() not in {"admin", "administrator", "manager"}:
             return False, "The approving account is no longer a manager."

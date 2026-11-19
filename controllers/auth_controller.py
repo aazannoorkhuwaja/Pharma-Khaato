@@ -5,6 +5,12 @@ class AuthController:
     def __init__(self, model: AuthModel | None = None):
         self.model = model or AuthModel()
 
+    def enroll_owner_recovery(self, username, password):
+        return self.model.enroll_owner_recovery(username.strip(), password)
+
+    def recover_owner_access(self, username, code, password):
+        return self.model.recover_owner_access(username.strip(), code, password)
+
     def login(self, username: str, password: str):
         return self.model.login(username.strip(), password)
 

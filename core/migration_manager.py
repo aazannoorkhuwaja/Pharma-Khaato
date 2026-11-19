@@ -1,5 +1,6 @@
 import os
 import glob
+import hashlib
 import re
 import sqlite3
 from datetime import datetime
@@ -15,6 +16,22 @@ class MigrationManager:
 
     _MIGRATION_NAME = re.compile(r"^(\d+)_.*\.sql$")
 
+    # A previously distributed index migration was renumbered from 014 to 015.
+    # Some shops recorded both names. Only accept the redundant legacy entry
+    # when its canonical replacement is also recorded; schema validation still
+    # verifies every index definition. Never treat arbitrary unknowns as aliases.
+    _HISTORICAL_ALIASES = {"014_ui_performance_indexes.sql": "015_ui_performance_indexes.sql"}
+
+    @classmethod
+    def canonical_history(cls, applied, known):
+        history = set(applied)
+        for legacy, canonical in cls._HISTORICAL_ALIASES.items():
+            if legacy in history and canonical in history and canonical in known:
+                history.remove(legacy)
+        if history - set(known):
+            raise ValueError("This backup requires a different application version.")
+        return history
+
     @classmethod
     def _migration_catalog(cls, mig_dir: str) -> list[str]:
         """Return an ordered catalog and reject ambiguous version numbers."""
@@ -27,7 +44,7 @@ class MigrationManager:
                 raise RuntimeError(
                     f"Invalid migration filename '{filename}'. Use NNN_description.sql."
                 )
-            version = match.group(1)
+            version = str(int(match.group(1)))
             prior = seen_versions.get(version)
             if prior:
                 raise RuntimeError(
@@ -90,6 +107,8 @@ class MigrationManager:
         if not is_sqlite:
             raise RuntimeError("Pharma-Khaato migrations currently support SQLite only.")
 
+        from core.financial_storage import register
+        register(raw_conn)
         cur = raw_conn.cursor()
         cur.execute(
             """
@@ -110,6 +129,30 @@ class MigrationManager:
             return
 
         mig_files = cls._migration_catalog(mig_dir)
+        recorded = applied
+        try:
+            applied = cls.canonical_history(recorded, {os.path.basename(path) for path in mig_files})
+        except ValueError as exc:
+            raise RuntimeError("This database requires a newer or different application version.") from exc
+        digests = {os.path.basename(path): hashlib.sha256(open(path, 'rb').read()).hexdigest() for path in mig_files}
+        columns = {row[1] for row in cur.execute("PRAGMA table_info(schema_migrations)")}
+        existing_hashes = dict(cur.execute("SELECT version,checksum FROM schema_migrations")) if "checksum" in columns else {}
+        for version, checksum in existing_hashes.items():
+            if version in recorded - applied:
+                if checksum:
+                    raise RuntimeError(f"Unrecognized historical migration checksum: {version}.")
+                continue
+            if checksum and checksum != digests[version]:
+                raise RuntimeError(f"Migration checksum differs: {version}. Restore matching application files.")
+        if applied:
+            from core.schema_validation import validate_declared_schema
+            validate_declared_schema(raw_conn, recorded)
+        if "checksum" not in columns:
+            cur.execute("ALTER TABLE schema_migrations ADD COLUMN checksum TEXT")
+        for version in applied:
+            if not existing_hashes.get(version):
+                cur.execute("UPDATE schema_migrations SET checksum=? WHERE version=?", (digests[version], version))
+        raw_conn.commit()
         pending = [path for path in mig_files if os.path.basename(path) not in applied]
         if not pending:
             return
@@ -145,8 +188,8 @@ class MigrationManager:
                             raise
 
                 cur.execute(
-                    "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-                    (filename, datetime.now().isoformat()),
+                    "INSERT INTO schema_migrations (version, applied_at, checksum) VALUES (?, ?, ?)",
+                    (filename, datetime.now().isoformat(), digests[filename]),
                 )
                 raw_conn.commit()
                 logger.info("Successfully applied migration: %s", filename)

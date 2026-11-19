@@ -4,12 +4,13 @@
 
 #define MyAppName "Pharma Khaato"
 #ifndef MyAppVersion
-  #define MyAppVersion "2.5.0"
+  #define MyAppVersion "2.5.1"
 #endif
 #define MyAppPublisher "Pharma Khaato"
 #define MyAppExeName "pharma_khaato.exe"
 
 [Setup]
+SetupIconFile=packaging\windows\pharma-khaato.ico
 AppId={{AFC574CD-9CD5-4F3A-A209-CB3320E04F40}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
@@ -51,6 +52,8 @@ Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"
 
 [Icons]
+Name: "{autoprograms}\Pharma Khaato - Owner Recovery"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--recovery-tool"; WorkingDir: "{app}"
+Name: "{autoprograms}\Pharma Khaato - Practice Shop"; Filename: "{app}\{#MyAppExeName}"; Parameters: "--practice"; WorkingDir: "{app}"
 Name: "{autoprograms}\Pharma Khaato"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 Name: "{autodesktop}\Pharma Khaato"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
 

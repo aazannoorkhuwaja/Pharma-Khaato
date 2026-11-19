@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from core.business_time import business_now
 from core.db_engine import get_db
 from core.logger import get_logger
 
@@ -12,7 +12,7 @@ def log_audit_event(user_id, action, details=""):
     """
     try:
         with get_db() as (conn, cur):
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            now_str = business_now().strftime("%Y-%m-%d %H:%M:%S")
             details_str = json.dumps(details) if isinstance(details, (dict, list)) else str(details)
             cur.execute(
                 "INSERT INTO Audit_Log (timestamp, user_id, action, details) VALUES (%s, %s, %s, %s)",

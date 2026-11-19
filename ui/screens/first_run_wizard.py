@@ -114,6 +114,14 @@ class FirstRunWizardDialog(QDialog):
         self.txt_license.setPlaceholderText("Optional — licence / registration number")
         self.txt_license.setAccessibleName("Pharmacy License Number")
 
+        self.spn_government = QDoubleSpinBox()
+        self.spn_owner_rate = QDoubleSpinBox()
+        self.spn_government.setRange(0, 100)
+        self.spn_owner_rate.setRange(0, 100)
+        self.spn_government.setSuffix(" %")
+        self.spn_owner_rate.setSuffix(" %")
+        self.spn_government.setAccessibleName("Government discount on all medicines before tax")
+        self.spn_owner_rate.setAccessibleName("Owner customer discount after government discount")
         self.spn_tax = QDoubleSpinBox()
         self.spn_tax.setRange(0.0, 50.0)
         self.spn_tax.setDecimals(2)
@@ -130,6 +138,8 @@ class FirstRunWizardDialog(QDialog):
             self._field("Phone number", self.txt_phone, required=True),
             self._field("Tagline", self.txt_slogan, optional=True),
             self._field("Licence number", self.txt_license, optional=True),
+            self._field("Government discount on all medicines", self.spn_government),
+            self._field("Owner customer discount", self.spn_owner_rate),
             self._field("Default sales tax", self.spn_tax),
         ]
         form_column_layout.addWidget(pharmacy_card)
@@ -357,6 +367,8 @@ class FirstRunWizardDialog(QDialog):
             "phone": phone,
             "license_number": self.txt_license.text().strip(),
             "default_tax_rate": str(self.spn_tax.value()),
+            "government_discount_percent": str(self.spn_government.value()),
+            "owner_discount_percent": str(self.spn_owner_rate.value()),
         }
         ok, msg = _AUTH_CONTROLLER.complete_initial_setup(
             username,

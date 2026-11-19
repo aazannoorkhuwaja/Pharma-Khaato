@@ -1,5 +1,6 @@
 """Offline-first, release authenticity and non-disruptive update notices."""
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -179,3 +180,61 @@ def test_linux_updates_require_linux_download_and_checksum(monkeypatch):
     name = 'Pharma-Khaato-99.0.0-linux-x86_64.tar.gz'
     assert service._release_info(release(assets=[{'name':name}])) is None
     assert service._release_info(release(assets=[{'name':name}, {'name':name+'.sha256'}]))['latest_version'] == '99.0.0'
+
+
+@pytest.mark.parametrize('corrupt', [False, True])
+def test_direct_download_verifies_package_before_handoff(monkeypatch, tmp_path, corrupt):
+    import hashlib
+    import io
+    from pathlib import Path
+    from core import update_download as service
+
+    name = 'Pharma-Khaato-99.0.0-linux-amd64.deb'
+    payload = b'package fixture'
+    checksum = hashlib.sha256(payload).hexdigest()
+    base = f'https://github.com/{service.REPOSITORY}/releases/download/v99.0.0/{name}'
+    responses = {base: b'changed' if corrupt else payload,
+                 base + '.sha256': f'{checksum}  {name}\n'.encode()}
+    monkeypatch.setattr(service.urllib.request, 'urlopen', lambda url, timeout: io.BytesIO(responses[url]))
+    monkeypatch.setattr(service.tempfile, 'tempdir', str(tmp_path))
+    info = dict(latest_version='99.0.0', tag='v99.0.0', package_name=name)
+    if corrupt:
+        with pytest.raises(ValueError, match='checksum'):
+            service.download_package(info)
+        assert not list(tmp_path.iterdir())
+    else:
+        assert Path(service.download_package(info)).read_bytes() == payload
+
+
+def test_verified_update_requires_second_click_and_clear_checkout(qtbot, fresh_db, monkeypatch, tmp_path):
+    from PySide6.QtCore import Qt
+    from ui.dialogs import update_dialog as ui
+    from core.version_service import _release_info
+
+    state = ui.SessionState.get_instance()
+    monkeypatch.setattr(state, 'active_cart', [])
+    monkeypatch.setattr(state, 'pending_checkout', None)
+    installer = tmp_path / 'Setup.exe'
+    installer.write_bytes(b'test fixture')
+    download = Mock(return_value=str(installer))
+    open_file = Mock(return_value=True)
+    monkeypatch.setattr(ui.UpdateController, 'download', download)
+    monkeypatch.setattr(ui.QDesktopServices, 'openUrl', open_file)
+    monkeypatch.setattr(ui.QMessageBox, 'information', Mock())
+
+    info = _release_info(release())
+    dialog = ui.UpdateDialog(info)
+    qtbot.addWidget(dialog)
+    dialog.show()
+    qtbot.mouseClick(dialog.install_button, Qt.LeftButton)
+    qtbot.waitUntil(lambda: dialog.install_button.text() == 'Start Installer')
+    download.assert_called_once_with(info)
+    open_file.assert_not_called()
+
+    state.pending_checkout = {'token': 'unconfirmed-sale'}
+    qtbot.mouseClick(dialog.install_button, Qt.LeftButton)
+    open_file.assert_not_called()
+    state.pending_checkout = None
+    qtbot.mouseClick(dialog.install_button, Qt.LeftButton)
+    open_file.assert_called_once()
+    assert Path(open_file.call_args.args[0].toLocalFile()) == installer

@@ -438,7 +438,7 @@ class InventoryScreen(QWidget):
         self.catalog_search_timer.timeout.connect(self._run_catalog_filter)
         self.txt_catalog_search.textChanged.connect(self._queue_catalog_filter)
 
-        self.btn_selected_stock = QPushButton("Add Stock")
+        self.btn_selected_stock = QPushButton("Receive More Stock")
         self.btn_selected_stock.setEnabled(False)
         self.btn_selected_stock.setToolTip("Select a product first")
         self.btn_selected_stock.clicked.connect(self.quick_intake_selected)
@@ -633,7 +633,7 @@ class InventoryScreen(QWidget):
         form_layout.addWidget(intake_scroll,1)
         form_layout.addSpacing(14)
 
-        self.btn_submit_intake = QPushButton("Add Stock")
+        self.btn_submit_intake = QPushButton("Receive More Stock")
         self.btn_submit_intake.setObjectName("primaryButton")
         self.btn_submit_intake.setMinimumHeight(44)
         self.btn_submit_intake.clicked.connect(self.on_submit_intake)
@@ -669,8 +669,8 @@ class InventoryScreen(QWidget):
         set_tone(near_label, "warning", "bold")
         layout.addWidget(near_label)
 
-        self.tbl_near_expiry = QTableWidget(0, 4)
-        self.tbl_near_expiry.setHorizontalHeaderLabels(["Product", "Supplier", "Qty", "Expiry"])
+        self.tbl_near_expiry = QTableWidget(0, 5)
+        self.tbl_near_expiry.setHorizontalHeaderLabels(["Product", "Supplier", "Expiring units", "Expiry", "Printed lot"])
         self.tbl_near_expiry.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.tbl_near_expiry.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
         self.tbl_near_expiry.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
@@ -923,7 +923,8 @@ class InventoryScreen(QWidget):
         try:
             self.tbl_near_expiry.setRowCount(len(near_expiry))
             for row, item in enumerate(near_expiry):
-                _batch_id, product_name, supplier_name, quantity, expiry = item
+                _batch_id, product_name, supplier_name, quantity, expiry, *lot = item
+                self.tbl_near_expiry.setItem(row, 4, QTableWidgetItem(str(lot[0]) if lot and lot[0] else "Unrecorded"))
                 self.tbl_near_expiry.setItem(row, 0, QTableWidgetItem(str(product_name)))
                 self.tbl_near_expiry.setItem(row, 1, QTableWidgetItem(str(supplier_name)))
                 self.tbl_near_expiry.setItem(row, 2, QTableWidgetItem(str(quantity)))

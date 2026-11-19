@@ -106,6 +106,9 @@ class SettingsService:
                 logger.warning("Settings update denied: %s", reason)
                 return False
             settings_dict = dict(settings_dict)
+            if {"government_discount_percent", "owner_discount_percent"} & settings_dict.keys():
+                from pricing_discounts import discount_amounts
+                discount_amounts(0, settings_dict.get("government_discount_percent", 0), settings_dict.get("owner_discount_percent", 0))
             if "default_tax_rate" in settings_dict:
                 from decimal import Decimal, InvalidOperation
                 percentage = Decimal(str(settings_dict["default_tax_rate"]))

@@ -52,6 +52,8 @@ class BatchesScreen(QWidget):
         self._filter_columns = 4
         for column, (label, widget) in enumerate(zip(('Expiry Range','Stock Condition','Supplier','Search'), self._filter_controls)):
             caption = QLabel(label)
+            caption.setBuddy(widget)
+            widget.setAccessibleName(label)
             self._filter_labels.append(caption)
             filters.addWidget(caption, 0, column)
             widget.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)

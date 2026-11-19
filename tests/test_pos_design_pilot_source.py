@@ -28,10 +28,15 @@ def test_cart_shows_expiry_preview_without_exposing_internal_batch_id():
     assert '"expiry_date": str(batch_expiry or "")' in POS
     assert '"Product", "Expiry", "Price", "Qty", "Amount", "In Stock", "Unit"' in POS
     assert 'QTableWidgetItem(str(item.get("expiry_date") or "Review"))' in POS
-    assert "selected batch expiry as a preview" in POS.lower()
+    assert "selected lot expiry; stock and price are rechecked at checkout" in POS.lower()
     assert '"batch_id": batch_id' in POS  # authoritative backend still receives it
     assert '"expiry_date": str(product_item.get("expiry_date") or "")' in STATE
-    assert 'item["expiry_date"] = "Verify at checkout"' in STATE
+    # Explicit lot rows now retain their expiry instead of merging different lots.
+    from ui.app.state.session_state import SessionState
+    state = SessionState()
+    state.add_to_cart({'prod_id':1,'batch_id':1,'price':5,'expiry_date':'2099-01-01'})
+    state.add_to_cart({'prod_id':1,'batch_id':2,'price':5,'expiry_date':'2099-02-01'})
+    assert [row['expiry_date'] for row in state.active_cart] == ['2099-01-01','2099-02-01']
 
 
 def test_payment_remains_backend_validated_and_recoverable():

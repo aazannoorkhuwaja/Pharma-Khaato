@@ -29,7 +29,9 @@ _ROLE_PERMISSIONS = {
         "credit.read", "credit.collect", "cash.own_shift",
         "inventory.read", "inventory.manage", "reports.read", "returns.process",
     },
-    "manager": {"*"},
+    "manager": {"pos.sell", "pos.hold", "customer.read", "customer.create", "credit.read",
+                "credit.collect", "cash.own_shift", "inventory.read", "inventory.manage",
+                "reports.read", "returns.process"},
     "admin": {"*"},
     "administrator": {"*"},
 }
@@ -58,7 +60,7 @@ def get_employee_role(employee_id: int) -> str | None:
 
     try:
         with get_db() as (_conn, cur):
-            cur.execute("SELECT occupation FROM Employee WHERE Employee_id = %s", (employee_id,))
+            cur.execute("SELECT occupation FROM Employee WHERE Employee_id = %s AND is_active=1", (employee_id,))
             row = cur.fetchone()
         if not row:
             return None

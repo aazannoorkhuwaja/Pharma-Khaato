@@ -17,22 +17,22 @@ def get_daily_sales_report(target_date=None):
     try:
         with get_db() as (_conn, cur):
             cur.execute(
-                "SELECT COUNT(*), COALESCE(SUM(p.price_with_tax), 0) "
+                "SELECT COUNT(*), COALESCE((SUM(p.price_with_tax_minor)/100.0), 0) "
                 "FROM Purchase p JOIN Receipt r ON p.id = r.purchase_id "
                 "WHERE r.printing_date = %s",
                 (target_date,),
             )
             count_row = cur.fetchone() or (0, 0)
             cur.execute(
-                "SELECT p.payment_method, COUNT(*), COALESCE(SUM(p.price_with_tax), 0) "
+                "SELECT p.payment_method, COUNT(*), COALESCE((SUM(p.price_with_tax_minor)/100.0), 0) "
                 "FROM Purchase p JOIN Receipt r ON p.id = r.purchase_id "
                 "WHERE r.printing_date = %s GROUP BY p.payment_method",
                 (target_date,),
             )
             tender_rows = cur.fetchall()
-            cur.execute("SELECT COALESCE(SUM(refund_amount),0) FROM Customer_Returns WHERE return_date=%s", (target_date,))
+            cur.execute("SELECT COALESCE((SUM(refund_amount_minor)/100.0),0) FROM Customer_Returns WHERE return_date=%s", (target_date,))
             returns_total = _money(cur.fetchone()[0])
-            cur.execute("SELECT payment_method,COALESCE(SUM(amount),0) FROM Refund_Transaction WHERE substr(created_at,1,10)=%s GROUP BY payment_method", (target_date,))
+            cur.execute("SELECT payment_method,COALESCE((SUM(amount_minor)/100.0),0) FROM Refund_Transaction WHERE substr(created_at,1,10)=%s GROUP BY payment_method", (target_date,))
             refunds = {str(method): _money(amount) for method, amount in cur.fetchall()}
 
         breakdown = {
@@ -93,15 +93,15 @@ def get_credit_collections_report(target_date=None):
     try:
         with get_db() as (_conn, cur):
             cur.execute(
-                "SELECT payment_method, COUNT(*), COALESCE(SUM(amount), 0) "
+                "SELECT payment_method, COUNT(*), COALESCE((SUM(amount_minor)/100.0), 0) "
                 "FROM Credit_Payment WHERE substr(paid_at, 1, 10) = %s "
                 "GROUP BY payment_method",
                 (target_date,),
             )
             rows = cur.fetchall()
-            cur.execute("SELECT payment_method,COALESCE(SUM(amount),0) FROM Credit_Payment_Reversal WHERE substr(created_at,1,10)=%s GROUP BY payment_method", (target_date,))
+            cur.execute("SELECT payment_method,COALESCE((SUM(amount_minor)/100.0),0) FROM Credit_Payment_Reversal WHERE substr(created_at,1,10)=%s GROUP BY payment_method", (target_date,))
             reversals = {str(method): _money(amount) for method,amount in cur.fetchall()}
-            cur.execute("SELECT payment_method,COALESCE(SUM(amount),0) FROM Refund_Transaction WHERE source_credit_payment_id IS NOT NULL AND substr(created_at,1,10)=%s GROUP BY payment_method", (target_date,))
+            cur.execute("SELECT payment_method,COALESCE((SUM(amount_minor)/100.0),0) FROM Refund_Transaction WHERE source_credit_payment_id IS NOT NULL AND substr(created_at,1,10)=%s GROUP BY payment_method", (target_date,))
             refunds = {str(method): _money(amount) for method,amount in cur.fetchall()}
 
         breakdown = {"Cash": 0.0, "Credit Card": 0.0, "Easypaisa": 0.0, "JazzCash": 0.0, "Other": 0.0}
@@ -170,7 +170,7 @@ def get_expiry_alert_report(days_threshold=60):
         ]
     except Exception as exc:
         logger.error("Get expiry alert report error: %s", exc)
-        return []
+        raise RuntimeError("Expiry alerts are unavailable. Please retry.") from exc
 
 
 def get_reorder_stock_report():
@@ -199,7 +199,7 @@ def get_reorder_stock_report():
         ]
     except Exception as exc:
         logger.error("Get reorder stock report error: %s", exc)
-        return []
+        raise RuntimeError("Reorder alerts are unavailable. Please retry.") from exc
 
 
 def get_audit_log_report(limit=100):

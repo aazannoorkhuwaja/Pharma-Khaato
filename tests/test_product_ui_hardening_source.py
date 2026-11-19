@@ -46,7 +46,7 @@ def test_inventory_uses_one_selected_product_action_and_lazy_intake():
     assert "Default Supplier" not in source
     assert '["Product", "Price", "In Stock", "Status"]' in source
     assert 'QPushButton("Add Supplier")' in source
-    assert 'self.btn_selected_stock = QPushButton("Add Stock")' in source
+    assert 'self.btn_selected_stock = QPushButton("Receive More Stock")' in source
     assert 'setCellWidget(row' not in source
     assert "catalog_search_timer" in source
     assert "_load_intake_data" in source

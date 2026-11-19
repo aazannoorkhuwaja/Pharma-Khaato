@@ -244,3 +244,48 @@ def test_upgrade_preserves_raw_tax_and_flags_ambiguous_units(legacy_value, perce
     assert settings["tax_rate_review_required"] == needs_review
     assert settings["default_tax_rate_format"] == "percent_v1"
     conn.close()
+
+
+@pytest.mark.parametrize("legacy_cash", [False, True])
+def test_split_cash_retries_compare_posted_minor_units(seeded_shop, admin_emp_id, cash_shift, legacy_cash):
+    from core.checkout_idempotency_service import request_fingerprint
+    from core.pos_service import POSTransactionEngine
+
+    conn = seeded_shop.get_conn()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO Customers(id_card_number,first_name,last_name,registration_date) "
+                "VALUES ('1234567890123','Practice','Customer','2026-01-01')")
+    conn.commit()
+    sale = request(admin_emp_id, customer_id="1234567890123", payment_method="Cash + Khatoo",
+                   cash_received="10.005")
+    rejected = POSTransactionEngine.process_checkout(sale)
+    assert not rejected.success and "whole paisa" in rejected.message
+    assert query(seeded_shop, "SELECT COUNT(*) FROM Checkout_Request")[0] == 0
+    sale.cash_received = "10.01"
+    first = POSTransactionEngine.process_checkout(sale)
+    assert first.success, first.message
+    if legacy_cash:
+        previous = deepcopy(sale)
+        previous.cash_received = "10.00"  # Old half-even hash for 10.005.
+        cur.execute("UPDATE Checkout_Request SET request_fingerprint=%s WHERE token=%s",
+                    (request_fingerprint(previous), sale.checkout_token))
+        conn.commit()
+    sale.cash_received = "10.005"
+    replay = POSTransactionEngine.process_checkout(sale)
+    assert replay.success and replay.duplicate and replay.purchase_id == first.purchase_id
+    sale.cash_received = "10.01"
+    assert POSTransactionEngine.process_checkout(sale).duplicate
+    sale.cash_received = "10.004"
+    assert not POSTransactionEngine.process_checkout(sale).success
+    assert tuple(query(seeded_shop, "SELECT COUNT(*),SUM(amount_minor) FROM Credit_Payment")) == (1, 1001)
+
+def test_cash_checkout_rejects_fractional_paisa_before_posting(seeded_shop, admin_emp_id, cash_shift):
+    from core.pos_service import POSTransactionEngine
+
+    sale = request(admin_emp_id, payment_method="Cash", cash_received="4000.005")
+    result = POSTransactionEngine.process_checkout(sale)
+    assert not result.success and "whole paisa" in result.message
+    assert query(seeded_shop, "SELECT COUNT(*) FROM Purchase")[0] == 0
+    sale.cash_received = "4000.00"
+    result = POSTransactionEngine.process_checkout(sale)
+    assert result.success and result.cash_received == 4000

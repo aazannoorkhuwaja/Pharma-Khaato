@@ -1,4 +1,4 @@
-"""Opt-in update notice. It never installs software or closes the POS."""
+"""Optional release download with an explicit native installer handoff."""
 from PySide6.QtCore import QTimer, QUrl, QObject
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QApplication, QDialog, QVBoxLayout, QLabel,
@@ -28,10 +28,40 @@ class UpdateDialog(QDialog):
         layout.addWidget(notice)
         buttons = QDialogButtonBox()
         later = buttons.addButton('Later', QDialogButtonBox.RejectRole)
-        download = buttons.addButton('Open Update Download', QDialogButtonBox.ActionRole)
+        self.tasks = AsyncTaskRunner(self)
+        self.package_path = None
+        self.install_button = buttons.addButton('Download Verified Update', QDialogButtonBox.ActionRole)
+        self.install_button.clicked.connect(lambda: self.update_package(info))
+        download = buttons.addButton('Release Page', QDialogButtonBox.ActionRole)
         later.clicked.connect(self.reject)
         download.clicked.connect(lambda: self.download(info['download_url']))
         layout.addWidget(buttons)
+
+    def update_package(self, info):
+        state = SessionState.get_instance()
+        if state.active_cart or state.pending_checkout:
+            QMessageBox.information(self, 'Update', 'Finish or hold the current sale first.')
+            return
+        if self.package_path:
+            if QDesktopServices.openUrl(QUrl.fromLocalFile(self.package_path)):
+                self.accept()
+            else:
+                QMessageBox.information(self, 'Update', 'Open the downloaded file: ' + self.package_path)
+            return
+        self.install_button.setEnabled(False)
+        self.install_button.setText('Downloading…')
+        self.tasks.run(lambda: UpdateController.download(info), self.downloaded, self.download_failed)
+
+    def downloaded(self, path):
+        self.package_path = path
+        self.install_button.setText('Open Verified Archive' if path.endswith('.tar.gz') else 'Start Installer')
+        self.install_button.setEnabled(True)
+
+    def download_failed(self, _details):
+        self.install_button.setText('Retry Update Download')
+        self.install_button.setEnabled(True)
+        if self.isVisible():
+            QMessageBox.warning(self, 'Update', 'Could not download and verify the installer. Check the connection or open the release page.')
 
     def download(self, url):
         if QDesktopServices.openUrl(QUrl(url)):

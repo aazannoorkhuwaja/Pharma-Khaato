@@ -136,3 +136,85 @@ def test_khatoo_payment_method_aliases_are_normalized():
         canonical, accounting = _normalize_payment_method(alias)
         assert canonical == "Khatoo Credit"
         assert accounting == "Credit"
+
+
+def test_partial_cash_is_atomic_and_retry_safe(seeded_shop, admin_emp_id, cash_shift):
+    from core import pos_service
+    conn = seeded_shop.get_conn()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO Customers (id_card_number,first_name,last_name,registration_date) VALUES ('1234567890123','Practice','Customer','2026-01-01')")
+    cur.execute("UPDATE Products SET price=100 WHERE id=1")
+    conn.commit()
+    for _ in range(2):
+        ok, message = pos_service.confirm_sale(
+            "1234567890123", admin_emp_id, [{"prod_id":1,"name":"TestMed","price":100,"qty":60}],
+            payment_method="Cash + Khatoo", cash_received=4000, checkout_token="practice-split-sale")
+        assert ok, message
+    cur.execute("SELECT amount_paid_minor,amount_due_minor FROM Customer_Khatoo")
+    assert tuple(cur.fetchone()) == (400000, 200000)
+    cur.execute("SELECT COUNT(*), SUM(amount_minor) FROM Credit_Payment WHERE session_id IS NOT NULL")
+    assert tuple(cur.fetchone()) == (1, 400000)
+    cur.execute("SELECT quantity FROM Batch WHERE id=1")
+    assert cur.fetchone()[0] == 40
+    cur.execute("SELECT receipt_text FROM Receipt_Snapshot")
+    assert "Balance due: Rs. 2,000.00" in cur.fetchone()[0]
+
+
+def test_split_refund_reduces_debt_before_paying_cash(seeded_shop, admin_emp_id, cash_shift):
+    from core import pos_service
+    conn = seeded_shop.get_conn()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO Customers (id_card_number,first_name,last_name,registration_date) VALUES ('1234567890123','Practice','Customer','2026-01-01')")
+    cur.execute("UPDATE Products SET price=100 WHERE id=1")
+    conn.commit()
+    ok, message = pos_service.confirm_sale(
+        "1234567890123", admin_emp_id, [{"prod_id":1,"name":"TestMed","price":100,"qty":60}],
+        payment_method="Cash + Khatoo",cash_received=4000)
+    assert ok, message
+    cur.execute("SELECT MAX(id) FROM Purchase")
+    ok, message = pos_service.process_sale_return(cur.fetchone()[0], [{"batch_id":1,"qty":25}], employee_id=admin_emp_id)
+    assert ok, message
+    cur.execute("SELECT amount_due_minor,amount_paid_minor FROM Customer_Khatoo")
+    assert tuple(cur.fetchone()) == (0,350000)
+    cur.execute("SELECT amount_minor FROM Cash_Movement WHERE movement_type='REFUND'")
+    assert cur.fetchone()[0] == 50000
+
+
+def test_checkout_uses_configured_discount_then_owner_discount(seeded_shop, admin_emp_id, cash_shift):
+    from core import pos_service
+    from core.settings_service import SettingsService
+    assert SettingsService.set_setting("government_discount_percent","5",actor_id=admin_emp_id)
+    assert SettingsService.set_setting("owner_discount_percent","15",actor_id=admin_emp_id)
+    ok, msg = pos_service.confirm_sale(None,admin_emp_id,[{"prod_id":1,"price":15,"qty":10}],
+                                      expected_total=121.12)
+    assert ok, msg
+    cur = seeded_shop.get_conn().cursor()
+    cur.execute("SELECT receipt_text FROM Receipt_Snapshot")
+    receipt = cur.fetchone()[0]
+    assert "Government discount (5%): Rs. 7.50" in receipt
+    assert "Owner discount (15%): Rs. 21.38" in receipt
+
+
+def test_configured_price_authority(seeded_shop, admin_emp_id):
+    from core import pos_service
+    from core.settings_service import SettingsService
+    from core.cash_session_service import open_session
+    conn = seeded_shop.get_conn()
+    cur = conn.cursor()
+    for role in ("Cashier", "Manager", "Pharmacist"):
+        cur.execute("INSERT INTO Employee(username,password,First_name,Last_name,occupation) VALUES(%s,'disabled','Practice','Staff',%s)", (role,role))
+        employee = cur.lastrowid
+        conn.commit()
+        assert not SettingsService.update_settings({"owner_discount_percent":"90","default_tax_rate":"50"},actor_id=employee)
+        if role == "Cashier":
+            cashier = employee
+    assert SettingsService.set_setting("owner_discount_percent","15",actor_id=admin_emp_id)
+    assert open_session(cashier,0)[0]
+    cart = [{"prod_id":1,"price":15,"qty":10}]
+    ok, _ = pos_service.confirm_sale(None,cashier,cart,owner_discount_percent=99)
+    assert not ok
+    ok, msg = pos_service.confirm_sale(None, cashier, cart, discount=-10)
+    assert not ok
+    assert "negative" in msg.lower()
+    ok, msg = pos_service.confirm_sale(None,cashier,cart,expected_total=127.50)
+    assert ok, msg

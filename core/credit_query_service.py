@@ -16,7 +16,7 @@ def load_open_credit(text='',limit=200,offset=0):
 def load_credit_accounts(text='',limit=100,offset=0):
     where,params=customer_filter(text)
     with get_db() as (_conn,cur):
-        cur.execute('SELECT c.id_card_number,c.display_name,c.phone,c.city,SUM(k.amount_due),COUNT(*) '
+        cur.execute('SELECT c.id_card_number,c.display_name,c.phone,c.city,(SUM(k.amount_due_minor)/100.0),COUNT(*) '
                     'FROM Customers c JOIN Customer_Khatoo k ON k.customer_id=c.id_card_number '
                     f'WHERE k.amount_due>0 AND ({where}) GROUP BY c.id_card_number '
                     'ORDER BY MIN(k.id) ASC LIMIT %s OFFSET %s',
@@ -35,5 +35,5 @@ def count_credit_accounts(text=''):
 
 def total_open_credit():
     with get_db() as (_conn,cur):
-        cur.execute('SELECT COALESCE(SUM(amount_due),0) FROM Customer_Khatoo WHERE amount_due>0')
+        cur.execute('SELECT COALESCE((SUM(amount_due_minor)/100.0),0) FROM Customer_Khatoo WHERE amount_due>0')
         return float(cur.fetchone()[0])

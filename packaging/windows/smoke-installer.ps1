@@ -38,6 +38,28 @@ try {
     python -c "import os,sqlite3; from pathlib import Path; db=sqlite3.connect(Path(os.environ['PHARMA_KHAATO_DATA_DIR'])/'data'/'pharmacy_db.sqlite'); db.execute('INSERT INTO Pharmacy_Settings(setting_key,setting_value) VALUES(?,?) ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value', ('pharmacy_name','Windows retention test')); db.commit(); db.close()"
     if ($LASTEXITCODE -ne 0) { throw "Cannot prepare test shop content." }
     $beforeHash = (Get-FileHash $database -Algorithm SHA256).Hash
+    $shortcutPath = Join-Path ([Environment]::GetFolderPath('Programs')) 'Pharma Khaato - Practice Shop.lnk'
+    if (-not (Test-Path $shortcutPath)) { throw "Practice Shop shortcut missing." }
+    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
+    if ($shortcut.TargetPath -ne $exe -or $shortcut.Arguments -ne '--practice') {
+        throw "Practice Shop shortcut has an unexpected target or arguments."
+    }
+    $oldLocalAppData = $env:LOCALAPPDATA
+    try {
+        $env:LOCALAPPDATA = Join-Path $testRoot 'Practice user data'
+        Invoke-CheckedProcess $shortcut.TargetPath @($shortcut.Arguments, '--self-check')
+        $practiceRoot = Join-Path $env:LOCALAPPDATA 'Pharma-Khaato-Practice'
+        $practiceProfileId = Get-Content (Join-Path $practiceRoot 'current') -Raw
+        if ($practiceProfileId -cnotmatch '^[a-f0-9]{32}$') { throw "Invalid practice profile." }
+        if (-not (Test-Path (Join-Path $practiceRoot "$practiceProfileId\data\pharmacy_db.sqlite"))) {
+            throw "Practice Shop did not initialize its separate database."
+        }
+        if ((Get-FileHash $database -Algorithm SHA256).Hash -ne $beforeHash) {
+            throw "Practice Shop changed the existing shop database."
+        }
+    } finally {
+        $env:LOCALAPPDATA = $oldLocalAppData
+    }
     $marker = Join-Path $dataDir 'keep-my-shop-records.txt'
     Set-Content $marker 'Shop data must survive reinstall and uninstall.'
 

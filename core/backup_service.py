@@ -4,18 +4,19 @@ import sqlite3
 import json
 import shutil
 import time
+import tempfile
 import uuid
 from contextlib import closing
 from datetime import datetime, date
 from pathlib import Path
 
+from core.backup_trust import sign_snapshot, verify_snapshot
 from core.path_manager import PathManager
 from core.logger import get_logger
 
 logger = get_logger("PharmaKhaatoBackup")
 AUTO_BACKUP_PREFIX = "auto_pharmacy_db_backup"
 _BACKUP_TABLES = {"Employee", "Customers", "Supplier", "Products", "Batch", "Purchase", "Sales_details", "Receipt"}
-_COPIED_SNAPSHOTS = {}
 
 
 def backup_destination():
@@ -157,27 +158,33 @@ def _copy_external(snapshot):
             saved_device = json.load(handle).get("device")
         if saved_device is not None and os.stat(destination).st_dev != saved_device:
             raise OSError("The configured backup device is not mounted.")
-    target = os.path.join(destination, os.path.basename(snapshot))
-    if os.path.exists(target):
-        current = (os.stat(snapshot).st_mtime_ns, os.stat(snapshot).st_size,
-                   os.stat(target).st_mtime_ns, os.stat(target).st_size)
-        if _COPIED_SNAPSHOTS.get(target) == current:
-            return
-    temporary = target + ".partial"
+    target = Path(destination) / Path(snapshot).name
+    signature = Path(str(snapshot) + ".hmac").read_bytes()
+    target_signature = Path(str(target) + ".hmac")
+    if verify_snapshot(target) and target_signature.read_bytes() == signature:
+        return
+
+    fd, name = tempfile.mkstemp(dir=destination, prefix=".snapshot-")
+    temporary = Path(name)
+    temporary_signature = Path(str(temporary) + ".hmac")
     try:
-        with open(snapshot, "rb") as source, open(temporary, "wb") as output:
+        with os.fdopen(fd, "wb") as output, open(snapshot, "rb") as source:
             shutil.copyfileobj(source, output, 1024 * 1024)
             output.flush()
             os.fsync(output.fileno())
-        valid, reason = _validate_sqlite_database(temporary)
-        if not valid:
-            raise ValueError(reason)
+        with temporary_signature.open("xb") as handle:
+            handle.write(signature)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if not verify_snapshot(temporary):
+            raise ValueError("Second backup copy failed signature verification.")
+        os.replace(temporary_signature, target_signature)
+        _sync_directory(destination)
         os.replace(temporary, target)
-        _COPIED_SNAPSHOTS[target] = (os.stat(snapshot).st_mtime_ns, os.stat(snapshot).st_size,
-                                    os.stat(target).st_mtime_ns, os.stat(target).st_size)
+        _sync_directory(destination)
     finally:
-        if os.path.exists(temporary):
-            os.remove(temporary)
+        temporary.unlink(missing_ok=True)
+        temporary_signature.unlink(missing_ok=True)
 
 
 def _validate_sqlite_database(path: str) -> tuple[bool, str]:
@@ -201,8 +208,9 @@ def _validate_sqlite_database(path: str) -> tuple[bool, str]:
                 folder = os.path.join(os.path.dirname(os.path.dirname(__file__)), "migrations")
                 known = {os.path.basename(path) for path in MigrationManager._migration_catalog(folder)}
                 applied = {row[0] for row in conn.execute("SELECT version FROM schema_migrations")}
-                if applied - known:
-                    return False, "This backup requires a different application version."
+                MigrationManager.canonical_history(applied, known)
+                from core.schema_validation import validate_declared_schema
+                validate_declared_schema(conn, applied)
         return True, "ok"
     except (sqlite3.Error, OSError, ValueError) as exc:
         return False, str(exc)
@@ -226,12 +234,20 @@ def backup_database(prefix="pharmacy_db_backup"):
             with closing(sqlite3.connect(temp_path)) as dst_conn:
                 _snapshot(src_conn, dst_conn)
                 dst_conn.commit()
+                # A portable snapshot must be readable without WAL sidecar files.
+                mode = dst_conn.execute("PRAGMA journal_mode=DELETE").fetchone()[0]
+                if mode.lower() != "delete":
+                    raise sqlite3.DatabaseError("Could not finalize standalone snapshot.")
 
         valid, reason = _validate_sqlite_database(temp_path)
         if not valid:
             raise sqlite3.DatabaseError(f"Backup integrity check failed: {reason}")
 
+        sign_snapshot(temp_path)
+        os.replace(temp_path + ".hmac", dest_path + ".hmac")
+        _sync_directory(backup_dir)
         os.replace(temp_path, dest_path)
+        _sync_directory(backup_dir)
         try:
             _copy_external(dest_path)
         except (OSError, ValueError) as exc:
@@ -241,8 +257,10 @@ def backup_database(prefix="pharmacy_db_backup"):
         return True, dest_path
     except Exception as exc:
         try:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
+            Path(temp_path).unlink(missing_ok=True)
+            Path(temp_path + ".hmac").unlink(missing_ok=True)
+            if not os.path.exists(dest_path):
+                Path(dest_path + ".hmac").unlink(missing_ok=True)
         except OSError:
             pass
         logger.error("Database backup failed: %s", exc)
@@ -275,7 +293,7 @@ def ensure_daily_backup(retention=14, max_age_seconds=3600):
         autos.append((stat.st_mtime, path))
         if datetime.fromtimestamp(stat.st_mtime).date() == today and time.time() - stat.st_mtime < max_age_seconds:
             valid, _reason = _validate_sqlite_database(path)
-            if valid:
+            if valid and verify_snapshot(path):
                 try:
                     _copy_external(path)
                 except (OSError, ValueError):
@@ -294,6 +312,7 @@ def ensure_daily_backup(retention=14, max_age_seconds=3600):
             continue
         try:
             os.remove(old_path)
+            Path(str(old_path) + ".hmac").unlink(missing_ok=True)
         except OSError as exc:
             logger.warning("Could not prune automatic backup %s: %s", old_path, exc)
     external = backup_destination()
@@ -304,7 +323,7 @@ def ensure_daily_backup(retention=14, max_age_seconds=3600):
                 try:
                     if os.path.getmtime(old_path) < cutoff:
                         os.remove(old_path)
-                        _COPIED_SNAPSHOTS.pop(old_path, None)
+                        Path(str(old_path) + ".hmac").unlink(missing_ok=True)
                 except OSError as exc:
                     logger.warning("Could not prune second automatic backup: %s", exc)
     return True, result

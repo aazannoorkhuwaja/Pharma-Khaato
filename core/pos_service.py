@@ -25,6 +25,8 @@ def _normalize_payment_method(payment_method: str) -> tuple[str, str]:
     key = " ".join(raw.lower().replace("_", " ").split())
     if key in {"khatoo credit", "credit (khatoo)", "khatoo"}:
         return "Khatoo Credit", "Credit"
+    if key == "cash + khatoo":
+        return "Cash + Khatoo", "Credit"
     methods = {"cash": "Cash", "": "Cash", "card": "Credit Card",
                "credit card": "Credit Card", "easypaisa": "Easypaisa", "jazzcash": "JazzCash"}
     if key not in methods:
@@ -45,6 +47,7 @@ class CheckoutRequest:
     cash_received: float | None = None
     manager_approval_token: str | None = None
     terminal_id: str | None = None
+    owner_discount_percent: float = 0.0
     expected_total: float | None = None
 
 
@@ -165,10 +168,12 @@ def _validate_and_allocate_cart(cur, cart, customer_id, employee_id, total, pay_
     for item in cart:
         qty_selected = whole_quantity(item.get("qty", 0))
         prod_id = whole_quantity(item.get("prod_id", item.get("id")))
-        cur.execute("SELECT product_name,price,is_active,base_unit,strength,dosage_form FROM Products WHERE id=%s", (prod_id,))
+        cur.execute("SELECT product_name,price,is_active,base_unit,strength,dosage_form,requires_prescription FROM Products WHERE id=%s", (prod_id,))
         product = cur.fetchone()
         if not product or not product[2]:
             raise ValueError("A product in this cart is no longer available. Remove it and search again.")
+        if product[6]:
+            raise ValueError("Prescription verification is required for this medicine. Sales are blocked until the owner approves a verification workflow.")
         unit = resolve_unit(prod_id, item.get("unit_code", "base"), cur=cur)
         multiplier = int(unit["multiplier"])
         if "unit_multiplier" in item and whole_quantity(item["unit_multiplier"]) != multiplier:
@@ -184,7 +189,7 @@ def _validate_and_allocate_cart(cur, cart, customer_id, employee_id, total, pay_
                 raise ValueError("This medicine does not match its batch. Remove the item and search again.")
             if str(batch[1]) < today or batch[2] != "SELLABLE":
                 raise ValueError(f"{product[0]} is expired, recalled, or quarantined and cannot be sold.")
-        cur.execute("SELECT id,quantity,expiry_date,COALESCE(sale_price,%s) FROM Batch "
+        cur.execute("SELECT id,quantity,expiry_date,COALESCE(sale_price,%s),mrp FROM Batch "
                     "WHERE product_id=%s AND expiry_date>=%s AND quantity>0 AND stock_status='SELLABLE' "
                     "ORDER BY CASE WHEN id=%s THEN 0 ELSE 1 END,expiry_date,id",
                     (product[1], prod_id, today, specific or -1))
@@ -192,13 +197,24 @@ def _validate_and_allocate_cart(cur, cart, customer_id, employee_id, total, pay_
         remaining = qty_base
         allocations = []
         expected_price = None
-        for bid, stock, expiry, base_price in batches:
+        for bid, stock, expiry, base_price, mrp in batches:
+            from datetime import date
+            try:
+                parsed_expiry = date.fromisoformat(str(expiry))
+                if parsed_expiry.isoformat() != str(expiry):
+                    continue
+            except ValueError:
+                continue
+            if specific and int(bid) != specific:
+                continue
             available = int(stock) - reserved.get(int(bid), 0)
             if available <= 0:
                 continue
             selected_price = (Decimal(str(base_price)) * multiplier).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             if not selected_price.is_finite() or selected_price <= 0:
                 raise ValueError("The selling price needs an owner review before this medicine can be sold.")
+            if mrp is not None and selected_price > Decimal(str(mrp)) * multiplier:
+                raise ValueError("Selling price exceeds this batch's MRP. Ask the owner to correct the price.")
             if expected_price is None:
                 expected_price = selected_price
                 if supplied != selected_price:
@@ -426,27 +442,54 @@ def _execute_checkout(request):
             duplicate = claim_checkout(cur, request)
             if duplicate is not None:
                 return duplicate
+            cash = None
+            if request.cash_received is not None and payment_method in ("Cash", "Cash + Khatoo"):
+                cash = _finite_money(request.cash_received, "Cash received")
+                if Decimal(str(request.cash_received)) != cash:
+                    raise ValueError("Enter cash received in whole paisa (up to two decimal places).")
             final_items = _validate_and_allocate_cart(cur,request.cart,customer_id,request.employee_id,request.total,pay_label,conn)
             tax_rate = SettingsService.get_tax_rate()
             discount = _finite_money(request.discount, "Discount")
+            if discount < 0:
+                raise ValueError("Discount cannot be negative.")
+            from pricing_discounts import discount_amounts
+            cur.execute("SELECT setting_value FROM Pharmacy_Settings WHERE setting_key='government_discount_percent'")
+            row = cur.fetchone()
+            government_rate = row[0] if row else "0"
+            subtotal_before_discount = sum(Decimal(str(item["subtotal"])) for item in final_items)
+            cur.execute("SELECT setting_value FROM Pharmacy_Settings WHERE setting_key='owner_discount_percent'")
+            row = cur.fetchone()
+            owner_rate = row[0] if row else "0"
+            if request.owner_discount_percent:
+                raise ValueError("The shop owner sets the customer discount in Settings.")
+            extra_discount = discount
+            government, owner = discount_amounts(subtotal_before_discount, government_rate, owner_rate)
+            discount += government + owner
             financials = calculate_sale_totals(final_items, discount, tax_rate)
             if request.expected_total is not None and _finite_money(request.expected_total, "Expected total") != Decimal(str(financials.price_with_tax)):
                 raise ValueError("The bill changed. Refresh the total and try again.")
             subtotal = sum((Decimal(str(i["subtotal"])) for i in final_items),Decimal("0.00"))
             from core.manager_auth_service import discount_requires_authorization, validate_discount_approval
-            if discount_requires_authorization(float(discount),float(subtotal)):
-                allowed, reason = validate_discount_approval(cur,request.manager_approval_token,request.employee_id,float(discount),float(subtotal))
+            if discount_requires_authorization(float(extra_discount),float(subtotal)):
+                allowed, reason = validate_discount_approval(cur,request.manager_approval_token,request.employee_id,float(extra_discount),float(subtotal))
                 if not allowed:
                     raise ValueError(reason)
+            split = payment_method == "Cash + Khatoo"
+            payable = Decimal(str(financials.price_with_tax))
+            paid_now = Decimal("0.00")
+            if split:
+                paid_now = cash if cash is not None else Decimal("0.00")
+                if not 0 < paid_now < payable:
+                    raise ValueError("Partial cash must be greater than zero and less than the bill total.")
             if pay_label == "Credit":
                 from core.customer_service import check_customer_credit_limit
-                allowed, reason = check_customer_credit_limit(customer_id,financials.price_with_tax,conn=conn)
+                allowed, reason = check_customer_credit_limit(customer_id,float(payable - paid_now),conn=conn)
                 if not allowed:
                     raise ValueError(reason)
             session_id = None
             received = None
             change = Decimal("0.00")
-            if payment_method == "Cash":
+            if payment_method == "Cash" or split:
                 from core.cash_session_service import _terminal
                 terminal_id = _terminal(request.terminal_id)
                 cur.execute("SELECT id FROM Cash_Register_Session WHERE employee_id=%s AND terminal_id=%s AND status='OPEN' ORDER BY id DESC LIMIT 1", (request.employee_id, terminal_id))
@@ -454,19 +497,27 @@ def _execute_checkout(request):
                 if not session:
                     raise ValueError("Start a cash shift before accepting cash payments.")
                 session_id = int(session[0])
-                received_dec = Decimal(str(financials.price_with_tax)) if request.cash_received is None else _finite_money(request.cash_received,"Cash received")
-                if received_dec < Decimal(str(financials.price_with_tax)):
+                received_dec = payable if cash is None else cash
+                if not split and received_dec < payable:
                     raise ValueError("Cash received is less than the payable amount. Choose customer credit or enter the full cash amount.")
                 received = float(received_dec)
-                change = received_dec - Decimal(str(financials.price_with_tax))
+                change = Decimal("0.00") if split else received_dec - payable
             if request.held_sale_id is not None:
                 request.held_sale_id = int(request.held_sale_id)
                 cur.execute("SELECT employee_id,status,purchase_id FROM Hold_Sales WHERE id=%s",(request.held_sale_id,))
                 held=cur.fetchone()
                 if not held or int(held[0]) != request.employee_id or held[1] != "RESUMED" or held[2] is not None:
                     raise ValueError("This held sale is no longer available. Review its completed sale before trying again.")
-            purchase_id = _write_sale_to_db(cur,customer_id,request.employee_id,pay_label,final_items,financials,payment_method,
+            purchase_id = _write_sale_to_db(cur,customer_id,request.employee_id,pay_label,final_items,financials,"Khatoo Credit" if split else payment_method,
                                             request=request,session_id=session_id,tax_rate=tax_rate,received=received,change=change)
+            if split:
+                cur.execute("SELECT id FROM Customer_Khatoo WHERE purchase_id=%s", (purchase_id,))
+                ledger_id = cur.fetchone()[0]
+                cur.execute("UPDATE Customer_Khatoo SET amount_paid=%s, amount_due=%s WHERE id=%s",
+                            (float(paid_now), float(payable - paid_now), ledger_id))
+                cur.execute("INSERT INTO Credit_Payment(khatoo_id,customer_id,employee_id,session_id,amount,payment_method,paid_at,note) "
+                            "VALUES(%s,%s,%s,%s,%s,'Cash',%s,'Paid at checkout')",
+                            (ledger_id, customer_id, request.employee_id, session_id, float(paid_now), business_now().isoformat()))
             if request.held_sale_id is not None:
                 cur.execute("UPDATE Hold_Sales SET status='COMPLETED',purchase_id=%s,completed_at=%s,updated_at=%s WHERE id=%s AND status='RESUMED' AND purchase_id IS NULL",
                             (purchase_id,business_now().isoformat(),business_now().isoformat(),request.held_sale_id))
@@ -479,9 +530,13 @@ def _execute_checkout(request):
             cur.execute("INSERT INTO Audit_Log(timestamp,user_id,action,details) VALUES(%s,%s,'POS_CHECKOUT_SUCCESS',%s)",
                         (business_now().isoformat(),str(request.employee_id),f"Sale #{purchase_id}; {payment_method}; Rs.{financials.price_with_tax:.2f}"))
             from core.receipt_service import create_receipt_snapshot
+            breakdown = ""
+            if government or owner:
+                breakdown = (f"\nGovernment discount ({government_rate}%): Rs. {government:.2f}"
+                             f"\nOwner discount ({owner_rate}%): Rs. {owner:.2f}\n")
             create_receipt_snapshot(cur,purchase_id,customer_id,final_items,financials.price_with_tax,
                                     financials.tax_amount,financials.discount,payment_method,request.employee_id,
-                                    amount_received=received,change=float(change))
+                                    amount_received=received,change=float(change), discount_details=breakdown)
             result = _result_from_purchase(cur,purchase_id)
         clear_inventory_cache()
         try:

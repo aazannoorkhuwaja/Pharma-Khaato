@@ -17,5 +17,10 @@ class ReportsController:
     def reorder_stock(self):
         return self.model.reorder_stock()
 
+    @staticmethod
+    def spreadsheet_text(value):
+        from core.export_safety import spreadsheet_text
+        return spreadsheet_text(value)
+
     def audit_log(self, limit=50):
         return self.model.audit_log(limit)

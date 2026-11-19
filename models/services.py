@@ -24,6 +24,14 @@ class AppModel:
 
 
 class AuthModel:
+    def enroll_owner_recovery(self, username, password):
+        from core.auth_service import enroll_owner_recovery
+        return enroll_owner_recovery(username, password)
+
+    def recover_owner_access(self, username, code, password):
+        from core.auth_service import recover_owner_access
+        return recover_owner_access(username, code, password)
+
     def login(self, username: str, password: str):
         from core.auth_service import login_user
         return login_user(username, password)
@@ -43,6 +51,10 @@ class AuthModel:
     def create_employee(self, username: str, password: str, first_name: str, last_name: str, occupation: str, actor_id=None):
         from core.auth_service import create_employee
         return create_employee(username, password, first_name, last_name, occupation=occupation, actor_id=actor_id)
+
+    def set_active(self, employee_id, active, actor_id=None):
+        from core.auth_service import set_employee_active
+        return set_employee_active(employee_id, active, actor_id)
 
     def reset_password(self, employee_id: int, new_password: str, actor_id=None):
         from core.auth_service import update_employee_password
@@ -249,6 +261,14 @@ class POSModel:
     def active_session(self, employee_id: int, terminal_id=None):
         from core.cash_session_service import get_active_session
         return get_active_session(employee_id, terminal_id=terminal_id)
+
+    def government_discount_percent(self):
+        from core.settings_service import SettingsService
+        return float(SettingsService.get_setting("government_discount_percent", "0"))
+
+    def owner_discount_percent(self):
+        from core.settings_service import SettingsService
+        return float(SettingsService.get_setting("owner_discount_percent", "0"))
 
     def tax_rate(self):
         from core.settings_service import SettingsService

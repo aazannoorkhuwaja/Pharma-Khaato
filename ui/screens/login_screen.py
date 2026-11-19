@@ -122,6 +122,9 @@ class LoginDialog(QDialog):
         self.btn_sign_in_help = QPushButton("First time here or can’t sign in?")
         self.btn_sign_in_help.clicked.connect(self.show_sign_in_help)
         login_layout.addWidget(self.btn_sign_in_help)
+        self.btn_recover = QPushButton("Owner recovery code…")
+        self.btn_recover.clicked.connect(self.owner_recovery)
+        login_layout.addWidget(self.btn_recover)
         login_layout.addStretch()
 
         card_layout.addWidget(login_container)
@@ -138,13 +141,46 @@ class LoginDialog(QDialog):
 
         layout.addWidget(card)
 
+    def owner_recovery(self):
+        from PySide6.QtWidgets import QInputDialog
+        username = self.txt_username.text().strip()
+        if not username:
+            self.lbl_error.setText("Enter the owner username first.")
+            self.txt_username.setFocus()
+            return
+        action, ok = QInputDialog.getItem(self, "Owner access", "Choose an action",
+            ["Create a new offline recovery code", "Reset password using a saved code"], 0, False)
+        if not ok:
+            return
+        enroll = action.startswith("Create")
+        secret, ok = QInputDialog.getText(self, "Owner access",
+            "Current owner password" if enroll else "Saved recovery code", QLineEdit.Password)
+        if not ok or not secret:
+            return
+        if enroll:
+            work = lambda: _AUTH_CONTROLLER.enroll_owner_recovery(username, secret)
+        else:
+            password, ok = QInputDialog.getText(self, "Owner access", "New password", QLineEdit.Password)
+            if not ok or not password:
+                return
+            work = lambda: _AUTH_CONTROLLER.recover_owner_access(username, secret, password)
+        self.btn_recover.setEnabled(False)
+        def complete(result):
+            self.btn_recover.setEnabled(True)
+            success, value = result
+            if success and enroll:
+                QMessageBox.information(self, "Store this code offline", f"Write down this single-use code and keep it private.\n\n{value}")
+            else:
+                self.lbl_error.setText(value)
+        self._tasks.run(work, complete, lambda _: complete((False, "Could not complete recovery. Try again on the shop computer.")))
+
     def show_sign_in_help(self):
         QMessageBox.information(self, "Help signing in",
             "Use the username and password created for this shop. There is no default password.\n\n"
             "An older installation may already have an account on this computer. "
             "Reinstalling keeps that account and the shop records.\n\n"
             "If you are a staff member, ask the owner to reset your password in Settings → Staff Access. "
-            "If the owner cannot sign in, contact support before changing any files.\n\n"
+            "Use Owner recovery code to reset an owner password with a previously saved code. If no code was enrolled, contact support.\n\n"
             "Do not delete the shop data folder to fix a sign-in problem.")
 
     def handle_login(self):

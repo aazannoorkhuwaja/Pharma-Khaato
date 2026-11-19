@@ -396,8 +396,8 @@ class ReportsScreen(QWidget):
                 writer.writerow(["Product", "Category", "In Stock", "Alert Level", "Price"])
                 for item in low_rows:
                     writer.writerow([
-                        item["product_name"],
-                        item["category"],
+                        ReportsController.spreadsheet_text(item["product_name"]),
+                        ReportsController.spreadsheet_text(item["category"]),
                         item["stock_quantity"],
                         item["reorder_level"],
                         f"Rs. {float(item['unit_price']):.2f}",
@@ -407,11 +407,11 @@ class ReportsScreen(QWidget):
                 writer.writerow(["Product", "Qty", "Expiry", "Days Left", "Category"])
                 for item in expiry_rows:
                     writer.writerow([
-                        item["product_name"],
+                        ReportsController.spreadsheet_text(item["product_name"]),
                         item["quantity"],
-                        item["expiry_date"],
+                        ReportsController.spreadsheet_text(item["expiry_date"]),
                         item["days_left"],
-                        item["category"],
+                        ReportsController.spreadsheet_text(item["category"]),
                     ])
             return path
 

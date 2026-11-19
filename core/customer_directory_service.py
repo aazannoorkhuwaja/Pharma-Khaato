@@ -40,7 +40,7 @@ def search_customers_with_debt(text='', limit=120, offset=0):
     safe_limit = max(1,min(int(limit),250))
     with get_db() as (_conn,cur):
         cur.execute('SELECT c.id_card_number,c.first_name,c.last_name,c.phone,c.city, '
-                    'COALESCE(SUM(k.amount_due),0) FROM Customers c '
+                    'COALESCE((SUM(k.amount_due_minor)/100.0),0) FROM Customers c '
                     'LEFT JOIN Customer_Khatoo k ON k.customer_id=c.id_card_number '
                     f'WHERE c.id_card_number != \'WALKIN\' AND ({where}) GROUP BY c.id_card_number '
                     'ORDER BY c.display_name COLLATE NOCASE,c.id_card_number LIMIT %s OFFSET %s',

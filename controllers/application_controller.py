@@ -8,7 +8,14 @@ class ApplicationController:
         self.model = model or AppModel()
 
     def initialize(self) -> None:
+        from core.business_time import business_timezone
+        business_timezone()
         self.model.initialize_database()
+
+    @staticmethod
+    def is_configuration_error(error):
+        from core.business_time import ShopClockError
+        return isinstance(error, ShopClockError)
 
     @staticmethod
     def is_remote():

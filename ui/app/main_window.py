@@ -38,7 +38,9 @@ class MainWindow(QMainWindow):
                 "Access Denied: Unauthenticated attempt to instantiate MainWindow without an active login session."
             )
 
-        self.setWindowTitle(f"{ApplicationSettings.DISPLAY_NAME} — Pharmacy POS")
+        import os
+        mode = "Practice shop" if os.getenv("PHARMA_KHAATO_PRACTICE") == "1" else "Pharmacy POS"
+        self.setWindowTitle(f"{ApplicationSettings.DISPLAY_NAME} — {mode}")
         self.resize(1366, 768)
         self.setMinimumSize(LayoutMetrics.SHELL_MIN_WIDTH, LayoutMetrics.SHELL_MIN_HEIGHT)
         self.current_user = SessionState.get_instance().current_user

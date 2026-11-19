@@ -48,6 +48,8 @@ class POSScreen(QWidget):
         self._search_term = None
         self._customer_search_term = None
         self._cash_shift_open = False
+        self._owner_rate = 0.0
+        self._government_rate = 0.0
         self._tax_rate = 0.0
         self._tax_ready = False
         self._pending_retry_ready = False
@@ -89,12 +91,12 @@ class POSScreen(QWidget):
         search_layout.setContentsMargins(10, 8, 10, 8)
         search_layout.setSpacing(8)
 
-        self.lbl_shortcuts = QLabel("F1 Search  ·  F12 Sale")
+        self.lbl_shortcuts = QLabel("F1 Medicine · F2 Customer · F7 Cart · F12 Checkout")
         self.lbl_shortcuts.setObjectName("caption")
         set_tone(self.lbl_shortcuts, "muted")
         self.lbl_shortcuts.setToolTip(
             "Keyboard shortcuts: F1 product search, F2 customer, F3 discount, "
-            "F4 payment method, F5 hold, F6 held sales, F10/F12 complete sale."
+            "F4 payment method, F5 hold, F6 held sales, F7 cart (+/- quantity, Delete removes a line), F10/F12 complete sale."
         )
         self.lbl_shortcuts.setObjectName("shortcutStrip")
 
@@ -301,7 +303,8 @@ class POSScreen(QWidget):
         summary_layout.addWidget(summary_title)
 
         customer_label = QLabel("Customer (optional):")
-        self.txt_customer = QLineEdit()
+        self.txt_customer = SearchLineEdit(on_down_callback=self._focus_customer_results)
+        self.txt_customer.setToolTip("F2 to find a customer. Use Down to browse matches and Enter to select.")
         self.txt_customer.setPlaceholderText("For credit: search name or phone")
         self.txt_customer.setAccessibleName("Find customer")
         self.txt_customer.textChanged.connect(self.on_cust_text_changed)
@@ -420,6 +423,9 @@ class POSScreen(QWidget):
 
         fin_layout.addWidget(self.lbl_subtotal)
         fin_layout.addLayout(discount_row)
+        self.discount_breakdown = QLabel()
+        self.discount_breakdown.setWordWrap(True)
+        fin_layout.addWidget(self.discount_breakdown)
         self.chk_exact_cash = QCheckBox("Exact Cash")
         self.chk_exact_cash.setChecked(True)
         self.chk_exact_cash.setToolTip("The customer pays exactly the amount due")
@@ -543,7 +549,9 @@ class POSScreen(QWidget):
         # The final amount must stay with checkout at every window size,
         # including when the operator scrolls through the payment details.
         self._reference_wide = wide
-        self.lbl_shortcuts.setText("F1 Search · F12 Sale")
+        self.lbl_shortcuts.setText(
+            "F1 Medicine · F2 Customer · F7 Cart · F12 Checkout" if wide else "F1 Search · F12 Sale"
+        )
 
     def _resize_cart_controls(self):
         self._reflow_reference_layout()
@@ -572,12 +580,22 @@ class POSScreen(QWidget):
         self.sc_f4 = QShortcut(QKeySequence("F4"), self, activated=self.toggle_pay_method)
         self.sc_f5 = QShortcut(QKeySequence("F5"), self, activated=self.on_hold_sale)
         self.sc_f6 = QShortcut(QKeySequence("F6"), self, activated=self.on_recall_sale)
+        self.sc_f7 = QShortcut(QKeySequence("F7"), self, activated=self._focus_cart)
         self.sc_f10 = QShortcut(QKeySequence("F10"), self, activated=self.on_checkout)
         self.sc_f12 = QShortcut(QKeySequence("F12"), self, activated=self.on_checkout)
         self.sc_esc = QShortcut(QKeySequence("Esc"), self, activated=self._on_escape)
         self.sc_clear = QShortcut(
             QKeySequence("Ctrl+Delete"), self, activated=self.on_clear_cart_requested
         )
+
+        for shortcut in (self.sc_f4, self.sc_f5, self.sc_f6, self.sc_f10, self.sc_f12, self.sc_clear):
+            shortcut.setAutoRepeat(False)
+
+    def _focus_cart(self):
+        if self.cart_table.rowCount():
+            self.cart_table.setFocus()
+            if self.cart_table.currentRow() < 0:
+                self.cart_table.selectRow(0)
 
     def _current_employee_id(self) -> int | None:
         user = self.session.current_user
@@ -590,13 +608,13 @@ class POSScreen(QWidget):
         def loaded(payload):
             if self._current_employee_id() != employee_id:
                 return
-            self._cash_shift_open, self._tax_rate = payload
+            self._cash_shift_open, self._tax_rate, self._government_rate, self._owner_rate = payload
             self._tax_ready = True
             self.shift_banner.setVisible(not self._cash_shift_open)
             self.refresh_cart_display()
         self._tasks.run_latest(
             "counter-state",
-            lambda: (bool(_POS_CONTROLLER.active_session(employee_id)), float(_POS_CONTROLLER.tax_rate())),
+            lambda: (bool(_POS_CONTROLLER.active_session(employee_id)), float(_POS_CONTROLLER.tax_rate()), _POS_CONTROLLER.government_discount_percent(), _POS_CONTROLLER.owner_discount_percent()),
             loaded,
             lambda _details: self._set_checkout_notice("Could not check shift and tax settings. Try opening New Sale again.", "danger"),
         )
@@ -645,7 +663,7 @@ class POSScreen(QWidget):
         self.spn_cash_received.setVisible(is_cash)
         self.lbl_cash_received.setVisible(is_cash)
         self.lbl_change.setVisible(is_cash)
-        self.btn_add_customer.setVisible((self.cmb_pay_method.currentData() or "") == "Khatoo Credit")
+        self.btn_add_customer.setVisible(True)
         if not is_cash and self.spn_cash_received.value() != 0.0:
             self.spn_cash_received.setValue(0.0)
         self.spn_cash_received.setToolTip(
@@ -702,7 +720,7 @@ class POSScreen(QWidget):
         if add_single and len(results) == 1:
             self._add_result_tuple_to_cart(results[0])
             return
-        self._set_search_feedback()
+        self._set_search_feedback("Choose a lot and price. Earliest expiry is listed first." if len(results) > 1 else "")
         self.search_results_data = list(results)
         self.search_catalog_model.update_data(results)
         self.show_search_table()
@@ -737,7 +755,7 @@ class POSScreen(QWidget):
         self._set_search_feedback("Finding scanned product…")
         def resolve():
             exact = _POS_CONTROLLER.product_by_barcode(term)
-            return [exact] if exact else _POS_CONTROLLER.search_products(term)
+            return exact[6].get("batch_choices", [exact]) if exact and len(exact) > 6 else ([exact] if exact else _POS_CONTROLLER.search_products(term))
         def complete(results):
             self._product_submit_active = False
             if (generation == self._sale_generation and employee_id == self._current_employee_id()
@@ -762,6 +780,9 @@ class POSScreen(QWidget):
             return
         product_id, product_name, price, batch_id, batch_qty, batch_expiry = result[:6]
         metadata = result[6] if len(result) > 6 else {}
+        if metadata.get("requires_prescription"):
+            self._set_search_feedback("Prescription verification is not configured. This medicine cannot be sold yet.", "warning")
+            return
         product = {
             "prod_id": product_id,
             "name": product_name,
@@ -774,6 +795,8 @@ class POSScreen(QWidget):
             "unit_label": metadata.get("unit_label", "unit"),
             "unit_multiplier": metadata.get("unit_multiplier", 1),
             "units": metadata.get("units", []),
+            "lot_number": metadata.get("lot_number", ""),
+            "requires_prescription": metadata.get("requires_prescription", False),
         }
         self.session.add_to_cart(product, qty=1)
         if clear_search:
@@ -857,6 +880,13 @@ class POSScreen(QWidget):
             return
         self.cust_search_timer.start(120)
 
+    def _focus_customer_results(self):
+        if not self.cust_table.isVisible() or not self.cust_search_data:
+            return False
+        self.cust_table.setFocus()
+        self.cust_table.selectRow(0)
+        return True
+
     def perform_customer_search(self):
         value = self.txt_customer.text().strip()
         if not value:
@@ -908,6 +938,7 @@ class POSScreen(QWidget):
             self.txt_customer.setText(f"{first_name} {last_name}".strip())
             self.txt_customer.blockSignals(False)
             self.cust_table.hide()
+            self.txt_search.setFocus()
             self.lbl_cust_status.setText(
                 f"{first_name} {last_name}".strip() + " • Checking balance…"
             )
@@ -971,13 +1002,12 @@ class POSScreen(QWidget):
         self.cart_table.setRowCount(len(self.session.active_cart))
 
         for row, item in enumerate(self.session.active_cart):
-            name_item = QTableWidgetItem(str(item["name"]) + "\nExp: " + str(item.get("expiry_date") or "Review") + "  ·  Available: " + str(item.get("stock", "—")))
+            name_item = QTableWidgetItem(str(item["name"]) + (" · Lot " + str(item["lot_number"]) if item.get("lot_number") else "") + "\nExp: " + str(item.get("expiry_date") or "Review") + "  ·  Available: " + str(item.get("stock", "—")))
             name_item.setToolTip(name_item.text())
             self.cart_table.setItem(row, 0, name_item)
-            # Show the selected batch expiry as a preview, not an allocation
-            # guarantee. The checkout service revalidates every allocated lot.
+            # Lot-specific rows are revalidated by the authoritative checkout.
             expiry_item = QTableWidgetItem(str(item.get("expiry_date") or "Review"))
-            expiry_item.setToolTip("Selected lot expiry preview; all lots are rechecked at checkout.")
+            expiry_item.setToolTip("Selected lot expiry; stock and price are rechecked at checkout.")
             self.cart_table.setItem(row, 1, expiry_item)
             self.cart_table.setItem(
                 row, 2, QTableWidgetItem(f"Rs. {float(item['price']):.2f}")
@@ -1041,7 +1071,10 @@ class POSScreen(QWidget):
     def refresh_payment_totals(self):
         """Update payment math without rebuilding cart editors on each keystroke."""
         subtotal = self.session.get_cart_subtotal()
-        self.session.discount_amount = self.spn_discount.value()
+        from pricing_discounts import discount_amounts
+        government, owner = discount_amounts(subtotal, self._government_rate, self._owner_rate)
+        self.discount_breakdown.setText(f"Government ({self._government_rate:g}%): Rs. {government:.2f}   Owner ({self._owner_rate:g}%): Rs. {owner:.2f}")
+        self.session.discount_amount = float(government + owner + Decimal(str(self.spn_discount.value())))
         net_total = self.session.get_cart_total()
 
         tax_rate = self._tax_rate
@@ -1319,7 +1352,7 @@ class POSScreen(QWidget):
                 self._start_shift_from_pos()
             self._set_checkout_notice("Start a cash shift, then complete the sale.")
             return
-        discount = self.spn_discount.value()
+        discount = self.session.discount_amount
         subtotal = self.session.get_cart_subtotal()
         if discount > subtotal:
             self._set_checkout_notice("Discount cannot be greater than the sale subtotal.", "danger")
@@ -1333,10 +1366,19 @@ class POSScreen(QWidget):
             cash_received = self.spn_cash_received.value()
             amount_due = self._displayed_total
             if round(cash_received, 2) < round(amount_due, 2):
-                self._set_checkout_notice(f"Cash is short by Rs. {amount_due-cash_received:,.2f}. Enter the cash received or use Exact Cash.", "danger")
-                self.spn_cash_received.setFocus()
-                return
+                if self.is_customer_verified and self.selected_customer_cnic and cash_received > 0:
+                    answer = QMessageBox.question(self, "Record customer credit",
+                        f"Receive Rs. {cash_received:,.2f} cash and add Rs. {amount_due-cash_received:,.2f} to this customer's Khatoo?",
+                        QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                    if answer != QMessageBox.Yes:
+                        return
+                    payment_method = "Cash + Khatoo"
+                else:
+                    self._set_checkout_notice(f"Cash is short by Rs. {amount_due-cash_received:,.2f}. Enter the cash received or use Exact Cash.", "danger")
+                    self.spn_cash_received.setFocus()
+                    return
         approval_token = None
+        discount = self.spn_discount.value()
         if subtotal > 0 and discount / subtotal * 100 > _POS_CONTROLLER.discount_threshold_pct:
             from ui.widgets.manager_auth_modal import ManagerAuthModal
             dialog = ManagerAuthModal(discount, subtotal, parent=self, employee_id=employee_id)
@@ -1348,7 +1390,7 @@ class POSScreen(QWidget):
         try:
             request = _POS_CONTROLLER.checkout_request(
                 customer_id=self.selected_customer_cnic or "WALKIN", employee_id=employee_id,
-                cart=copy.deepcopy(self.session.active_cart), discount=discount,
+                cart=copy.deepcopy(self.session.active_cart), discount=self.spn_discount.value(),
                 payment_method=payment_method, total=self.session.get_cart_total(),
                 cash_received=cash_received, held_sale_id=self.session.held_sale_id,
                 manager_approval_token=approval_token,
@@ -1401,6 +1443,7 @@ class POSScreen(QWidget):
                 self._set_checkout_notice("The bill is saved, but the last step did not finish. Choose Check This Bill before making another bill.", "danger")
                 return
             self._last_sale_id = result.purchase_id
+            self.session.last_completed_sale = result.purchase_id
             self.btn_toolbar_reprint.setEnabled(True)
             total = float(getattr(result, "total", 0) or request.total * (1 + self._tax_rate))
             tender = getattr(result, "payment_method", None) or request.payment_method

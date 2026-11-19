@@ -118,6 +118,9 @@ def run_app():
             app_controller.initialize()
             break
         except Exception as exc:
+            if app_controller.is_configuration_error(exc):
+                QMessageBox.critical(None, "Shop Timezone Needs Attention", str(exc))
+                return 1
             if app_controller.is_remote():
                 logger.warning("The shop counter cannot connect: %s", exc)
                 reply = QMessageBox.warning(None, "Shop Connection Unavailable",
