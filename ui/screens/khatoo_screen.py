@@ -449,7 +449,8 @@ class KhatooScreen(QWidget):
                         lambda _details: show_toast(self, "Statement unavailable. Try again.", ToastType.WARNING))
 
     def open_history(self):
-        CreditHistoryDialog(self).exec()
+        context = self._selected_payment_context()
+        CreditHistoryDialog(self, customer=context[:2] if context else None).exec()
         self.refresh_all_data()
 
     def on_search(self, text):
@@ -512,7 +513,7 @@ class CreditTextDialog(QDialog):
 
 class CreditHistoryDialog(QDialog):
     """Include settled accounts and page explicitly through the whole history."""
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, customer=None):
         super().__init__(parent)
         self._tasks = AsyncTaskRunner(self)
         self._page = 0
@@ -520,9 +521,17 @@ class CreditHistoryDialog(QDialog):
         self._records = []
         self._saving = False
         self._correction_id = None
-        self.setWindowTitle("Payment History — All Customers")
+        self.setWindowTitle("Payment History")
         configure_dialog(self, 950, 620, minimum_width=600, minimum_height=380)
         layout = QVBoxLayout(self)
+        self.scope = QComboBox()
+        self.scope.setAccessibleName("Show payments for")
+        if customer:
+            self.scope.addItem(customer[1], customer[0])
+        self.scope.addItem("All customers", None)
+        self.scope.setVisible(customer is not None)
+        self.scope.currentIndexChanged.connect(self._change_scope)
+        layout.addWidget(self.scope)
         self.lbl_count = QLabel("Loading history…")
         layout.addWidget(self.lbl_count)
         self.table = QTableWidget(0, 6)
@@ -576,10 +585,23 @@ class CreditHistoryDialog(QDialog):
         self._page = max(0, self._page + delta)
         self._load()
 
+    def _change_scope(self):
+        self._page = 0
+        self._load()
+
     def _load(self):
+        ref = self.scope.currentData()
+        offset = self._page * self._size
+        self.lbl_count.setText("Loading history…")
+        self._records = []
+        self.table.setRowCount(0)
+        self._selection_changed()
+        self.btn_previous.setEnabled(False)
+        self.btn_next.setEnabled(False)
+        self.scope.setEnabled(True)
         self._tasks.run_latest("credit-history", lambda: (
-            _KHATOO_CONTROLLER.payment_history(self._size, None, self._page * self._size),
-            _KHATOO_CONTROLLER.payment_count()), self._loaded, lambda _details: self._load_failed())
+            _KHATOO_CONTROLLER.payment_history(self._size, ref, offset),
+            _KHATOO_CONTROLLER.payment_count(ref)), self._loaded, lambda _details: self._load_failed())
 
     def _loaded(self, payload):
         self._records, total = payload
@@ -591,7 +613,9 @@ class CreditHistoryDialog(QDialog):
                 self.table.setItem(row, col, QTableWidgetItem(str(value)))
         offset = self._page * self._size
         first = offset + 1 if self._records else 0
-        self.lbl_count.setText(f"All customers · Payments: {first}–{offset + len(self._records)} of {total}")
+        scope = self.scope.currentText()
+        self.lbl_count.setText(f"{scope} · Payments: {first}–{offset + len(self._records)} of {total}"
+                               if total else f"{scope} · No payments recorded")
         self.btn_previous.setEnabled(offset > 0)
         self.btn_next.setEnabled(offset + len(self._records) < total)
         self._selection_changed()
@@ -651,6 +675,9 @@ class CreditHistoryDialog(QDialog):
             return
         self._correction_id = self._correction_id or uuid.uuid4().hex
         self._saving = True
+        self.scope.setEnabled(False)
+        self.btn_previous.setEnabled(False)
+        self.btn_next.setEnabled(False)
         self.btn_close.setEnabled(False)
         self._selection_changed()
         self._tasks.run(lambda: _KHATOO_CONTROLLER.reverse(record[0], employee_id, reason, self._correction_id),

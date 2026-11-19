@@ -227,3 +227,27 @@ def test_empty_accounts_and_preparation_routes(owner, qtbot, seeded_shop):
     stock = window.router.currentWidget()
     assert stock.tabs.currentWidget() == stock.tab_intake
     settle(qtbot, stock)
+
+
+def test_payment_history_starts_with_selected_customer_and_can_show_everyone(qtbot, monkeypatch):
+    from ui.screens import khatoo_screen as ui
+
+    customers = [("CUST_one", "First customer"), ("CUST_two", "Second customer")]
+    counts = []
+    def history(limit, ref, offset):
+        return [(index, 1, 10, "Cash", "2026-11-19", "owner", "", name, "op", 0, key)
+                for index, (key, name) in enumerate(customers) if ref is None or ref == key]
+
+    def count(ref):
+        counts.append(ref)
+        return 2 if ref is None else 1
+
+    monkeypatch.setattr(ui._KHATOO_CONTROLLER, "payment_history", history)
+    monkeypatch.setattr(ui._KHATOO_CONTROLLER, "payment_count", count)
+    dialog = ui.CreditHistoryDialog(customer=customers[1])
+    qtbot.addWidget(dialog)
+    qtbot.waitUntil(lambda: dialog.table.rowCount() == 1)
+    assert dialog.table.item(0, 1).text() == "Second customer"
+    dialog.scope.setCurrentIndex(1)
+    qtbot.waitUntil(lambda: dialog.table.rowCount() == 2)
+    assert counts == ["CUST_two", None]
