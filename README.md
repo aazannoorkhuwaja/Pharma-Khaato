@@ -6,9 +6,9 @@ An offline pharmacy checkout for Windows and Linux. Scan medicines, print bills,
 
 **[Download for Windows](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.1/Pharma-Khaato-2.5.1-Setup-Windows-x64.exe)** · **[Download for Ubuntu](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.1/Pharma-Khaato-2.5.1-linux-amd64.deb)** · [All packages and checksums](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/tag/v2.5.1)
 
-![Practice-shop tour showing checkout, inventory, stock alerts, and customer dues](docs/images/practice-counter-tour.gif)
+![Captioned practice-shop tour covering setup, shift opening, stock receiving, checkout, customer dues, returns, reports, staff, and recovery](docs/images/practice-counter-tour.gif)
 
-[View a still screenshot of checkout](docs/images/windows-practice-checkout.png)
+48-second practice-shop tour · [View a still screenshot of checkout](docs/images/windows-practice-checkout.png)
 
 ## Install
 
