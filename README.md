@@ -17,13 +17,15 @@ An offline pharmacy checkout for Windows and Linux. Scan medicines, print bills,
 
 **Already using 2.5.0?** Verify your backup on a spare computer before upgrading. [Upgrade instructions](docs/UPGRADE_2_5_1.md)
 
-## Choose your shop
+## Start or open a pharmacy
 
 | When you open the app | What to do |
 | --- | --- |
-| First installation | Complete pharmacy setup and create the owner account. Enter only the tax and discount rates approved for your shop. |
+| Start a new pharmacy | Launch **Pharma Khaato** on the new shop computer. On first launch, complete pharmacy setup and create the owner account. Enter only the tax and discount rates approved for your shop. |
 | Returning after an upgrade or reinstall | Sign in with your existing shop account. Reinstalling preserves the shop’s records. |
 | Starting fresh for training | Select **Create a fresh practice shop…** on the sign-in screen. On Windows you can also open **Pharma Khaato - Practice Shop** from Start. On Ubuntu run `pharma-khaato --practice --new` for a new practice shop. |
+
+**Own more than one pharmacy?** Set up each location on its own shop computer. On a shared PC with the default installation, use a separate Windows or Ubuntu user account for each pharmacy. Launch the regular app from that account, create the pharmacy and its owner login, and keep its backups separately. Version 2.5.1 has no in-app branch switcher or combined reporting. Shared counters connect to one pharmacy.
 
 **Owner access.** While you still know your password, enter your owner username on the sign-in screen and choose **Owner recovery code** to create a code. Store it offline. Staff who lose access should ask the shop administrator for a password reset.
 
