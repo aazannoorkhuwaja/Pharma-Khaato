@@ -2,7 +2,7 @@
 
 | I want to… | Start here |
 | --- | --- |
-| Install or upgrade | [Installer downloads and upgrade instructions](../README.md#releases-and-installer-packages) |
+| Install or upgrade | [Installer downloads](../README.md#install) · [Upgrade from 2.5.0](UPGRADE_2_5_1.md) |
 | Make my first practice sale | [Try the app](TRY_IT.md) |
 | Run a shift and look up everyday tasks | [Operator quick start](OPERATOR_QUICK_START.md) · [User guide](USER_GUIDE.md) |
 | Decide whether a shop can go live | [Shop trial](SHOP_TRIAL.md) · [Site acceptance](PHARMACY_SITE_ACCEPTANCE.md) · [Readiness guide](REAL_WORLD_READINESS.md) |

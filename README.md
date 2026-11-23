@@ -1,127 +1,39 @@
 # Pharma Khaato
 
-**Offline-first pharmacy point-of-sale software for Windows and Linux.**
+An offline pharmacy checkout for Windows and Linux. Scan medicines, print bills, track stock by expiry date, and see what customers owe.
 
 [![CI on main](https://github.com/aazannoorkhuwaja/Pharma-Khaato/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aazannoorkhuwaja/Pharma-Khaato/actions/workflows/ci.yml) [![Official release](https://img.shields.io/badge/release-2.5.1-blue)](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/tag/v2.5.1) [![License MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[**Releases and downloads**](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases) · [Documentation index](docs/README.md) · [First-use guide](docs/TRY_IT.md) · [Get help](https://github.com/aazannoorkhuwaja/Pharma-Khaato/issues/new/choose)
+**[Download for Windows](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.1/Pharma-Khaato-2.5.1-Setup-Windows-x64.exe)** · **[Download for Ubuntu](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.1/Pharma-Khaato-2.5.1-linux-amd64.deb)** · [All packages and checksums](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/tag/v2.5.1)
 
-Make bills, check stock and expiry, record customer dues, and count the cash in your drawer.
+![Windows checkout screen with a practice sale](docs/images/windows-practice-checkout.png)
 
-Built and led by **Azaan Noor Khuwaja**, with contributions from **Atif Khan**.
+## Install
 
-**Engineering overview:** A PySide6 desktop interface connects to Qt-independent Python services through controllers. SQLite (WAL) supports transactional checkout, expiry checks and FEFO stock allocation. [Architecture](docs/ARCHITECTURE.md) · [System flow diagram](docs/diagrams/pharma_khaato_system_flows.svg) · [Verification and acceptance](docs/REAL_WORLD_READINESS.md).
+- **Windows 10 or 11, x64.** Open the downloaded Setup file, then launch Pharma Khaato from Start. The 2.5.1 installer is unsigned.
+- **Ubuntu, amd64.** From the download folder, run `sudo apt install ./Pharma-Khaato-2.5.1-linux-amd64.deb`, then launch `pharma-khaato`.
 
-**Release readiness:** The application is an engineering build awaiting pharmacy and hardware acceptance; use practice data until those checks are complete.
+**Already using 2.5.0?** Verify your backup on a spare computer before upgrading. [Upgrade instructions](docs/UPGRADE_2_5_1.md)
 
-## Releases and installer packages
+## Make your first practice sale
 
-**[2.5.1 official release](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/tag/v2.5.1)** · [All releases](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases) · [SHA-256 checksums](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.1/SHA256SUMS)
+1. Create your owner account and open a cash shift with Rs. 0.
+2. Receive 100 practice tablets priced at Rs. 5 each. Set tax and discounts to zero for this example.
+3. In **New Sale**, sell three tablets to a walk-in customer and enter Rs. 100 cash received.
 
-| System | Package | How to run it |
-| --- | --- | --- |
-| Windows 10 or 11 (Intel/AMD 64-bit) | [Download Windows Setup](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.1/Pharma-Khaato-2.5.1-Setup-Windows-x64.exe) | Open the installer, then launch Pharma Khaato from the Start menu. This installer is unsigned. |
-| Ubuntu or Linux Mint (AMD64) | [Download Debian package](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.1/Pharma-Khaato-2.5.1-linux-amd64.deb) | Open the package in your software installer, then launch Pharma Khaato from the applications menu. |
-| Other compatible Linux desktops (x86-64) | [Download Linux archive](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.1/Pharma-Khaato-2.5.1-linux-x86_64.tar.gz) | Extract the archive and follow the included START-HERE guide. |
+The bill should show **Rs. 15**, with **Rs. 85 change** and **97 tablets left**. [Step-by-step practice guide](docs/TRY_IT.md)
 
-Use practice data for this release. The installers include the runtime. [Windows getting-started guide](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.1/START-HERE.html) · [Linux getting-started guide](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/download/v2.5.1/START-HERE-LINUX.html)
+## At the pharmacy
 
-## Upgrade from 2.5.0 to 2.5.1
+- **Checkout** — Scan or search for a medicine, take a payment, and record any customer due.
+- **Stock** — Receive supplier deliveries and check quantities and expiry dates by batch.
+- **Returns and cash** — Find the original bill for a return and reconcile the drawer at shift close.
+- **Counter setup** — A single counter works offline. Shared counters use the shop computer and local network.
 
-Download the installer for your platform and its matching .sha256 file from the [official release](https://github.com/aazannoorkhuwaja/Pharma-Khaato/releases/tag/v2.5.1). Save both in the same folder.
+Use practice records while pharmacy and hardware acceptance is pending. [Site acceptance checklist](docs/PHARMACY_SITE_ACCEPTANCE.md)
 
-Use a practice system. If the existing installation holds shop records, verify a recent backup by restoring it on a separate test machine first. If 2.5.1 reports that backup verification failed, stop before upgrading that shop. Finish any pending checkout, close all counters and exit the app before running the installer.
+## Guides and support
 
-**Windows 10/11 x64.** In the folder containing Setup and its checksum, run PowerShell:
+[Operator guide](docs/OPERATOR_QUICK_START.md) · [Documentation](docs/README.md) · [Support](SUPPORT.md) · [Contributing and tests](CONTRIBUTING.md)
 
-```powershell
-$file = 'Pharma-Khaato-2.5.1-Setup-Windows-x64.exe'
-$expected = ((Get-Content "$file.sha256" -Raw).Trim() -split '\s+')[0]
-if ((Get-FileHash $file -Algorithm SHA256).Hash -ne $expected) { throw 'Checksum mismatch' }
-Start-Process -Wait -FilePath ".\$file"
-```
-
-Keep the existing installation location. This Windows build is unsigned and requires manual installation. If Windows or your shop policy requires a trusted signature, use the signed release when available.
-
-**Ubuntu amd64.** Open a terminal in the folder containing the Debian package and checksum:
-
-```bash
-sha256sum -c Pharma-Khaato-2.5.1-linux-amd64.deb.sha256 &&
-  sudo apt install ./Pharma-Khaato-2.5.1-linux-amd64.deb
-```
-
-Launch from Start on Windows or run `pharma-khaato` on Ubuntu. Under the same operating-system account, open **About Pharma Khaato** and confirm **2.5.1**. Check that your practice shop, recent receipt, stock and customer dues are present, then create and verify a new backup.
-
-## Checkout preview
-
-![New Sale screen on Windows showing the practice checkout](docs/images/windows-practice-checkout.png)
-
-Windows capture from the 2.5.1 candidate series with isolated demo data.
-
-## What can I do?
-
-- **Make a bill:** scan a barcode or search for a medicine.
-- **Sell different packs:** choose a tablet, strip, box or sealed pack.
-- **Take payment:** cash, card, Easypaisa, JazzCash or customer credit.
-- **Record dues:** see what a customer owes and record their payment.
-- **Check stock:** add stock, check expiry and record supplier bills.
-- **Handle returns:** find the original bill and return the right quantity.
-- **Count cash:** enter opening cash and count it again when closing.
-- **Keep a backup:** save a copy of shop records on another device.
-
-Cash customers do not need to give their name, phone or CNIC. Leave them as **Walk-in**.
-
-After creating your owner account, **Prepare Your Shop** guides you through suppliers, medicines, opening stock and cash. You can reopen it from the sidebar.
-
-## First test at the pharmacy
-
-Use a spare computer and practice records first. Keep the pharmacy's current billing system running for real customers.
-
-For a quick check, receive 100 practice tablets at Rs. 5 selling price each. With zero tax and discount and an open cash shift, sell three tablets to a walk-in customer and enter Rs. 100 received. The bill should show Rs. 15, change Rs. 85, and remaining stock of 97 tablets.
-
-Follow [this short test](docs/TRY_IT.md). It gives you an example medicine, exact amounts to enter, and the stock and cash totals you should see.
-
-Use Windows 10 version 1809 or later, Windows 11, or Ubuntu 22.04/24.04 and compatible Linux desktops, on a 64-bit Intel/AMD computer. Test your own printer and scanner before real sales. ARM is not supported.
-
-## Configuration and connectivity
-
-**No, for billing on one computer.** More than one counter needs the main shop computer and local router running.
-
-Internet is only used for optional update checks. An update notice shows the fixes and lets you choose **Later** or open the download page. Nothing installs by itself. You can turn checks off in **About Pharma Khaato**.
-
-The interface is currently English. Urdu and Sindhi will be added after pharmacy feedback.
-
-## Need help?
-
-- [Try the app: a short pharmacy test](docs/TRY_IT.md)
-- [Daily use: simple steps](docs/OPERATOR_QUICK_START.md)
-- [What to check before real sales](docs/REAL_WORLD_READINESS.md)
-- [Report a problem](https://github.com/aazannoorkhuwaja/Pharma-Khaato/issues/new/choose)
-
-Tell us what you were trying to do, what happened, and the app version. Do not send passwords or customer records.
-
-## For developers
-
-[Setup and code checks](docs/DEVELOPER_WORKFLOW.md) · [Native builds](docs/DEPLOYMENT.md) · [Prepare a release](docs/RELEASING.md) · [Update publishing](docs/UPDATES.md) · [Architecture](docs/ARCHITECTURE.md) · [Contributing](CONTRIBUTING.md) · [Test record](docs/VALIDATION_2_4_0.md)
-
-[Credits](CREDITS.md) · [MIT License](LICENSE)
-
-For the Windows / Ubuntu pharmacy trial, follow [the shop checklist](docs/SHOP_TRIAL.md).
-
-For the first 2.5.0 test release, use the [test handoff](docs/FIRST_TEST_RELEASE.md) and [release notes](docs/releases/2.5.0.md).
-
-
-## Contributing
-
-Create a branch for your change, run the tests in a Python virtual environment, and open a pull request describing the workflow you changed and how you verified it. From the repository root with the environment active:
-
-```bash
-python -m pip install -r requirements-dev.txt
-python -m pytest -q
-```
-
-See the [contribution guide](CONTRIBUTING.md) for project conventions.
-
-## License
-
-Pharma Khaato source code is distributed under the [MIT License](LICENSE). Bundled third-party components retain their own licenses.
+Built by Azaan Noor Khuwaja with contributions from Atif Khan. [Credits](CREDITS.md) · [MIT license](LICENSE)
